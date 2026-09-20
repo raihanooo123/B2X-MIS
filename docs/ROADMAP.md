@@ -29,27 +29,25 @@ Conventions used below:
    another tenant's stock/order events. Do not wire any real page to this gateway until
    §14 (Realtime Gateway Hardening) below is done.
 
-2. **⚠ BLOCKING (schema authority) — `docs/02-domain-model-erd.md` Appendix A claims "full DDL
-   here" for `roles`, `role_user`, `attachments`, `carts`, `cart_lines`, `payments`, `invoices`,
-   but no `CREATE TABLE` for any of the seven exists anywhere in the currently active doc set.**
-   §8.4 defers `carts`/`cart_lines`/`payments`/`invoices` to "the referenced module spec"
-   (05.1/05.2), but 05.1 and 05.2 as written contain no such DDL either — only the key-shape
-   summary row in 02 §8.4. `roles`/`role_user` are referenced in passing (`03 §6.3`:
-   `roles.default_max_discount_bp`; `07 §6.1`: staff roles) but never defined.
-   **Action: propose a doc amendment to `docs/02-domain-model-erd.md` §8.4 (or a new §4.7 for
-   roles) with full DDL for these seven tables, signed off in its own commit, before writing
-   any of the migrations that depend on them.** Do not improvise the schema to unblock a
-   controller — that is exactly the invented-table CLAUDE.md forbids.
+2. **✅ RESOLVED 2026-09-20 — was: schema authority.** `docs/02-domain-model-erd.md` §14
+   (signed off 2026-09-20) now supplies full DDL for `roles`, `role_user`, `attachments`,
+   `carts`, `cart_lines`, `payments`, `invoices`, plus `payment_allocations` (found during
+   §14's own review). **All eight are migrated, modelled and factoried** as of this sign-off
+   (`database/migrations/2026_09_25_*` through `2026_09_29_*`, `app/Models/{Role,RoleUser,
+   Attachment,Cart,CartLine,Payment,Invoice,PaymentAllocation}.php`). Appendix A is updated
+   to match. Nothing here blocks any longer.
 
-3. **⛔ DOC GAP — the same is true for a second cluster of Phase-2 tables**, named in
-   Appendix A's Phase 2 inventory and/or a module doc's prose, with only a one-line key
-   summary in 02 §8.4 and no `CREATE TABLE` in the module doc that supposedly owns them:
-   `saved_lists`, `saved_list_lines` (05.1), `credit_notes` (05.4 — only its ledger,
-   `account_credit_movements`, is fully specified), `shipments`, `shipment_lines`,
-   `shipment_line_batches`, `shipment_line_serials` (05.5), `stocktakes`, `stocktake_lines`
-   (05.5), `promotions`, `promotion_rules`, `coupons` (referenced throughout 03 §7 but never
-   defined), `back_in_stock_subscriptions` (04 §8). Each module section below calls this out
-   again at the point it blocks; **fix once, here, before starting the affected module.**
+3. **✅ RESOLVED 2026-09-20 (doc gap closed; migrations still pending, ordinary backlog) —
+   was: a second cluster of Phase-2 tables.** `docs/02-domain-model-erd.md` §14 also supplies
+   full DDL for `saved_lists`, `saved_list_lines`, `credit_notes`, `shipments`,
+   `shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`,
+   `stocktake_lines`, `promotions`, `promotion_rules`, `coupons`,
+   `back_in_stock_subscriptions`, `xero_sync_records` — all reclassified into Appendix A's
+   "full DDL here" list. **The doc gap is closed; the migrations are not written yet** —
+   that's ordinary sequencing, tracked in each table's own section below (§5, §8, §9, §16,
+   §21–§24), not a blocking condition. Do not treat "DDL exists" as "safe to skip the doc
+   amendment step" for any *other* table not in this list — the discipline that closed this
+   gap (propose, review, sign off, then migrate) is the rule, not a one-time exception.
 
 4. **Client decision outstanding** — `docs/05.6-delivery-collection.md` §15 Q1: which figure
    is the minimum order value and which is the carriage-paid threshold (the reference
@@ -129,17 +127,24 @@ but no migration yet. Ordered per Appendix A's own dependency order (§Appendix 
       `(sku_id, location_id, batch_id, status='in_stock')`, since `04 §6.1`'s serial-reservation
       query needs exactly that shape.
 
-**Blocked pending doc amendment (§0.2 above)** — do not start until the amendment lands:
+**Done 2026-09-20** (was: blocked pending doc amendment, §0.2 — resolved by §14's sign-off):
 
-- [ ] `database/migrations/xxxx_create_roles_table.php`
-- [ ] `database/migrations/xxxx_create_role_user_table.php`
-- [ ] `database/migrations/xxxx_create_attachments_table.php` (polymorphic
+- [x] `database/migrations/2026_09_25_090100_create_roles_table.php`
+- [x] `database/migrations/2026_09_25_090200_create_role_user_table.php`
+- [x] `database/migrations/2026_09_26_090100_create_attachments_table.php` (polymorphic
       `attachable_type`/`attachable_id`, per 02 §4.6's forward reference)
-- [ ] `database/migrations/xxxx_create_carts_table.php`
-- [ ] `database/migrations/xxxx_create_cart_lines_table.php`
-- [ ] `database/migrations/xxxx_create_payments_table.php`
-- [ ] `database/migrations/xxxx_create_invoices_table.php`
-- [ ] Corresponding `app/Models/*.php` + factories once each migration exists.
+- [x] `database/migrations/2026_09_27_090100_create_carts_table.php`
+- [x] `database/migrations/2026_09_27_090200_create_cart_lines_table.php`
+- [x] `database/migrations/2026_09_28_090100_create_payments_table.php`
+- [x] `database/migrations/2026_09_28_090200_create_invoices_table.php`
+- [x] `database/migrations/2026_09_29_090100_create_payment_allocations_table.php` (§14.5.4,
+      found during review — not in the original seven)
+- [x] `app/Models/{Role,RoleUser,Attachment,Cart,CartLine,Payment,Invoice,PaymentAllocation}.php`
+      + factories for each. `Role::users()`/`User::roles()` are read-only convenience relations
+      — grant a role via `RoleUser::create()`, not `->attach()` (verified live: Eloquent's
+      `BelongsToMany::attach()` with a custom pivot class ignores `RoleUser::UPDATED_AT = null`
+      and tries to write a column `role_user` doesn't have; direct `::create()` respects it
+      correctly). Documented on both relations' docblocks.
 
 ---
 

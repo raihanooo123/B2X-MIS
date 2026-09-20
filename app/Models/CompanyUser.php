@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 
 /**
- * Doc 02 §4.4 — company_users. Trade-account role membership: the only
- * role construct this domain model defines (see the migration's note on
- * why `roles`/`role_user`/`permissions` are not scaffolded).
+ * Doc 02 §4.4 — company_users. Trade-account (B2B customer-side) role
+ * membership — distinct from `Role`/`RoleUser` (02 §14.1), internal staff
+ * RBAC. The two are never conflated: a `company_users` row never
+ * references a `roles` row, and vice versa.
  */
 class CompanyUser extends Pivot
 {

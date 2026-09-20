@@ -68,4 +68,19 @@ class User extends Authenticatable
             ->using(CompanyUser::class)
             ->withPivot(['role', 'order_limit_minor', 'requires_approval', 'is_default_contact']);
     }
+
+    /**
+     * Internal staff RBAC (02 §14.1) — distinct from company()/companies()'
+     * B2B customer-side role. Read-only convenience relation — grant a role
+     * via `RoleUser::create(['role_id' => ..., 'user_id' => ...])`, not
+     * `->attach()` (see `Role::users()`'s docblock for why).
+     *
+     * @return BelongsToMany<Role, $this, RoleUser, 'pivot'>
+     */
+    public function roles(): BelongsToMany
+    {
+        return $this->belongsToMany(Role::class, 'role_user')
+            ->using(RoleUser::class)
+            ->withPivot('granted_by_user_id', 'created_at');
+    }
 }
