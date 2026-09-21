@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\HasPublicId;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasName;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -15,8 +16,10 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
  * Doc 02 §4.2 — users.
  *
  * @property string|null $password_hash
+ * @property string $first_name
+ * @property string $last_name
  */
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, HasName
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, HasPublicId, SoftDeletes;
@@ -95,5 +98,19 @@ class User extends Authenticatable implements FilamentUser
         return $this->belongsToMany(Role::class, 'role_user')
             ->using(RoleUser::class)
             ->withPivot('granted_by_user_id', 'created_at');
+    }
+
+    public function getFilamentName(): string
+    {
+        return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    /**
+     * @param  list<string>  $codes  `roles.code` values (02 §14.1's
+     *                               six-value closed list)
+     */
+    public function hasAnyRole(array $codes): bool
+    {
+        return $this->roles()->whereIn('code', $codes)->exists();
     }
 }

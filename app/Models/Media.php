@@ -12,6 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * `media_owner_chk` requires at least one — attaches to a product, a SKU,
  * or both. `variants jsonb` caches generated derivative paths so rendering
  * needs no second query.
+ *
+ * @property string $disk
+ * @property string $path
  */
 class Media extends Model
 {

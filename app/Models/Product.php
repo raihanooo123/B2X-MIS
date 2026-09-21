@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -92,5 +93,31 @@ class Product extends Model
     public function skus(): HasMany
     {
         return $this->hasMany(Sku::class);
+    }
+
+    /**
+     * Doc 02 §5.8 — `media_owner_chk` allows a row to attach to a
+     * product, a SKU, or both; this is the product-owned half.
+     *
+     * @return HasMany<Media, $this>
+     */
+    public function media(): HasMany
+    {
+        return $this->hasMany(Media::class);
+    }
+
+    /**
+     * The single lowest-`position` media row per product — for a
+     * thumbnail column, `media()` eager-loaded with a `limit()`
+     * constraint would only return one row *globally* across every
+     * loaded product, not one per product (a standard Eloquent
+     * eager-load pitfall); `ofMany()` generates the correlated subquery
+     * that actually does one per parent.
+     *
+     * @return HasOne<Media, $this>
+     */
+    public function primaryImage(): HasOne
+    {
+        return $this->hasOne(Media::class)->ofMany('position', 'min');
     }
 }

@@ -18,7 +18,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * is the hot-path equality join for "this category and every descendant"
  * and is maintained alongside `path`, not derived from it at read time.
  *
+ * @property int $id
  * @property int|null $parent_id
+ * @property string $name
+ * @property string|null $path
+ * @property int $depth
  */
 class Category extends Model
 {

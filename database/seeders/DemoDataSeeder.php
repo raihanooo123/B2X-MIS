@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Domain\Catalogue\CategoryClosureMaintainer;
+use App\Domain\Catalogue\CategoryPath;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Company;
@@ -202,7 +203,7 @@ class DemoDataSeeder extends Seeder
                 'slug' => Str::slug($rootName),
                 'depth' => 0,
             ]);
-            $root->update(['path' => (string) $root->id]);
+            $root->update(['path' => CategoryPath::build(null, $root->id)]);
             $maintainer->recompute($root);
             $categories[] = $root;
 
@@ -211,7 +212,7 @@ class DemoDataSeeder extends Seeder
                     'name' => $childName,
                     'slug' => Str::slug($childName),
                 ]);
-                $child->update(['path' => "{$root->id}.{$child->id}"]);
+                $child->update(['path' => CategoryPath::build($root->path, $child->id)]);
                 $maintainer->recompute($child);
                 $categories[] = $child;
             }
