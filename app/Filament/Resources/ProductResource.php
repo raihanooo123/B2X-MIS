@@ -138,6 +138,11 @@ class ProductResource extends Resource
                 ->with(['brand', 'primaryCategory', 'primaryImage'])
                 ->withCount('skus'))
             ->columns([
+
+                TextColumn::make('index')
+                    ->label('No.')
+                    ->rowIndex(),
+                    
                 ImageColumn::make('thumbnail')
                     ->label('')
                     ->square()

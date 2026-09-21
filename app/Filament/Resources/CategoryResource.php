@@ -16,6 +16,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * Doc 02 §5.3 — categories. Part 3: "shown as an indented tree ordered
@@ -45,8 +46,8 @@ class CategoryResource extends Resource
                         ->live(onBlur: true)
                         ->afterStateUpdated(function (Get $get, Set $set, ?string $state, ?string $old) {
                             $currentSlug = $get('slug');
-                            if ($currentSlug === null || $currentSlug === '' || $currentSlug === Str::slug($old ?? '')) {
-                                $set('slug', Str::slug($state ?? ''));
+                            if ($currentSlug === null || $currentSlug === '' || $currentSlug === Str::slug($old)) {
+                                $set('slug', Str::slug($state));
                             }
                         }),
                     TextInput::make('slug')
@@ -94,6 +95,9 @@ class CategoryResource extends Resource
         return $table
             ->defaultSort('path')
             ->columns([
+                TextColumn::make('index')
+                    ->label('No.')
+                    ->rowIndex(),
                 TextColumn::make('name')
                     ->label('Category')
                     ->formatStateUsing(fn (Category $record, string $state): string => str_repeat('— ', $record->depth).$state)

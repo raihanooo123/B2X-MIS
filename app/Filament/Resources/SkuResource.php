@@ -225,6 +225,10 @@ class SkuResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['product', 'taxClass']))
             ->columns([
+                TextColumn::make('index')
+                    ->label('No.')
+                    ->rowIndex(),
+
                 TextColumn::make('sku_code')
                     ->searchable()
                     ->sortable(),

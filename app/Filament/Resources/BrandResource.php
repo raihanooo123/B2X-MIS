@@ -76,6 +76,11 @@ class BrandResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->withCount('products'))
             ->columns([
+
+                TextColumn::make('index')
+                    ->label('No.')
+                    ->rowIndex(),
+
                 TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
