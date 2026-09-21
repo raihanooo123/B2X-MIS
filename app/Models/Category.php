@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * SQL rather than through PHP. `category_closure` (see CategoryClosure)
  * is the hot-path equality join for "this category and every descendant"
  * and is maintained alongside `path`, not derived from it at read time.
+ *
+ * @property int|null $parent_id
  */
 class Category extends Model
 {
