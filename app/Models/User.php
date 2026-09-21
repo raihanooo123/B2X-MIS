@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Models\Concerns\HasPublicId;
 use Database\Factories\UserFactory;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,7 +16,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
  *
  * @property string|null $password_hash
  */
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, HasPublicId, SoftDeletes;
@@ -57,6 +59,17 @@ class User extends Authenticatable
     public function getAuthPassword(): ?string
     {
         return $this->password_hash;
+    }
+
+    /**
+     * CLAUDE.md: Filament resources "go through the same Policies as
+     * everything else — no separate authorisation path." See
+     * UserPolicy::accessAdminPanel() for the actual rule (holds any
+     * `role_user` row).
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->can('accessAdminPanel', self::class);
     }
 
     /**
