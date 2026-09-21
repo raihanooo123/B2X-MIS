@@ -119,8 +119,14 @@ it('throws on insufficient credit before taking any stock lock', function () {
     expect(StockLevel::identity($sku->id, $location->id)->first()->allocated_base_qty)->toBe(0);
 });
 
-it('lets account_balance_minor extend spending power beyond the credit limit, per Doc 02 §4.3', function () {
-    // the doc's own worked example: £10,000 limit + £500 balance can order £10,500
+it('never lets account_balance_minor extend the credit gate, per Doc 05.4 §7.5A', function () {
+    // Doc 05.4 §7.5A: "It does not increase available credit... because
+    // the £500 is already their money" — the balance is applied as
+    // PAYMENT against the order total elsewhere, never folded into this
+    // check. A £10,000 limit with a £500 balance still only clears
+    // exactly £10,000 of required credit here, not £10,500 — proving
+    // the same balance can't be counted once as headroom AND again
+    // later when it's actually applied as payment.
     $company = Company::factory()->create([
         'credit_limit_minor' => 1000000, 'credit_used_minor' => 0, 'credit_held_minor' => 0, 'account_balance_minor' => 50000,
     ]);
@@ -130,11 +136,18 @@ it('lets account_balance_minor extend spending power beyond the credit limit, pe
     $level = StockLevel::factory()->for($sku)->for($location)->create(['on_hand_base_qty' => 10]);
     $orderLine = OrderLine::factory()->for($order)->create(['sku_id' => $sku->id]);
 
-    $result = (new AllocationService)->allocate($company->id, 1050000, [
+    // exactly the limit, ignoring the balance entirely — succeeds
+    $result = (new AllocationService)->allocate($company->id, 1000000, [
         makeAllocationLine($orderLine, $level, 1),
     ]);
-
     expect($result)->toHaveCount(1);
+
+    // one minor unit over the limit — the balance does NOT cover the
+    // gap, even though limit + balance would
+    $orderLineB = OrderLine::factory()->for($order)->create(['sku_id' => $sku->id, 'line_no' => 2]);
+    expect(fn () => (new AllocationService)->allocate($company->id, 1000001, [
+        makeAllocationLine($orderLineB, $level, 1),
+    ]))->toThrow(InsufficientCreditException::class);
 });
 
 it('satisfies one order line from two different batches with two allocation rows', function () {

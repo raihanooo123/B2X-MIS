@@ -30,6 +30,11 @@ use InvalidArgumentException;
  * §6.7); if the winning break allows contract lines, re-select using the
  * contract-including subtotal, which can only be equal or larger, so it
  * can only match an equal-or-better break, never lose the first one.
+ *
+ * Tax (doc 03 §10) is resolved in Pass 1 too, alongside price — it does
+ * not depend on Pass 2's spend break (the break changes a line's NET
+ * value, tax is computed on whatever net value survives to Pass 3,
+ * whichever rate Pass 1 already found for that SKU/country/time).
  */
 final class OrderPricingPipeline
 {
@@ -38,6 +43,7 @@ final class OrderPricingPipeline
         private readonly OrderLinePricer $linePricer = new OrderLinePricer,
         private readonly SpendBreakResolver $spendBreakResolver = new SpendBreakResolver,
         private readonly SpendBreakApportioner $spendBreakApportioner = new SpendBreakApportioner,
+        private readonly TaxRateResolver $taxRateResolver = new TaxRateResolver,
     ) {}
 
     /**
@@ -52,6 +58,7 @@ final class OrderPricingPipeline
         string $currency = 'GBP',
         ?CarbonImmutable $at = null,
         int $shippingNetMinor = 0,
+        string $deliveryCountryCode = 'GB',
     ): OrderPricingResult {
         if ($lines === []) {
             throw new InvalidArgumentException('An order must have at least one line.');
@@ -64,11 +71,12 @@ final class OrderPricingPipeline
         foreach ($lines as $index => $request) {
             $resolvedPrice = $this->priceResolver->resolve($request->skuId, $companyId, $request->baseQty, $at, $currency);
             $pricedLine = $this->linePricer->priceLine($resolvedPrice, $request->lineDiscountE4);
+            $taxRateBp = $this->taxRateResolver->resolve($request->skuId, $companyId, $deliveryCountryCode, $at);
 
             $pass1[$index] = [
                 'resolved' => $resolvedPrice,
                 'priced' => $pricedLine,
-                'taxRateBp' => $request->taxRateBp,
+                'taxRateBp' => $taxRateBp,
             ];
         }
 

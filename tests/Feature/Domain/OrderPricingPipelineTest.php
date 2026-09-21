@@ -8,9 +8,27 @@ use App\Models\OrderSpendBreak;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\Sku;
+use App\Models\TaxClass;
+use App\Models\TaxRate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
+
+/**
+ * A fresh GB tax class with one real, currently-valid tax_rates row at
+ * $rateBp — since TaxRateResolver (03 §10) now resolves a genuine rate
+ * per SKU, every SKU in this file needs one, not just the ones a test
+ * cares about the tax figures for. No sharing needed across calls:
+ * `tax_rates_no_overlap` is scoped per tax_class_id, so distinct classes
+ * never collide regardless of overlapping validity.
+ */
+function taxClassWithRate(int $rateBp = 2000): int
+{
+    $taxClass = TaxClass::factory()->create();
+    TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => $rateBp]);
+
+    return $taxClass->id;
+}
 
 /**
  * Only one active base-scope price list can exist per currency at a time
@@ -18,9 +36,9 @@ uses(RefreshDatabase::class);
  * would collide on the second SKU in any multi-line test, so callers
  * share one base list per test via $sharedBase.
  */
-function skuWithBasePrice(int $unitPriceE4, ?PriceList &$sharedBase = null): Sku
+function skuWithBasePrice(int $unitPriceE4, ?PriceList &$sharedBase = null, int $taxRateBp = 2000): Sku
 {
-    $sku = Sku::factory()->create();
+    $sku = Sku::factory()->create(['tax_class_id' => taxClassWithRate($taxRateBp)]);
     $sharedBase ??= PriceList::factory()->create(['scope' => 'base']);
     PriceListItem::factory()->for($sharedBase, 'priceList')->for($sku)->create(['min_base_qty' => 1, 'unit_price_e4' => $unitPriceE4]);
 
@@ -31,7 +49,7 @@ it('prices a single line with no spend break, matching OrderLinePricer directly'
     $sku = skuWithBasePrice(9800);
 
     $result = (new OrderPricingPipeline)->price(
-        [new OrderLineRequest(skuId: $sku->id, baseQty: 10, taxRateBp: 2000)],
+        [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: null,
         tierId: null,
     );
@@ -48,9 +66,9 @@ it('prices a single line with no spend break, matching OrderLinePricer directly'
 
 it('reproduces the §7A.5 worked example end to end', function () {
     $base = null;
-    $skuA = skuWithBasePrice(unitPriceE4: 200000, sharedBase: $base);
-    $skuB = skuWithBasePrice(unitPriceE4: 100000, sharedBase: $base);
-    $skuC = skuWithBasePrice(unitPriceE4: 50000, sharedBase: $base);
+    $skuA = skuWithBasePrice(unitPriceE4: 200000, sharedBase: $base, taxRateBp: 2000);
+    $skuB = skuWithBasePrice(unitPriceE4: 100000, sharedBase: $base, taxRateBp: 2000);
+    $skuC = skuWithBasePrice(unitPriceE4: 50000, sharedBase: $base, taxRateBp: 0);
 
     // Chosen so item_net_minor lands exactly on the §7A.5 figures:
     // A: 200000 e4 x 31 qty / 100 = 62000 minor (£620.00)
@@ -63,9 +81,9 @@ it('reproduces the §7A.5 worked example end to end', function () {
     ]);
 
     $result = (new OrderPricingPipeline)->price([
-        new OrderLineRequest(skuId: $skuA->id, baseQty: 31, taxRateBp: 2000),
-        new OrderLineRequest(skuId: $skuB->id, baseQty: 31, taxRateBp: 2000),
-        new OrderLineRequest(skuId: $skuC->id, baseQty: 30, taxRateBp: 0),
+        new OrderLineRequest(skuId: $skuA->id, baseQty: 31),
+        new OrderLineRequest(skuId: $skuB->id, baseQty: 31),
+        new OrderLineRequest(skuId: $skuC->id, baseQty: 30),
     ], companyId: null, tierId: null);
 
     [$lineA, $lineB, $lineC] = $result->lines;
@@ -107,7 +125,7 @@ it('applies no spend break when the subtotal falls a penny short of the threshol
 it('excludes a contract-priced line from the qualifying subtotal by default (§7A.7 #16)', function () {
     $company = Company::factory()->create();
     $contractList = PriceList::factory()->forCompany($company, hasContract: true)->create();
-    $contractSku = Sku::factory()->create();
+    $contractSku = Sku::factory()->create(['tax_class_id' => taxClassWithRate()]);
     PriceListItem::factory()->for($contractList, 'priceList')->for($contractSku)->create(['min_base_qty' => 1, 'unit_price_e4' => 10000000]);
 
     $ordinarySku = skuWithBasePrice(unitPriceE4: 100000);
@@ -137,7 +155,7 @@ it('excludes a contract-priced line from the qualifying subtotal by default (§7
 it('includes a contract-priced line when the break explicitly allows it', function () {
     $company = Company::factory()->create();
     $contractList = PriceList::factory()->forCompany($company, hasContract: true)->create();
-    $contractSku = Sku::factory()->create();
+    $contractSku = Sku::factory()->create(['tax_class_id' => taxClassWithRate()]);
     PriceListItem::factory()->for($contractList, 'priceList')->for($contractSku)->create(['min_base_qty' => 1, 'unit_price_e4' => 10000000]);
 
     $ordinarySku = skuWithBasePrice(unitPriceE4: 100000);
@@ -163,7 +181,7 @@ it('includes a contract-priced line when the break explicitly allows it', functi
 });
 
 it('applies both an item-level break and an order-wide spend break together (§7A.7 #20)', function () {
-    $sku = Sku::factory()->create();
+    $sku = Sku::factory()->create(['tax_class_id' => taxClassWithRate()]);
     $base = PriceList::factory()->create(['scope' => 'base']);
     PriceListItem::factory()->for($base, 'priceList')->for($sku)->create(['min_base_qty' => 1, 'unit_price_e4' => 10000]);
     PriceListItem::factory()->for($base, 'priceList')->for($sku)->create(['min_base_qty' => 100, 'unit_price_e4' => 8000]);
@@ -194,7 +212,7 @@ it('adds shipping to the total without taxing it', function () {
     $sku = skuWithBasePrice(unitPriceE4: 100000);
 
     $result = (new OrderPricingPipeline)->price(
-        [new OrderLineRequest(skuId: $sku->id, baseQty: 1, taxRateBp: 2000)],
+        [new OrderLineRequest(skuId: $sku->id, baseQty: 1)],
         companyId: null,
         tierId: null,
         shippingNetMinor: 500,

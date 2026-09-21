@@ -20,6 +20,8 @@ use App\Models\PriceListItem;
 use App\Models\Sku;
 use App\Models\StockAllocation;
 use App\Models\StockLevel;
+use App\Models\TaxClass;
+use App\Models\TaxRate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +36,21 @@ beforeEach(function () {
 });
 
 /**
+ * A fresh GB tax class with one real, currently-valid tax_rates row —
+ * TaxRateResolver (03 §10) now resolves a genuine rate per SKU, so
+ * every SKU checked out in this file needs one. No sharing needed:
+ * `tax_rates_no_overlap` is scoped per tax_class_id, so distinct
+ * classes never collide.
+ */
+function checkoutTaxClass(int $rateBp = 2000): int
+{
+    $taxClass = TaxClass::factory()->create();
+    TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => $rateBp]);
+
+    return $taxClass->id;
+}
+
+/**
  * One active base-scope SKU with stock on hand at the default location,
  * priced at $unitPriceE4 per base unit, in a pack of $packBaseUnits.
  * Only one active base-scope price list per currency can exist at a time
@@ -46,7 +63,11 @@ beforeEach(function () {
  */
 function checkoutSku(int $unitPriceE4 = 10000, int $onHand = 100, int $packBaseUnits = 1, ?PriceList &$sharedBase = null): array
 {
-    $sku = Sku::factory()->create(['is_stock_tracked' => true, 'tracking_mode' => 'none']);
+    $sku = Sku::factory()->create([
+        'is_stock_tracked' => true,
+        'tracking_mode' => 'none',
+        'tax_class_id' => checkoutTaxClass(),
+    ]);
     $pack = Pack::factory()->for($sku)->create(['base_units' => $packBaseUnits]);
     $sharedBase ??= PriceList::factory()->create(['scope' => 'base']);
     PriceListItem::factory()->for($sharedBase, 'priceList')->for($sku)->create(['min_base_qty' => 1, 'unit_price_e4' => $unitPriceE4]);

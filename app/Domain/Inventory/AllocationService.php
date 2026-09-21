@@ -142,13 +142,20 @@ final class AllocationService
     {
         $company = Company::query()->lockForUpdate()->findOrFail($companyId);
 
-        // Doc 02 §4.3: account_balance_minor does not increase the
-        // credit limit — it is the customer's own unapplied credit, so
-        // it is spendable on top of whatever limit headroom remains.
+        // Doc 05.4 §7.5A: "It does not increase available credit. A
+        // customer with a £10,000 limit and a £500 balance can place
+        // £10,500 of orders, because the £500 is already their money."
+        // account_balance_minor is applied as PAYMENT against the order
+        // total once it is known (§7.5A "Applying balance at checkout"
+        // — not yet built here), never folded into the credit gate: a
+        // customer spending their own £500 balance is not the same
+        // event as the business extending them £500 more exposure, and
+        // adding it here would let the same balance be counted twice —
+        // once as extra headroom at the credit check, again when it's
+        // actually applied as payment.
         $availableCreditMinor = $company->credit_limit_minor
             - $company->credit_used_minor
-            - $company->credit_held_minor
-            + $company->account_balance_minor;
+            - $company->credit_held_minor;
 
         if ($requiredCreditMinor > $availableCreditMinor) {
             throw new InsufficientCreditException($companyId, $requiredCreditMinor, $availableCreditMinor);
