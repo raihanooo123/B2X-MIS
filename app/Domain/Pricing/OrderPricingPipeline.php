@@ -105,6 +105,8 @@ final class OrderPricingPipeline
                 taxRateBp: $p['taxRateBp'],
                 lineTaxMinor: $lineTaxMinor,
                 lineGrossMinor: $lineGrossMinor,
+                unitCostE4: $p['resolved']->unitCostE4,
+                skuCostId: $p['resolved']->skuCostId,
             );
 
             $subtotalNetMinor += $lineNetMinor;

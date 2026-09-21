@@ -18,6 +18,7 @@ function makeResolvedPrice(int $unitPriceE4, int $baseQty): ResolvedPrice
         nextBreakQty: null,
         nextBreakUnitPriceE4: null,
         unitCostE4: null,
+        skuCostId: null,
         promotionCapped: false,
     );
 }
@@ -88,6 +89,7 @@ it('carries the resolved sku and quantity through unchanged', function () {
         nextBreakQty: null,
         nextBreakUnitPriceE4: null,
         unitCostE4: null,
+        skuCostId: null,
         promotionCapped: false,
     );
 

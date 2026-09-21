@@ -15,6 +15,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Doc 02 §5.4 — products. `skus` is the only stockable, priceable,
  * sellable entity (§5.2) — nothing in pricing, inventory or ordering
  * references `products.id` directly.
+ *
+ * @property string $name
  */
 class Product extends Model
 {

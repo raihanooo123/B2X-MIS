@@ -14,6 +14,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * are recomputed live via BulkPriceResolver on every render.
  * `pack_base_units` is refreshed by the application on a pack change, not
  * an immutable snapshot.
+ *
+ * @property int $cart_id
+ * @property int $sku_id
+ * @property int $pack_id
+ * @property int $pack_qty
+ * @property int $pack_base_units
+ * @property int $base_qty
  */
 class CartLine extends Model
 {

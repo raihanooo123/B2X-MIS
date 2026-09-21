@@ -36,19 +36,42 @@ use InvalidArgumentException;
  *      (reference_type='allocation', reference_id=<allocation id>),
  *      then the stock_levels + order_lines quantity updates.
  *
- * credit_holds (§8.4) does not exist yet (Phase 2, key-stub only). This
- * service locks the companies row and checks available credit against
- * its current columns, but never writes to credit_held_minor — that
- * column is a projection *sourced from* credit_holds (§4.3: "credit_held
- * from credit_holds at held"), and writing to it directly here would
- * fabricate a projection with no ledger backing it, exactly the kind of
- * drift §11.4 says must never be silently introduced.
+ * credit_holds (05.2 §7.1) now exists, but this service still never
+ * writes `credit_held_minor` itself — that write, and the credit_holds
+ * insert, happen in the caller's transaction (CheckoutService) *after*
+ * this method returns, because doc 02 §11.1's own step order puts
+ * "INSERT credit_holds" at step 6, after stock is verified and written
+ * (step 5), not alongside the credit lock at step 1. What this method
+ * DOES do at step 1 is the pass/fail *check* — "credit locked first...
+ * failing it avoids taking any stock locks at all" (05.2 §8.2) — against
+ * the company's current `credit_held_minor` (which already reflects
+ * every earlier order's hold), so a second concurrent order against the
+ * same company sees the first order's hold once it has one, via the
+ * `FOR UPDATE` lock's serialisation.
  *
- * The whole transaction is wrapped in DeadlockRetryPolicy per Doc 04
- * §4.5: on SQLSTATE 40P01/55P03 it is retried from scratch, never
- * resumed. InsufficientCreditException and InsufficientStockException
- * are not QueryExceptions, so a genuine shortfall or credit rejection
- * is never mistaken for contention and never retried.
+ * `companyId` is nullable: doc 05.2 has no provision for a company-less
+ * order because 05.2 is scoped to trade accounts, but this platform also
+ * sells to the public (CLAUDE.md, "the system will also sell to the
+ * public"). A null companyId means "no credit is at stake" — the
+ * companies-row lock and the credit check are both skipped entirely, and
+ * $requiredCreditMinor is ignored. Deciding *when* a company-having order
+ * should also skip the credit check (e.g. it is paying by card, not on
+ * account) is the caller's business-rule call, not this service's — see
+ * CheckoutService.
+ *
+ * allocateWithinTransaction() is the actual step 1-5 sequence, with no
+ * transaction or retry wrapper of its own, so a caller that already owns
+ * an outer transaction (CheckoutService, composing credit + stock + order
+ * creation into ONE retryable unit per doc 04 §4.5's "the whole
+ * transaction is retried, never resumed") can call it directly without
+ * nesting a second transaction inside the first. allocate() remains the
+ * standalone entry point for callers with no other locks to take — it
+ * wraps allocateWithinTransaction() in its own DB::transaction() and
+ * DeadlockRetryPolicy, exactly as before.
+ *
+ * InsufficientCreditException and InsufficientStockException are not
+ * QueryExceptions, so a genuine shortfall or credit rejection is never
+ * mistaken for contention and never retried.
  */
 final class AllocationService
 {
@@ -59,28 +82,60 @@ final class AllocationService
      * @throws InsufficientCreditException
      * @throws InsufficientStockException
      */
-    public function allocate(int $companyId, int $requiredCreditMinor, array $lines): array
+    public function allocate(?int $companyId, int $requiredCreditMinor, array $lines): array
+    {
+        return (new DeadlockRetryPolicy)->run(
+            fn () => DB::transaction(fn () => $this->allocateWithinTransaction($companyId, $requiredCreditMinor, $lines)),
+            self::class,
+        );
+    }
+
+    /**
+     * The step 1-5 sequence itself, with no transaction/retry wrapper —
+     * see the class docblock for why this is split from allocate().
+     * MUST be called from inside an existing transaction.
+     *
+     * @param  list<AllocationLine>  $lines
+     * @return list<StockAllocation>
+     *
+     * @throws InsufficientCreditException
+     * @throws InsufficientStockException
+     */
+    public function allocateWithinTransaction(?int $companyId, int $requiredCreditMinor, array $lines): array
     {
         if ($lines === []) {
             throw new InvalidArgumentException('At least one allocation line is required.');
         }
 
-        return (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(function () use ($companyId, $requiredCreditMinor, $lines) {
-                $this->lockCompanyCredit($companyId, $requiredCreditMinor);
+        if ($companyId !== null) {
+            $this->lockCompanyCredit($companyId, $requiredCreditMinor);
+        }
 
-                $identities = $this->uniqueSortedIdentities($lines);
-                $lockedLevels = $this->lockStockLevelsInOrder($identities);
+        $identities = $this->uniqueSortedIdentities($lines);
+        $lockedLevels = $this->lockStockLevelsInOrder($identities);
 
-                $shortfalls = $this->findShortfalls($identities, $lockedLevels);
-                if ($shortfalls !== []) {
-                    throw new InsufficientStockException($shortfalls);
-                }
+        $shortfalls = $this->findShortfalls($identities, $lockedLevels);
+        if ($shortfalls !== []) {
+            throw new InsufficientStockException($shortfalls);
+        }
 
-                return $this->writeAllocations($lines);
-            }),
-            self::class,
-        );
+        return $this->writeAllocations($lines);
+    }
+
+    /**
+     * The companies-row lock and credit check alone, with no stock
+     * involved — for a caller (CheckoutService) whose order contains no
+     * stock-tracked lines at all (every SKU `is_stock_tracked = false`)
+     * but still needs the credit gate applied, since 05.2 §8.1's credit
+     * check does not depend on the order containing any allocatable
+     * stock. MUST be called from inside an existing transaction, exactly
+     * like allocateWithinTransaction().
+     *
+     * @throws InsufficientCreditException
+     */
+    public function lockAndCheckCredit(int $companyId, int $requiredCreditMinor): void
+    {
+        $this->lockCompanyCredit($companyId, $requiredCreditMinor);
     }
 
     private function lockCompanyCredit(int $companyId, int $requiredCreditMinor): Company

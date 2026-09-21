@@ -14,6 +14,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Doc 02 §5.5 — skus, the central stockable/priceable/sellable entity.
  *
  * @property string $status
+ * @property string $sku_code
+ * @property bool $is_stock_tracked
+ * @property string $tracking_mode
  */
 class Sku extends Model
 {

@@ -289,6 +289,7 @@ final class BulkPriceResolver
             nextBreakQty: $nextBreakQty,
             nextBreakUnitPriceE4: $nextBreakUnitPriceE4,
             unitCostE4: null,
+            skuCostId: null,
             promotionCapped: $promotionCapped,
         );
     }

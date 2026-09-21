@@ -78,8 +78,8 @@ final class PriceResolver
             $this->failResolution($skuId, $at, $currency);
         }
 
-        $unitCostE4 = $this->currentUnitCostE4($skuId, $at);
-        $resolved = $this->buildResolvedPrice($winner, $skuId, $baseQty, $unitCostE4, promotionCapped: false);
+        [$skuCostId, $unitCostE4] = $this->currentCost($skuId, $at);
+        $resolved = $this->buildResolvedPrice($winner, $skuId, $baseQty, $skuCostId, $unitCostE4, promotionCapped: false);
 
         if ($resolved->priceSource !== PriceSource::Promotion) {
             return $resolved;
@@ -94,7 +94,7 @@ final class PriceResolver
         );
 
         if ($withoutPromotion !== null && $withoutPromotion->unit_price_e4 < $winner->unit_price_e4) {
-            return $this->buildResolvedPrice($withoutPromotion, $skuId, $baseQty, $unitCostE4, promotionCapped: true);
+            return $this->buildResolvedPrice($withoutPromotion, $skuId, $baseQty, $skuCostId, $unitCostE4, promotionCapped: true);
         }
 
         return $resolved;
@@ -215,19 +215,21 @@ final class PriceResolver
         return $at->format('Y-m-d\TH:i:s.uP');
     }
 
-    private function currentUnitCostE4(int $skuId, CarbonImmutable $at): ?int
+    /**
+     * @return array{0: ?int, 1: ?int} [skuCostId, landedCostE4]
+     */
+    private function currentCost(int $skuId, CarbonImmutable $at): array
     {
-        /** @var int|null $landedCostE4 */
-        $landedCostE4 = SkuCost::query()
+        $cost = SkuCost::query()
             ->where('sku_id', $skuId)
             ->where('valid_from', '<=', $at)
             ->orderByDesc('valid_from')
-            ->value('landed_cost_e4');
+            ->first(['id', 'landed_cost_e4']);
 
-        return $landedCostE4;
+        return $cost === null ? [null, null] : [$cost->id, $cost->landed_cost_e4];
     }
 
-    private function buildResolvedPrice(\stdClass $winner, int $skuId, int $baseQty, ?int $unitCostE4, bool $promotionCapped): ResolvedPrice
+    private function buildResolvedPrice(\stdClass $winner, int $skuId, int $baseQty, ?int $skuCostId, ?int $unitCostE4, bool $promotionCapped): ResolvedPrice
     {
         [$nextBreakQty, $nextBreakUnitPriceE4] = $this->nextBreak(
             (int) $winner->price_list_id, $skuId, (int) $winner->min_base_qty,
@@ -245,6 +247,7 @@ final class PriceResolver
             nextBreakQty: $nextBreakQty,
             nextBreakUnitPriceE4: $nextBreakUnitPriceE4,
             unitCostE4: $unitCostE4,
+            skuCostId: $skuCostId,
             promotionCapped: $promotionCapped,
         );
     }

@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * has at least one sellable pack, exactly one of which `is_default_sell`
  * (the "exactly one" half is `packs_default_sell_uq`; the "at least one"
  * half is application-enforced, as no relational database expresses it).
+ *
+ * @property int $sku_id
+ * @property int $base_units
+ * @property string $label
  */
 class Pack extends Model
 {

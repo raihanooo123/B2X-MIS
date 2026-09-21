@@ -18,6 +18,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * (sku_id, valid_from DESC) — resolving and snapshotting it onto
  * `order_lines.unit_cost_e4` at order placement is domain logic for
  * 03 — Pricing Engine, not this model.
+ *
+ * @property int $id
+ * @property int|null $landed_cost_e4
  */
 class SkuCost extends Model
 {

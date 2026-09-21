@@ -9,6 +9,12 @@ namespace App\Domain\Pricing;
  * `line_net_minor`, `tax_rate_bp`, `line_tax_minor`, `line_gross_minor`,
  * plus the provenance columns (`price_source`, `price_list_id`,
  * `price_list_item_id`, `applied_break_qty`).
+ *
+ * `unitCostE4`/`skuCostId` are carried straight through from Pass 1's
+ * `ResolvedPrice` (see its docblock) rather than re-derived here — cost
+ * does not change across passes 2-3, and CLAUDE.md invariant 4 requires
+ * `order_lines.unit_cost_e4`/`sku_cost_id` to be the cost snapshotted at
+ * resolution time, not re-resolved when the line is persisted.
  */
 final readonly class PricedOrderLine
 {
@@ -26,5 +32,7 @@ final readonly class PricedOrderLine
         public int $taxRateBp,
         public int $lineTaxMinor,
         public int $lineGrossMinor,
+        public ?int $unitCostE4,
+        public ?int $skuCostId,
     ) {}
 }
