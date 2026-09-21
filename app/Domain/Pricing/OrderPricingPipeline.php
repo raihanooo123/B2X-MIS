@@ -35,6 +35,16 @@ use InvalidArgumentException;
  * not depend on Pass 2's spend break (the break changes a line's NET
  * value, tax is computed on whatever net value survives to Pass 3,
  * whichever rate Pass 1 already found for that SKU/country/time).
+ *
+ * `deliveryCountryCode` has no default. The rest of this domain refuses
+ * to silently substitute a value it wasn't given — PriceResolver never
+ * guesses a price (§4.6), TaxRateResolver throws NoTaxRateException
+ * rather than assuming 0% — and a silent `'GB'` fallback here would be
+ * exactly that class of bug, just quieter: every non-GB order would
+ * charge the wrong VAT with no error, and it would compound with 05.1
+ * §11's exact-match requirement by making order-pad and checkout agree
+ * with each other while both being wrong. The caller must resolve the
+ * real delivery country and pass it explicitly.
  */
 final class OrderPricingPipeline
 {
@@ -55,10 +65,10 @@ final class OrderPricingPipeline
         array $lines,
         ?int $companyId,
         ?int $tierId,
+        string $deliveryCountryCode,
         string $currency = 'GBP',
         ?CarbonImmutable $at = null,
         int $shippingNetMinor = 0,
-        string $deliveryCountryCode = 'GB',
     ): OrderPricingResult {
         if ($lines === []) {
             throw new InvalidArgumentException('An order must have at least one line.');

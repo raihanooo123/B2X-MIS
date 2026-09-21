@@ -17,7 +17,6 @@ use App\Domain\Reference\NumberSequenceService;
 use App\Models\Cart;
 use App\Models\CartLine;
 use App\Models\Company;
-use App\Models\CreditHold;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\OrderLine;
@@ -36,6 +35,15 @@ use RuntimeException;
  * AllocationService's own docblock already states — not a new gap,
  * the same one, now visible at the checkout layer too.
  *
+ * The company_id-dependent half of checkout — whether a credit gate
+ * applies, which price tier, what payment_status starts at — is NOT
+ * decided here. It's delegated to a CheckoutStrategy (TradeCheckout or
+ * ConsumerCheckout, chosen by strategyFor() below), so this class stays
+ * the company-agnostic transaction skeleton: load cart, price, compare,
+ * create order + order_lines, ask the strategy to reserve stock (and
+ * credit, if it has any), take the order number last, clear the cart,
+ * dispatch the event.
+ *
  * Sequence, one retryable unit (04 §4.5 — "the whole transaction is
  * retried, never resumed"):
  *
@@ -49,20 +57,19 @@ use RuntimeException;
  *      invariants 2 and 4). Inserting new rows this transaction owns
  *      does not conflict with the lock-ordering rule; that rule is
  *      about which EXISTING rows get FOR UPDATE and in what order.
- *   2. AllocationService::allocateWithinTransaction() — locks companies
- *      (only when this order is on account) then stock_levels ascending,
- *      verifies availability, writes stock_allocations/movements. Runs
- *      inside THIS transaction, not a nested one (see AllocationService's
- *      docblock for why that split exists) — a deadlock retries the
- *      whole checkout, order insert included, never just the allocation.
- *   3. INSERT credit_holds / UPDATE companies.credit_held_minor — doc 02
- *      §11.1's own step 6, deliberately AFTER stock is written, not
- *      alongside the step-1 credit lock. The company row is still held
- *      from step 2, so this is safe with no further lock.
- *   4. NumberSequenceService::next('order_number') — taken LAST, per 02
+ *   2. CheckoutStrategy::reserve() — for TradeCheckout, locks companies
+ *      (only when on_account) then stock_levels ascending, verifies
+ *      availability, writes stock_allocations/movements, then inserts
+ *      credit_holds / updates credit_held_minor (02 §11.1 step 6,
+ *      after stock, not alongside the step-1 lock). For ConsumerCheckout,
+ *      only the stock half runs. Runs inside THIS transaction, not a
+ *      nested one (see AllocationService's docblock for why that split
+ *      exists) — a deadlock retries the whole checkout, order insert
+ *      included, never just the allocation.
+ *   3. NumberSequenceService::next('order_number') — taken LAST, per 02
  *      §11.3, then written over the placeholder. A rolled-back checkout
  *      (any exception above) consumes no number.
- *   5. Side effects — none synchronous. OrderPlaced is dispatched via
+ *   4. Side effects — none synchronous. OrderPlaced is dispatched via
  *      DB::afterCommit() only (CLAUDE.md invariant 6 / 04 §4.4).
  *
  * Deliberately NOT built here (see the class's own exceptions and the
@@ -79,6 +86,8 @@ final class CheckoutService
         private readonly OrderPricingPipeline $pricingPipeline = new OrderPricingPipeline,
         private readonly AllocationService $allocationService = new AllocationService,
         private readonly NumberSequenceService $numberSequenceService = new NumberSequenceService,
+        private readonly CheckoutStrategy $tradeCheckout = new TradeCheckout,
+        private readonly CheckoutStrategy $consumerCheckout = new ConsumerCheckout,
     ) {}
 
     /**
@@ -89,17 +98,14 @@ final class CheckoutService
      */
     public function checkout(CheckoutRequest $request): Order
     {
+        $strategy = $this->strategyFor($request);
+        $strategy->validate($request);
+
         $cart = Cart::query()->with(['lines.sku.product', 'lines.pack'])->findOrFail($request->cartId);
 
         if ($cart->lines->isEmpty()) {
             throw new InvalidArgumentException("Cart {$request->cartId} has no lines — nothing to check out.");
         }
-
-        if ($request->companyId === null && $request->paymentMethod === 'on_account') {
-            throw new InvalidArgumentException('on_account checkout requires a company — a public/guest order is card/prepay only.');
-        }
-
-        $tierId = $this->resolveTierId($request->companyId);
 
         $lineRequests = array_values(
             $cart->lines
@@ -110,7 +116,8 @@ final class CheckoutService
         $pricing = $this->pricingPipeline->price(
             $lineRequests,
             companyId: $request->companyId,
-            tierId: $tierId,
+            tierId: $strategy->tierId($request),
+            deliveryCountryCode: $request->deliveryCountryCode,
             currency: 'GBP',
             shippingNetMinor: $request->shippingNetMinor,
         );
@@ -122,36 +129,14 @@ final class CheckoutService
 
         $defaultLocation = Location::query()->where('is_default', true)->firstOrFail();
 
-        // On account only when the buyer chose it AND has a company —
-        // a company customer paying by card takes no credit hold at all
-        // (05.2 §8.1 row 2).
-        $creditCompanyId = ($request->companyId !== null && $request->paymentMethod === 'on_account')
-            ? $request->companyId
-            : null;
-
         return (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(function () use ($request, $cart, $pricing, $defaultLocation, $creditCompanyId) {
-                $order = $this->createDraftOrder($request, $pricing, $creditCompanyId);
+            fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation) {
+                $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request));
                 $allocationLines = $this->createOrderLines($order, $cart, $pricing, $defaultLocation);
 
-                if ($allocationLines !== []) {
-                    $this->allocationService->allocateWithinTransaction($creditCompanyId, $pricing->totalGrossMinor, $allocationLines);
-                } elseif ($creditCompanyId !== null) {
-                    $this->allocationService->lockAndCheckCredit($creditCompanyId, $pricing->totalGrossMinor);
-                }
+                $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines);
 
-                if ($creditCompanyId !== null) {
-                    CreditHold::create([
-                        'company_id' => $creditCompanyId,
-                        'order_id' => $order->id,
-                        'amount_minor' => $pricing->totalGrossMinor,
-                        'status' => 'held',
-                        'held_at' => now(),
-                    ]);
-                    Company::whereKey($creditCompanyId)->increment('credit_held_minor', $pricing->totalGrossMinor);
-                }
-
-                // Step 4 — taken last, per 02 §11.3.
+                // Step 3 — taken last, per 02 §11.3.
                 $orderNumber = $this->numberSequenceService->next('order_number');
                 $now = now();
                 $order->update([
@@ -171,22 +156,16 @@ final class CheckoutService
         );
     }
 
-    private function resolveTierId(?int $companyId): ?int
+    private function strategyFor(CheckoutRequest $request): CheckoutStrategy
     {
-        if ($companyId === null) {
-            return null;
-        }
-
-        $tierId = Company::query()->whereKey($companyId)->value('price_tier_id');
-
-        return $tierId === null ? null : (int) $tierId;
+        return $request->companyId !== null ? $this->tradeCheckout : $this->consumerCheckout;
     }
 
-    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, ?int $creditCompanyId): Order
+    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus): Order
     {
         return Order::create([
             // Placeholder, unique and syntactically valid — overwritten
-            // with the real gapless number at step 4. Never visible
+            // with the real gapless number at step 3. Never visible
             // outside this transaction (READ COMMITTED, uncommitted rows
             // are invisible to every other transaction).
             'order_number' => (string) Str::ulid(),
@@ -195,7 +174,7 @@ final class CheckoutService
             'placed_by_user_id' => $request->placedByUserId ?? $request->userId,
             'channel' => $request->channel,
             'status' => 'draft',
-            'payment_status' => $creditCompanyId !== null ? 'on_account' : 'unpaid',
+            'payment_status' => $paymentStatus,
             'fulfilment_type' => 'delivery',
             'currency' => 'GBP',
             'subtotal_net_minor' => $pricing->subtotalNetMinor,

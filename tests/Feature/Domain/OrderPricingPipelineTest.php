@@ -52,6 +52,7 @@ it('prices a single line with no spend break, matching OrderLinePricer directly'
         [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: null,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     $line = $result->lines[0];
@@ -84,7 +85,7 @@ it('reproduces the §7A.5 worked example end to end', function () {
         new OrderLineRequest(skuId: $skuA->id, baseQty: 31),
         new OrderLineRequest(skuId: $skuB->id, baseQty: 31),
         new OrderLineRequest(skuId: $skuC->id, baseQty: 30),
-    ], companyId: null, tierId: null);
+    ], companyId: null, tierId: null, deliveryCountryCode: 'GB');
 
     [$lineA, $lineB, $lineC] = $result->lines;
 
@@ -115,6 +116,7 @@ it('applies no spend break when the subtotal falls a penny short of the threshol
         [new OrderLineRequest(skuId: $skuUnder->id, baseQty: 1)],
         companyId: null,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     expect($result->lines[0]->lineNetMinor)->toBe(99999)
@@ -140,7 +142,7 @@ it('excludes a contract-priced line from the qualifying subtotal by default (§7
     $result = (new OrderPricingPipeline)->price([
         new OrderLineRequest(skuId: $contractSku->id, baseQty: 1),
         new OrderLineRequest(skuId: $ordinarySku->id, baseQty: 1),
-    ], companyId: $company->id, tierId: null);
+    ], companyId: $company->id, tierId: null, deliveryCountryCode: 'GB');
 
     [$contractLine, $ordinaryLine] = $result->lines;
 
@@ -170,7 +172,7 @@ it('includes a contract-priced line when the break explicitly allows it', functi
     $result = (new OrderPricingPipeline)->price([
         new OrderLineRequest(skuId: $contractSku->id, baseQty: 1),
         new OrderLineRequest(skuId: $ordinarySku->id, baseQty: 1),
-    ], companyId: $company->id, tierId: null);
+    ], companyId: $company->id, tierId: null, deliveryCountryCode: 'GB');
 
     // Now the contract line's £1000 + ordinary £100 = £1100 qualifies well
     // past the £500 threshold, and both lines share the discount.
@@ -196,6 +198,7 @@ it('applies both an item-level break and an order-wide spend break together (§7
         [new OrderLineRequest(skuId: $sku->id, baseQty: 100)], // item break: 8000 e4 x 100 / 100 = 8000 minor
         companyId: null,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     $line = $result->lines[0];
@@ -204,7 +207,7 @@ it('applies both an item-level break and an order-wide spend break together (§7
 });
 
 it('rejects an empty line list', function () {
-    expect(fn () => (new OrderPricingPipeline)->price([], companyId: null, tierId: null))
+    expect(fn () => (new OrderPricingPipeline)->price([], companyId: null, tierId: null, deliveryCountryCode: 'GB'))
         ->toThrow(InvalidArgumentException::class);
 });
 
@@ -215,6 +218,7 @@ it('adds shipping to the total without taxing it', function () {
         [new OrderLineRequest(skuId: $sku->id, baseQty: 1)],
         companyId: null,
         tierId: null,
+        deliveryCountryCode: 'GB',
         shippingNetMinor: 500,
     );
 

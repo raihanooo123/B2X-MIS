@@ -3,6 +3,7 @@
 namespace App\Domain\Pricing;
 
 use App\Domain\Pricing\Exceptions\NoBasePriceListException;
+use App\Domain\Pricing\Exceptions\NoTaxRateException;
 use App\Domain\Pricing\Exceptions\NotPurchasableException;
 use App\Domain\Pricing\Exceptions\PriceUnavailableForCurrencyException;
 use App\Models\Company;
@@ -13,11 +14,12 @@ use InvalidArgumentException;
 
 /**
  * Doc 03 §8 — the order-pad path. A genuinely different code path from
- * PriceResolver, not a loop calling it 100 times: exactly two queries
- * regardless of row count (Q-A candidate lists, Q-B the full break table
- * for those lists × these SKUs), with ranking and break selection done
- * in PHP over the in-memory result — "the data is tiny and the logic is
- * testable without a database."
+ * PriceResolver, not a loop calling it 100 times: two queries for price
+ * (Q-A candidate lists, Q-B the full break table for those lists × these
+ * SKUs) plus up to two more for tax (see below), all regardless of row
+ * count — ranking and break selection are done in PHP over the in-memory
+ * result, "the data is tiny and the logic is testable without a
+ * database."
  *
  * Q-C (stock levels) is deliberately not this class's job — it is an
  * Inventory-domain query (`stock_levels` PRIMARY), and CLAUDE.md's
@@ -34,21 +36,27 @@ use InvalidArgumentException;
  * automatically.
  *
  * unitCostE4 is deliberately always null here (unlike PriceResolver) —
- * §8 enumerates exactly three queries as the budget-critical contract;
- * a per-SKU cost lookup would be a fourth. Cost is an admin/rep-context
- * concern (CLAUDE.md invariant 9) the order-pad's customer context
- * doesn't need.
+ * a per-SKU cost lookup has no batched equivalent built and would be a
+ * query PER SKU, the N+1 this class exists to avoid. Cost is also an
+ * admin/rep-context concern (CLAUDE.md invariant 9) the order-pad's
+ * customer context doesn't need. Tax is different: TaxRateResolver's
+ * resolveMany() is a genuinely batched, O(1)-regardless-of-row-count
+ * query (see its own docblock), so it's included — doc 05.1 §11
+ * requires order-pad totals to match checkout's exactly, and a bulk
+ * path still returning `taxRateBp = 0` while checkout charges real VAT
+ * is precisely the drift that requirement exists to catch.
  */
 final class BulkPriceResolver
 {
     public function __construct(
         private readonly PromotionEligibilityResolver $promotionEligibility = new NullPromotionEligibilityResolver,
+        private readonly TaxRateResolver $taxRateResolver = new TaxRateResolver,
     ) {}
 
     /**
      * @param  list<int>  $skuIds
      */
-    public function resolveMany(array $skuIds, ?int $companyId, int $baseQty, ?CarbonImmutable $at = null, string $currency = 'GBP'): BulkPriceResolution
+    public function resolveMany(array $skuIds, ?int $companyId, int $baseQty, string $countryCode, ?CarbonImmutable $at = null, string $currency = 'GBP'): BulkPriceResolution
     {
         if ($skuIds === []) {
             return new BulkPriceResolution([], []);
@@ -71,15 +79,30 @@ final class BulkPriceResolver
         // Q-B
         $itemsBySku = $this->breakRows(array_keys($lists), $skuIds);
 
-        $activeSkuIds = Sku::query()->whereIn('id', $skuIds)->where('status', 'active')->pluck('id')->all();
-        $activeSkuIds = array_flip($activeSkuIds);
+        // Active-SKU check and the sku_id -> tax_class_id map in one
+        // query — the map costs nothing extra here, it's an existing
+        // query's column, not a new one. pluck() bypasses Eloquent's
+        // attribute casting, so both columns are cast explicitly here
+        // rather than trusted to arrive as PHP ints from the PDO driver.
+        $taxClassIdBySkuId = array_map(
+            'intval',
+            Sku::query()->whereIn('id', $skuIds)->where('status', 'active')->pluck('tax_class_id', 'id')->all()
+        );
+
+        $taxRatesBySku = $this->taxRateResolver->resolveMany($taxClassIdBySkuId, $companyId, $countryCode, $at);
 
         $resolved = [];
         $failures = [];
 
         foreach ($skuIds as $skuId) {
-            if (! isset($activeSkuIds[$skuId])) {
+            if (! isset($taxClassIdBySkuId[$skuId])) {
                 $failures[$skuId] = NotPurchasableException::class;
+
+                continue;
+            }
+
+            if (! isset($taxRatesBySku[$skuId])) {
+                $failures[$skuId] = NoTaxRateException::class;
 
                 continue;
             }
@@ -87,7 +110,7 @@ final class BulkPriceResolver
             $rows = $itemsBySku[$skuId] ?? [];
 
             try {
-                $resolved[$skuId] = $this->resolveOne($skuId, $rows, $lists, $baseQty, $at, $currency);
+                $resolved[$skuId] = $this->resolveOne($skuId, $rows, $lists, $baseQty, $at, $currency, $taxRatesBySku[$skuId]);
             } catch (NoBasePriceListException|PriceUnavailableForCurrencyException $e) {
                 $failures[$skuId] = $e::class;
             }
@@ -172,7 +195,7 @@ final class BulkPriceResolver
      * @param  list<\stdClass>  $rows  this SKU's break rows across every candidate list
      * @param  array<int, \stdClass>  $lists  candidate price_lists keyed by id
      */
-    private function resolveOne(int $skuId, array $rows, array $lists, int $baseQty, CarbonImmutable $at, string $currency): ResolvedPrice
+    private function resolveOne(int $skuId, array $rows, array $lists, int $baseQty, CarbonImmutable $at, string $currency, int $taxRateBp): ResolvedPrice
     {
         $winner = $this->rank($rows, $lists, $baseQty);
 
@@ -182,7 +205,7 @@ final class BulkPriceResolver
 
         $priceSource = $this->classify($winner, $lists);
 
-        $resolved = $this->toResolvedPrice($skuId, $baseQty, $winner, $rows, $priceSource);
+        $resolved = $this->toResolvedPrice($skuId, $baseQty, $winner, $rows, $priceSource, $taxRateBp);
 
         if ($priceSource !== PriceSource::Promotion) {
             return $resolved;
@@ -197,7 +220,7 @@ final class BulkPriceResolver
         if ($withoutPromotion !== null && (int) $withoutPromotion->unit_price_e4 < (int) $winner->unit_price_e4) {
             $fallbackSource = $this->classify($withoutPromotion, $lists);
 
-            return $this->toResolvedPrice($skuId, $baseQty, $withoutPromotion, $rowsWithoutPromotion, $fallbackSource, promotionCapped: true);
+            return $this->toResolvedPrice($skuId, $baseQty, $withoutPromotion, $rowsWithoutPromotion, $fallbackSource, $taxRateBp, promotionCapped: true);
         }
 
         return $resolved;
@@ -260,7 +283,7 @@ final class BulkPriceResolver
     /**
      * @param  list<\stdClass>  $rowsConsidered  the row set the winner was chosen from, reused to find the next break with no extra query
      */
-    private function toResolvedPrice(int $skuId, int $baseQty, \stdClass $winner, array $rowsConsidered, PriceSource $priceSource, bool $promotionCapped = false): ResolvedPrice
+    private function toResolvedPrice(int $skuId, int $baseQty, \stdClass $winner, array $rowsConsidered, PriceSource $priceSource, int $taxRateBp, bool $promotionCapped = false): ResolvedPrice
     {
         $winningListId = (int) $winner->price_list_id;
         $appliedBreakQty = (int) $winner->min_base_qty;
@@ -285,7 +308,7 @@ final class BulkPriceResolver
             priceListId: $winningListId,
             priceListItemId: null,
             appliedBreakQty: $appliedBreakQty,
-            taxRateBp: 0,
+            taxRateBp: $taxRateBp,
             nextBreakQty: $nextBreakQty,
             nextBreakUnitPriceE4: $nextBreakUnitPriceE4,
             unitCostE4: null,

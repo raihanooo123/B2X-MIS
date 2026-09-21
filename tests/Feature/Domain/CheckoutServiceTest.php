@@ -94,6 +94,7 @@ it('checks out an on-account company order: order+lines snapshot, stock allocate
         [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: $company->id,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     $order = (new CheckoutService)->checkout(new CheckoutRequest(
@@ -101,6 +102,7 @@ it('checks out an on-account company order: order+lines snapshot, stock allocate
         companyId: $company->id,
         userId: $user->id,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     ));
 
@@ -136,6 +138,7 @@ it('checks out a public/guest order with no company: no credit check, no credit 
         [new OrderLineRequest(skuId: $sku->id, baseQty: 2)],
         companyId: null,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     $order = (new CheckoutService)->checkout(new CheckoutRequest(
@@ -143,6 +146,7 @@ it('checks out a public/guest order with no company: no credit check, no credit 
         companyId: null,
         userId: null,
         paymentMethod: 'card',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     ));
 
@@ -163,6 +167,7 @@ it('rejects on_account checkout with no company', function () {
         companyId: null,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: 999999,
     )))->toThrow(InvalidArgumentException::class);
 });
@@ -185,6 +190,7 @@ it('checkout/preview totals equal checkout totals exactly', function () {
         ],
         companyId: $company->id,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     $order = (new CheckoutService)->checkout(new CheckoutRequest(
@@ -192,6 +198,7 @@ it('checkout/preview totals equal checkout totals exactly', function () {
         companyId: $company->id,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     ));
 
@@ -210,6 +217,7 @@ it('rejects a stale expected total with PriceChangedException and commits nothin
         companyId: $company->id,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: 1, // stale — real total is £10.00 net
     )))->toThrow(PriceChangedException::class);
 
@@ -227,6 +235,7 @@ it('throws InsufficientCreditException and commits nothing', function () {
         [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: $company->id,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     expect(fn () => (new CheckoutService)->checkout(new CheckoutRequest(
@@ -234,6 +243,7 @@ it('throws InsufficientCreditException and commits nothing', function () {
         companyId: $company->id,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     )))->toThrow(InsufficientCreditException::class);
 
@@ -251,6 +261,7 @@ it('throws InsufficientStockException and commits nothing', function () {
         [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: $company->id,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     expect(fn () => (new CheckoutService)->checkout(new CheckoutRequest(
@@ -258,6 +269,7 @@ it('throws InsufficientStockException and commits nothing', function () {
         companyId: $company->id,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     )))->toThrow(InsufficientStockException::class);
 
@@ -275,6 +287,7 @@ it('locks companies before stock_levels, matching the 02 §11.1 / 05.2 §8.2 glo
         [new OrderLineRequest(skuId: $sku->id, baseQty: 10)],
         companyId: $company->id,
         tierId: null,
+        deliveryCountryCode: 'GB',
     );
 
     DB::enableQueryLog();
@@ -283,6 +296,7 @@ it('locks companies before stock_levels, matching the 02 §11.1 / 05.2 §8.2 glo
         companyId: $company->id,
         userId: null,
         paymentMethod: 'on_account',
+        deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
     ));
     $log = DB::getQueryLog();
