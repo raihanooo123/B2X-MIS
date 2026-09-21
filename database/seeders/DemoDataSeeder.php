@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Domain\Catalogue\CategoryClosureMaintainer;
 use App\Domain\Catalogue\CategoryPath;
+use App\Domain\Pricing\Money;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Company;
@@ -28,8 +29,12 @@ use Illuminate\Support\Str;
  * Local/demo fixture data — a working, checkout-able catalogue, not a
  * production dataset. Every table this touches is seeded through the
  * same factories the test suite uses, so anything valid enough to pass
- * a test is valid enough to seed (and vice versa: a factory change that
- * breaks a constraint breaks this seeder the same way).
+ * a test is valid enough to seed — but every *name*, SKU code, pack
+ * size and price below is written out explicitly rather than left to
+ * the factories' own Faker defaults, because a demo catalogue a human
+ * looks at needs to read like a real UK cash-and-carry, not Latin
+ * placeholder text next to a random SKU code. The factories themselves
+ * are untouched: their random defaults are exactly right for tests.
  *
  * Run order matters in a few places for real reasons, not just
  * tidiness: roles before the admin user (role_user needs both rows),
@@ -131,14 +136,17 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
+     * Bronze/Silver/Gold — a new trade account starts at Bronze and
+     * earns its way up, so Bronze is the system default.
+     *
      * @return array<string, PriceTier> keyed by code
      */
     private function seedPriceTiers(): array
     {
         return [
-            'trade' => PriceTier::factory()->create(['code' => 'trade', 'name' => 'Trade', 'position' => 1]),
-            'standard' => PriceTier::factory()->default()->create(['code' => 'standard', 'name' => 'Standard', 'position' => 2]),
-            'premium' => PriceTier::factory()->create(['code' => 'premium', 'name' => 'Premium', 'position' => 3]),
+            'bronze' => PriceTier::factory()->default()->create(['code' => 'bronze', 'name' => 'Bronze', 'position' => 1]),
+            'silver' => PriceTier::factory()->create(['code' => 'silver', 'name' => 'Silver', 'position' => 2]),
+            'gold' => PriceTier::factory()->create(['code' => 'gold', 'name' => 'Gold', 'position' => 3]),
         ];
     }
 
@@ -176,28 +184,49 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
-     * A two-level tree, ~10 categories: 4 roots, 6 children. Roots are
-     * created (and their closure rows computed) before their children,
-     * because CategoryClosureMaintainer::recompute() builds a child's
-     * ancestor chain by reading the parent's already-existing closure
-     * rows — see that class's docblock.
+     * Six departments a UK cash-and-carry actually runs, each with a
+     * couple of real subcategories. Roots are created (and their
+     * closure rows computed) before their children, because
+     * CategoryClosureMaintainer::recompute() builds a child's ancestor
+     * chain by reading the parent's already-existing closure rows —
+     * see that class's docblock.
      *
-     * @return list<Category> every category, roots and children, for
-     *                        Product::primary_category_id to pick from
+     * @return array<string, Category> every subcategory (not the
+     *                                 roots), keyed by the slug
+     *                                 seedProducts() assigns products
+     *                                 against
      */
     private function seedCategories(): array
     {
         $tree = [
-            'Grocery' => ['Confectionery', 'Beverages'],
-            'Household' => ['Cleaning', 'Paper Goods'],
-            'Health & Beauty' => ['Personal Care'],
-            'Toys & Gifts' => ['Seasonal'],
+            'Kitchenware' => [
+                'cookware' => 'Cookware',
+                'kitchen-utensils' => 'Kitchen Utensils',
+                'food-storage' => 'Food Storage',
+            ],
+            'Cleaning Supplies' => [
+                'household-cleaning' => 'Household Cleaning',
+                'laundry' => 'Laundry',
+            ],
+            'Storage' => [
+                'storage-boxes' => 'Storage Boxes',
+            ],
+            'Bathroom' => [
+                'bathroom-accessories' => 'Bathroom Accessories',
+            ],
+            'Stationery' => [
+                'office-supplies' => 'Office Supplies',
+                'writing-instruments' => 'Writing Instruments',
+            ],
+            'Party Supplies' => [
+                'party-tableware' => 'Party Tableware',
+            ],
         ];
 
         $maintainer = new CategoryClosureMaintainer;
-        $categories = [];
+        $subcategories = [];
 
-        foreach ($tree as $rootName => $childNames) {
+        foreach ($tree as $rootName => $children) {
             $root = Category::factory()->create([
                 'name' => $rootName,
                 'slug' => Str::slug($rootName),
@@ -205,48 +234,177 @@ class DemoDataSeeder extends Seeder
             ]);
             $root->update(['path' => CategoryPath::build(null, $root->id)]);
             $maintainer->recompute($root);
-            $categories[] = $root;
 
-            foreach ($childNames as $childName) {
+            foreach ($children as $key => $childName) {
                 $child = Category::factory()->childOf($root->id)->create([
                     'name' => $childName,
                     'slug' => Str::slug($childName),
                 ]);
                 $child->update(['path' => CategoryPath::build($root->path, $child->id)]);
                 $maintainer->recompute($child);
-                $categories[] = $child;
+                $subcategories[$key] = $child;
             }
         }
 
-        return $categories;
+        return $subcategories;
     }
 
     /**
-     * @return list<Brand>
+     * Seven wholesale house brands, each scoped to the department(s) it
+     * plausibly supplies — invented names, not real trademarks, same
+     * reasoning `BrandFactory` uses `fake()->company()` for, just
+     * chosen deliberately instead of at random.
+     *
+     * @return array<string, Brand> keyed by the short key seedProducts()
+     *                              assigns products against
      */
     private function seedBrands(): array
     {
-        return Brand::factory()->count(5)->create()->all();
+        $brands = [
+            'lonsdale' => ['name' => 'Lonsdale Housewares', 'description' => 'Cookware and kitchen essentials for trade and retail.'],
+            'primeclean' => ['name' => 'PrimeClean', 'description' => 'Household and laundry cleaning products.'],
+            'yorkshire-paper' => ['name' => 'Yorkshire Paper Co', 'description' => 'Paper, foil and food-wrap essentials.'],
+            'kingfisher' => ['name' => 'Kingfisher Storage', 'description' => 'Practical storage solutions for home and office.'],
+            'clearline' => ['name' => 'Clearline Bathroom', 'description' => 'Bathroom accessories built to last.'],
+            'foxglove' => ['name' => 'Foxglove Stationery', 'description' => 'Office and school stationery essentials.'],
+            'bristol-party' => ['name' => 'Bristol Party Co', 'description' => 'Disposable tableware and party essentials.'],
+        ];
+
+        $created = [];
+
+        foreach ($brands as $key => $brand) {
+            $created[$key] = Brand::factory()->create([
+                'name' => $brand['name'],
+                'slug' => Str::slug($brand['name']),
+                'description' => $brand['description'],
+            ]);
+        }
+
+        return $created;
     }
 
     /**
-     * ~50 wholesale products, each with one SKU, three packs (each /
-     * inner-of-6 / outer-of-24 — 02 §5.6: a pack is a transaction unit,
-     * never a storage unit), stock on hand, and a three-rung break
-     * table (1 / 6 / 24 base units) on the shared base price list.
+     * The catalogue itself: 51 products a UK cash-and-carry would
+     * actually stock, one SKU each, real pack economics (each / inner
+     * case / outer case, sized per department rather than one-size-
+     * fits-all), and a three-rung break table on the shared base price
+     * list. `price_e4` and the pack sizes are hand-picked per product —
+     * see the class docblock for why none of this comes from Faker.
      *
-     * @param  list<Category>  $categories
-     * @param  list<Brand>  $brands
+     * @param  array<string, Category>  $categories  keyed by subcategory slug
+     * @param  array<string, Brand>  $brands  keyed by brand key
      */
     private function seedProducts(array $categories, array $brands, TaxClass $standardTaxClass, PriceList $basePriceList, Location $location): void
     {
-        for ($i = 0; $i < 50; $i++) {
-            $product = Product::factory()
-                ->withBrand($brands[array_rand($brands)])
-                ->create(['primary_category_id' => $categories[array_rand($categories)]->id]);
+        // [inner case qty, outer case qty] per subcategory — small,
+        // cheap lines (pens, tableware multipacks) sell in bigger cases
+        // than bulky items (storage boxes) do.
+        $packProfiles = [
+            'cookware' => [6, 24],
+            'kitchen-utensils' => [12, 144],
+            'food-storage' => [12, 144],
+            'household-cleaning' => [6, 24],
+            'laundry' => [6, 24],
+            'storage-boxes' => [4, 16],
+            'bathroom-accessories' => [6, 24],
+            'office-supplies' => [10, 100],
+            'writing-instruments' => [12, 144],
+            'party-tableware' => [12, 144],
+        ];
+
+        $descriptions = [
+            'cookware' => 'Durable cookware for everyday trade and retail sale.',
+            'kitchen-utensils' => 'Everyday kitchen utensils built for regular use.',
+            'food-storage' => 'Reliable food storage and wrap for the kitchen.',
+            'household-cleaning' => 'Effective household cleaning for trade and retail.',
+            'laundry' => 'Everyday laundry care essentials.',
+            'storage-boxes' => 'Sturdy storage for home, garage and office.',
+            'bathroom-accessories' => 'Practical bathroom accessories built to last.',
+            'office-supplies' => 'Office essentials for everyday business use.',
+            'writing-instruments' => 'Reliable writing instruments for office and school.',
+            'party-tableware' => 'Disposable tableware for parties and events.',
+        ];
+
+        // [sku, name, category key, brand key, price in £e4]
+        $products = [
+            ['KIT-FRY24', 'Non-Stick Frying Pan 24cm', 'cookware', 'lonsdale', 85000],
+            ['KIT-SAU18', 'Stainless Steel Saucepan 18cm', 'cookware', 'lonsdale', 67500],
+            ['KIT-CAS4L', 'Cast Iron Casserole Dish 4L', 'cookware', 'lonsdale', 149900],
+            ['KIT-BAK01', 'Non-Stick Baking Tray', 'cookware', 'lonsdale', 32500],
+            ['KIT-STP10', 'Stock Pot 10L', 'cookware', 'lonsdale', 165000],
+
+            ['KIT-UTS05', 'Stainless Steel Utensil Set 5pc', 'kitchen-utensils', 'lonsdale', 49900],
+            ['KIT-SPA01', 'Silicone Spatula', 'kitchen-utensils', 'lonsdale', 17500],
+            ['KIT-WSP03', 'Wooden Spoon Set 3pc', 'kitchen-utensils', 'lonsdale', 22500],
+            ['KIT-PEE01', 'Vegetable Peeler', 'kitchen-utensils', 'lonsdale', 9500],
+            ['KIT-SCI01', 'Kitchen Scissors', 'kitchen-utensils', 'lonsdale', 25000],
+
+            ['KIT-FST15', 'Airtight Food Container 1.5L', 'food-storage', 'kingfisher', 35000],
+            ['KIT-JAR03', 'Glass Storage Jar Set 3pc', 'food-storage', 'kingfisher', 62500],
+            ['KIT-CLF300', 'Cling Film 300m', 'food-storage', 'yorkshire-paper', 18500],
+            ['KIT-FOI45', 'Aluminium Foil 45m', 'food-storage', 'yorkshire-paper', 21500],
+            ['KIT-SAB100', 'Sandwich Bags 100pk', 'food-storage', 'yorkshire-paper', 12000],
+
+            ['CLN-MSC750', 'Multi-Surface Cleaner Spray 750ml', 'household-cleaning', 'primeclean', 11000],
+            ['CLN-BAC750', 'Bathroom Cleaner 750ml', 'household-cleaning', 'primeclean', 12500],
+            ['CLN-GLC500', 'Glass Cleaner 500ml', 'household-cleaning', 'primeclean', 9500],
+            ['CLN-MFC10', 'Microfibre Cloths 10pk', 'household-cleaning', 'primeclean', 27500],
+            ['CLN-RGL01', 'Rubber Gloves', 'household-cleaning', 'primeclean', 8500],
+            ['CLN-MOP01', 'Mop and Bucket Set', 'household-cleaning', 'primeclean', 95000],
+
+            ['CLN-LDT100', 'Laundry Detergent 100 Wash', 'laundry', 'primeclean', 69900],
+            ['CLN-FSO2L', 'Fabric Softener 2L', 'laundry', 'primeclean', 23500],
+            ['CLN-STR500', 'Stain Remover Spray 500ml', 'laundry', 'primeclean', 16500],
+            ['CLN-LBM01', 'Laundry Bags Mesh', 'laundry', 'primeclean', 14000],
+
+            ['STO-BOX35', 'Clear Plastic Storage Box 35L', 'storage-boxes', 'kingfisher', 55000],
+            ['STO-BOX60', 'Under-Bed Storage Box 60L', 'storage-boxes', 'kingfisher', 72500],
+            ['STO-CRA20', 'Stackable Storage Crate 20L', 'storage-boxes', 'kingfisher', 41000],
+            ['STO-BOX10', 'Storage Box with Lid 10L', 'storage-boxes', 'kingfisher', 26000],
+            ['STO-VAC03', 'Vacuum Storage Bags 3pk', 'storage-boxes', 'kingfisher', 37500],
+
+            ['BTH-BIN05', 'Bathroom Bin 5L', 'bathroom-accessories', 'clearline', 21000],
+            ['BTH-TBH01', 'Toilet Brush and Holder', 'bathroom-accessories', 'clearline', 24000],
+            ['BTH-SDI01', 'Soap Dispenser', 'bathroom-accessories', 'clearline', 15500],
+            ['BTH-MAT01', 'Bath Mat Non-Slip', 'bathroom-accessories', 'clearline', 42500],
+            ['BTH-CAD01', 'Shower Caddy', 'bathroom-accessories', 'clearline', 36000],
+
+            ['STA-A4P500', 'A4 Copier Paper 500 Sheets', 'office-supplies', 'foxglove', 31000],
+            ['STA-RBA401', 'Ring Binder A4', 'office-supplies', 'foxglove', 14500],
+            ['STA-LAF01', 'Lever Arch File', 'office-supplies', 'foxglove', 19000],
+            ['STA-STN12', 'Sticky Notes 3x3 12pk', 'office-supplies', 'foxglove', 22000],
+            ['STA-STP01', 'Stapler Standard', 'office-supplies', 'foxglove', 17500],
+            ['STA-PCL100', 'Paper Clips 100pk', 'office-supplies', 'foxglove', 6500],
+
+            ['STA-BPP50', 'Ballpoint Pens 50pk', 'writing-instruments', 'foxglove', 34000],
+            ['STA-PMK12', 'Permanent Markers 12pk', 'writing-instruments', 'foxglove', 46000],
+            ['STA-PEN12', 'Pencils HB 12pk', 'writing-instruments', 'foxglove', 11000],
+            ['STA-HLT06', 'Highlighters 6pk', 'writing-instruments', 'foxglove', 20500],
+
+            ['PTY-PLT50', 'Disposable Plates 8in 50pk', 'party-tableware', 'bristol-party', 27500],
+            ['PTY-NAP40', 'Paper Napkins 3-ply 40pk', 'party-tableware', 'bristol-party', 16000],
+            ['PTY-CUP50', 'Plastic Cups 200ml 50pk', 'party-tableware', 'bristol-party', 21000],
+            ['PTY-TBC01', 'Party Tablecloth', 'party-tableware', 'bristol-party', 13000],
+            ['PTY-CUT50', 'Disposable Cutlery Set 50pk', 'party-tableware', 'bristol-party', 32000],
+            ['PTY-BAL100', 'Balloons 100pk', 'party-tableware', 'bristol-party', 24500],
+        ];
+
+        foreach ($products as [$skuCode, $name, $categoryKey, $brandKey, $unitPriceE4]) {
+            [$innerQty, $outerQty] = $packProfiles[$categoryKey];
+            $description = $descriptions[$categoryKey];
+
+            $product = Product::factory()->create([
+                'name' => $name,
+                'slug' => Str::slug($name),
+                'brand_id' => $brands[$brandKey]->id,
+                'primary_category_id' => $categories[$categoryKey]->id,
+                'short_description' => $description,
+                'description' => $description,
+            ]);
 
             $sku = Sku::factory()->create([
                 'product_id' => $product->id,
+                'sku_code' => $skuCode,
                 'tax_class_id' => $standardTaxClass->id,
             ]);
 
@@ -258,13 +416,13 @@ class DemoDataSeeder extends Seeder
                 'is_default_sell' => true,
             ]);
             Pack::factory()->for($sku)->create([
-                'code' => 'INNER6',
-                'label' => 'Inner of 6',
+                'code' => "INNER{$innerQty}",
+                'label' => "Inner of {$innerQty}",
                 'pack_level' => 'inner',
-                'base_units' => 6,
+                'base_units' => $innerQty,
                 'is_default_sell' => false,
             ]);
-            Pack::factory()->for($sku)->outer(24)->create();
+            Pack::factory()->for($sku)->outer($outerQty)->create();
 
             // Resolves the skus <-> packs circular FK (02 §5.5): the SKU
             // is created first with default_pack_id null, updated once
@@ -275,18 +433,24 @@ class DemoDataSeeder extends Seeder
                 'on_hand_base_qty' => fake()->numberBetween(100, 2000),
             ]);
 
-            $unitPriceE4 = fake()->numberBetween(500, 50000); // £0.05 to £5.00 per base unit
+            // Break pricing: 5% off at the inner case, 10% off at the
+            // outer case — integer-only (CLAUDE.md invariant 1):
+            // Money::roundHalfUpDiv() on an already-integer numerator,
+            // never a float multiplication.
+            $innerPriceE4 = Money::roundHalfUpDiv($unitPriceE4 * 95, 100);
+            $outerPriceE4 = Money::roundHalfUpDiv($unitPriceE4 * 90, 100);
+
             PriceListItem::factory()->for($basePriceList, 'priceList')->for($sku)->create([
                 'min_base_qty' => 1,
                 'unit_price_e4' => $unitPriceE4,
             ]);
             PriceListItem::factory()->for($basePriceList, 'priceList')->for($sku)->create([
-                'min_base_qty' => 6,
-                'unit_price_e4' => (int) round($unitPriceE4 * 0.95),
+                'min_base_qty' => $innerQty,
+                'unit_price_e4' => $innerPriceE4,
             ]);
             PriceListItem::factory()->for($basePriceList, 'priceList')->for($sku)->create([
-                'min_base_qty' => 24,
-                'unit_price_e4' => (int) round($unitPriceE4 * 0.90),
+                'min_base_qty' => $outerQty,
+                'unit_price_e4' => $outerPriceE4,
             ]);
         }
     }
@@ -298,21 +462,21 @@ class DemoDataSeeder extends Seeder
     {
         Company::factory()->create([
             'name' => 'Northgate Wholesale Ltd',
-            'price_tier_id' => $tiers['trade']->id,
+            'price_tier_id' => $tiers['gold']->id,
             'payment_terms' => 'net30',
             'credit_limit_minor' => 2000000,
         ]);
 
         Company::factory()->create([
             'name' => 'Coastal Retail Group',
-            'price_tier_id' => $tiers['standard']->id,
+            'price_tier_id' => $tiers['silver']->id,
             'payment_terms' => 'net14',
             'credit_limit_minor' => 750000,
         ]);
 
         Company::factory()->create([
             'name' => 'Summit Trading Co',
-            'price_tier_id' => $tiers['premium']->id,
+            'price_tier_id' => $tiers['bronze']->id,
             'payment_terms' => 'prepay',
             'credit_limit_minor' => 500000,
         ]);

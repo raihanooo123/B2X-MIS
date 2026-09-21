@@ -12,11 +12,12 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Unique;
 
 /**
  * Doc 02 §5.3 — categories. Part 3: "shown as an indented tree ordered
@@ -116,6 +117,10 @@ class CategoryResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('position')
                     ->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->actions([
+                ViewAction::make(),
+                EditAction::make(),
             ])
             ->filters([
                 SelectFilter::make('status')

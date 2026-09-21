@@ -12,6 +12,8 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -99,6 +101,10 @@ class BrandResource extends Resource
                     ->label('Products')
                     ->counts('products')
                     ->toggleable(),
+            ])
+            ->actions([
+                ViewAction::make(),
+                EditAction::make(),
             ])
             ->filters([
                 SelectFilter::make('status')
