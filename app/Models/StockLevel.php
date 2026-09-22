@@ -40,6 +40,7 @@ use LogicException;
  * @property int|null $batch_id
  * @property int $allocated_base_qty
  * @property int $available_base_qty
+ * @property int $incoming_base_qty
  */
 class StockLevel extends Model
 {

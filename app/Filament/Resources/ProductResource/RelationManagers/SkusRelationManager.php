@@ -8,7 +8,6 @@ use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\CreateAction;
-use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -61,10 +60,12 @@ class SkusRelationManager extends RelationManager
                 Action::make('openFull')
                     ->label('Open')
                     ->icon('heroicon-o-arrow-top-right-on-square')
-                    ->url(fn (Sku $record): string => SkuResource::getUrl('edit', ['record' => $record]))
-                    ->tooltip('Full editing, including packs, on the standalone SKU page.'),
+                    ->url(fn (Sku $record): string => SkuResource::getUrl('view', ['record' => $record]))
+                    ->tooltip('Full detail, including packs, on the standalone SKU page.'),
                 EditAction::make(),
-                DeleteAction::make(),
+                // No delete action — nobody gets delete (SkuPolicy
+                // denies it unconditionally); archiving via `status`
+                // comes later.
             ]);
     }
 }

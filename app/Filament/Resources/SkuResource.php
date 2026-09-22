@@ -297,6 +297,7 @@ class SkuResource extends Resource
         return [
             'index' => Pages\ListSkus::route('/'),
             'create' => Pages\CreateSku::route('/create'),
+            'view' => Pages\ViewSku::route('/{record}'),
             'edit' => Pages\EditSku::route('/{record}/edit'),
         ];
     }

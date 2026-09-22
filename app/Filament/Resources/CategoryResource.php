@@ -47,8 +47,8 @@ class CategoryResource extends Resource
                         ->live(onBlur: true)
                         ->afterStateUpdated(function (Get $get, Set $set, ?string $state, ?string $old) {
                             $currentSlug = $get('slug');
-                            if ($currentSlug === null || $currentSlug === '' || $currentSlug === Str::slug($old)) {
-                                $set('slug', Str::slug($state));
+                            if ($currentSlug === null || $currentSlug === '' || $currentSlug === Str::slug($old ?? '')) {
+                                $set('slug', Str::slug($state ?? ''));
                             }
                         }),
                     TextInput::make('slug')
@@ -137,6 +137,7 @@ class CategoryResource extends Resource
         return [
             'index' => Pages\ListCategories::route('/'),
             'create' => Pages\CreateCategory::route('/create'),
+            'view' => Pages\ViewCategory::route('/{record}'),
             'edit' => Pages\EditCategory::route('/{record}/edit'),
         ];
     }

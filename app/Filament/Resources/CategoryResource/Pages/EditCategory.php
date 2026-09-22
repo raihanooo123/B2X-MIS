@@ -5,18 +5,19 @@ namespace App\Filament\Resources\CategoryResource\Pages;
 use App\Domain\Catalogue\CategoryReparenter;
 use App\Filament\Resources\CategoryResource;
 use App\Models\Category;
-use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditCategory extends EditRecord
 {
     protected static string $resource = CategoryResource::class;
 
+    /**
+     * No delete action — nobody gets delete (CategoryPolicy denies it
+     * unconditionally); archiving via `status` comes later.
+     */
     protected function getHeaderActions(): array
     {
-        return [
-            DeleteAction::make(),
-        ];
+        return [];
     }
 
     /**

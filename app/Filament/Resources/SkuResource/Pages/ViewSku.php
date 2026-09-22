@@ -3,17 +3,17 @@
 namespace App\Filament\Resources\SkuResource\Pages;
 
 use App\Filament\Resources\SkuResource;
-use Filament\Actions\CreateAction;
-use Filament\Resources\Pages\ListRecords;
+use Filament\Actions\EditAction;
+use Filament\Resources\Pages\ViewRecord;
 
-class ListSkus extends ListRecords
+class ViewSku extends ViewRecord
 {
     protected static string $resource = SkuResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            EditAction::make(),
         ];
     }
 }
