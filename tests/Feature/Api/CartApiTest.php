@@ -240,7 +240,7 @@ it('bulk-add merges a SKU that appears twice in one payload instead of rejecting
         ['sku_id' => $b->public_id, 'pack_code' => $bOuter->code, 'pack_qty' => 2],
         ['sku_id' => $a->public_id, 'pack_qty' => 4],
     ]])
-        ->assertOk()
+        ->assertCreated()
         ->assertJsonPath('data.line_count', 2);
 
     expect(CartLine::query()->where('sku_id', $a->id)->sole()->pack_qty)->toBe(5)
