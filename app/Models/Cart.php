@@ -14,6 +14,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * nullable (a guest has neither yet). `session_token` is the only identity
  * a fresh cart has, and is how a guest cart is merged onto a company/user
  * at login (05.13, pending).
+ *
+ * @property string $public_id
+ * @property string $session_token
+ * @property int|null $company_id
+ * @property int|null $user_id
  */
 class Cart extends Model
 {

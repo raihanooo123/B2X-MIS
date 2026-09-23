@@ -101,7 +101,14 @@ final class CheckoutService
         $strategy = $this->strategyFor($request);
         $strategy->validate($request);
 
-        $cart = Cart::query()->with(['lines.sku.product', 'lines.pack'])->findOrFail($request->cartId);
+        // Lines in id order — the same order CheckoutPreviewService prices
+        // them in. Spend-break apportionment distributes its rounding
+        // remainder by line position, which moves per-line tax, so an
+        // unordered load could make preview and checkout disagree by a
+        // penny (06 §16 criterion 3).
+        $cart = Cart::query()
+            ->with(['lines' => fn ($q) => $q->orderBy('id'), 'lines.sku.product', 'lines.pack'])
+            ->findOrFail($request->cartId);
 
         if ($cart->lines->isEmpty()) {
             throw new InvalidArgumentException("Cart {$request->cartId} has no lines — nothing to check out.");

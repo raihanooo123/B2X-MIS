@@ -18,6 +18,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property bool $is_stock_tracked
  * @property string $tracking_mode
  * @property bool $allow_backorder
+ * @property string $public_id
+ * @property string|null $variant_label
+ * @property int $moq_base_qty
+ * @property int $order_increment_base_qty
+ * @property int|null $max_order_base_qty
+ * @property int|null $default_pack_id
  */
 class Sku extends Model
 {

@@ -7,6 +7,7 @@ use Database\Factories\CartLineFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §14.3 — cart_lines. Deliberately not shaped like OrderLine: no
@@ -21,6 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $pack_qty
  * @property int $pack_base_units
  * @property int $base_qty
+ * @property string $public_id
+ * @property Carbon|null $updated_at
  */
 class CartLine extends Model
 {

@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $sku_id
  * @property int $base_units
  * @property string $label
+ * @property string $code
+ * @property bool $is_sellable
  */
 class Pack extends Model
 {

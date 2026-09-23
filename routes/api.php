@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CartController;
+use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use Illuminate\Support\Facades\Route;
@@ -13,4 +15,12 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function (): void {
     Route::post('/pricing/bulk-resolve', [PricingController::class, 'bulkResolve']);
     Route::get('/stock/availability', [StockController::class, 'availability']);
+
+    // 06 §8 — Cart and checkout. `{id}` is a cart line's ULID public_id.
+    Route::get('/cart', [CartController::class, 'show']);
+    Route::post('/cart/lines', [CartController::class, 'storeLine']);
+    Route::patch('/cart/lines/{id}', [CartController::class, 'updateLine'])->whereUlid('id');
+    Route::delete('/cart/lines/{id}', [CartController::class, 'destroyLine'])->whereUlid('id');
+    Route::post('/cart/bulk-add', [CartController::class, 'bulkAdd']);
+    Route::post('/checkout/preview', [CheckoutController::class, 'preview']);
 });

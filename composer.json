@@ -59,7 +59,7 @@
         ],
         "test": "php artisan test",
         "lint": "vendor/bin/pint --test app/ database/ tests/",
-        "analyse": "vendor/bin/phpstan analyse --no-progress"
+        "analyse": "vendor/bin/phpstan analyse --no-progress --memory-limit=1G"
     },
     "extra": {
         "laravel": {

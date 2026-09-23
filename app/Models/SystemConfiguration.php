@@ -12,6 +12,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * company -> location -> global -> code default. Resolution and the
  * snapshot-onto-transaction rule are domain logic and live elsewhere;
  * this model is deliberately thin.
+ *
+ * @property string $config_key
+ * @property string $scope
+ * @property int|null $value_int
  */
 class SystemConfiguration extends Model
 {

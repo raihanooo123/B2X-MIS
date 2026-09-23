@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $discount_amount_minor
  * @property int|null $max_discount_minor
  * @property bool $applies_to_contract_lines
+ * @property string $code
+ * @property string $name
  */
 class OrderSpendBreak extends Model
 {
