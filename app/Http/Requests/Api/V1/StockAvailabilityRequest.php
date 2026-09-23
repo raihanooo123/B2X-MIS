@@ -19,10 +19,14 @@ class StockAvailabilityRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $raw = (string) $this->query('sku_ids', '');
+        $raw = $this->query('sku_ids', '');
+
+        $ids = is_array($raw)
+            ? $raw
+            : explode(',', (string) $raw);
 
         $ids = array_values(array_filter(
-            array_map('trim', explode(',', $raw)),
+            array_map(fn ($id): string => trim((string) $id), $ids),
             fn (string $id): bool => $id !== '',
         ));
 

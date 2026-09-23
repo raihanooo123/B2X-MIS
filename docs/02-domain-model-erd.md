@@ -2007,6 +2007,21 @@ Each has an assertion in the test suite that the named index is used, with no se
 | Q21 | Discount authority / commission rate resolution | `category_closure_descendant_idx` + rule index | Index Only Scan, LIMIT 1 |
 | Q22 | Company fuzzy duplicate check | `companies_name_trgm_idx` | Bitmap Index Scan |
 
+> **PROPOSED AMENDMENT — awaiting sign-off (drafted 2026-09-23). Not migrated.**
+>
+> 05.1 §9 pages the order pad by keyset on `(name, id)`, but no B-tree on `products.name` exists — only `products_name_trgm` (GIN), which cannot provide ordering. Proposed:
+>
+> ```sql
+> CREATE INDEX products_active_name_idx ON products (name, id)
+>   WHERE status = 'active' AND deleted_at IS NULL;
+> ```
+>
+> | # | Query | Index | Expected plan |
+> |---|---|---|---|
+> | Q23 | Order pad: next page of active SKUs, keyset on `(p.name, p.id, s.position, s.id)` | `products_active_name_idx` → `skus_product_position_idx` | Nested Loop, Index Scan on both, no Sort node, early LIMIT |
+>
+> The pad's rows are SKUs, so the keyset tuple extends past `(name, id)` with `skus_product_position_idx`'s own `(position, id)`; the product index supplies the leading order and the SKU index the order within each product. Partial on the same predicate as `products_cat_active_idx`, so it stays proportional to the sellable catalogue. Until signed off, `App\Domain\Catalogue\OrderPadCatalogue` already sorts this way without the index (acceptable at the ~920-SKU reference catalogue; not at scale), and Q23 has no EXPLAIN assertion yet.
+
 **Performance budgets** are consolidated and authoritative in **07 §2**. The figures assumed here: Q1 under 15 ms, Q2 under 10 ms, Q3 under 40 ms, Q6 under 20 ms, Q7 under 5 ms lock hold.
 
 ---
