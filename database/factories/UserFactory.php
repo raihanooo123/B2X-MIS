@@ -48,4 +48,19 @@ class UserFactory extends Factory
             'status' => 'suspended',
         ]);
     }
+
+    /** A known TOTP secret, so tests can compute valid codes (Totp::codeAt). */
+    public const TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+    /**
+     * 2FA enrolled (05.13 §12) — required for any user holding a staff
+     * role to reach anything but enrolment (RequireStaffTwoFactor).
+     */
+    public function withTwoFactor(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'two_factor_secret' => self::TOTP_SECRET,
+            'two_factor_enabled' => true,
+        ]);
+    }
 }

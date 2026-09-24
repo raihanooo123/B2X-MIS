@@ -2,29 +2,46 @@
 
 namespace App\Domain\Ordering;
 
-use App\Models\CompanyUser;
+use App\Domain\Identity\CompanyMemberships;
+use App\Domain\Identity\Exceptions\CompanyChoiceRequiredException;
 use App\Models\User;
 
 /**
- * Maps an authenticated user onto the cart identity they act as.
+ * Maps an authenticated user onto the cart identity they act as
+ * (05.13 §6.3, §8):
  *
- * A user who belongs to several companies acts for the lowest
- * `company_id` — deterministic, but a placeholder: there is no
- * active-company switcher in any spec yet (05.13 auth/onboarding is
- * unwritten, ROADMAP §23). When one exists, this is the single place
- * that needs to learn about it.
+ *   - no active company membership → the user (a public customer, an
+ *     applicant, or staff);
+ *   - exactly one → that company;
+ *   - several → the company chosen for this session, which the caller
+ *     passes in (App\Http\Support\ActingCompany reads it from the
+ *     session). With no valid choice this throws rather than guessing —
+ *     the lowest-id placeholder it replaces put a buyer's lines in
+ *     whichever account happened to be created first.
+ *
+ * "Active" is CompanyMemberships' rule: approved or suspended companies.
  */
 final class CartOwnerResolver
 {
-    public function forUser(User $user): CartOwner
+    /**
+     * @throws CompanyChoiceRequiredException
+     */
+    public function forUser(User $user, ?int $chosenCompanyId = null): CartOwner
     {
-        $companyId = CompanyUser::query()
-            ->where('user_id', $user->id)
-            ->orderBy('company_id')
-            ->value('company_id');
+        $companyIds = CompanyMemberships::ids($user);
 
-        return $companyId !== null
-            ? CartOwner::company((int) $companyId, $user->id)
-            : CartOwner::user($user->id);
+        if ($companyIds === []) {
+            return CartOwner::user($user->id);
+        }
+
+        if (count($companyIds) === 1) {
+            return CartOwner::company($companyIds[0], $user->id);
+        }
+
+        if ($chosenCompanyId !== null && in_array($chosenCompanyId, $companyIds, true)) {
+            return CartOwner::company($chosenCompanyId, $user->id);
+        }
+
+        throw new CompanyChoiceRequiredException;
     }
 }

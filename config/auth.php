@@ -114,4 +114,13 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    | 05.13 §5.4: the offline Have I Been Pwned SHA-1 range files, refreshed
+    | quarterly by `auth:refresh-breached-passwords`.
+    */
+    'breached_passwords' => [
+        'path' => env('BREACHED_PASSWORDS_PATH', storage_path('app/breached-passwords')),
+        'source' => 'https://api.pwnedpasswords.com/range/',
+    ],
+
 ];

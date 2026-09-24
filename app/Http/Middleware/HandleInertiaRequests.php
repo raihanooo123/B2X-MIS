@@ -2,6 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Identity\CompanyMemberships;
+use App\Http\Support\ActingCompany;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -37,7 +40,36 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
-            //
+            'auth' => fn () => $this->auth($request),
+            'flash' => fn () => ['status' => $request->hasSession() ? $request->session()->get('status') : null],
+        ];
+    }
+
+    /**
+     * Who is signed in and which company they act for (05.13 §6.3) — for
+     * the account menu. Nothing sensitive: no cost, no credit figures.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function auth(Request $request): ?array
+    {
+        $user = $request->user();
+        if (! $user instanceof User || ! $request->hasSession()) {
+            return null;
+        }
+
+        $company = ActingCompany::current($request->session(), $user);
+
+        return [
+            'user' => [
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email,
+                'email_verified' => $user->hasVerifiedEmail(),
+                'two_factor_enabled' => $user->two_factor_enabled,
+            ],
+            'company' => $company === null ? null : ['id' => $company->public_id, 'name' => $company->name],
+            'can_switch_company' => count(CompanyMemberships::ids($user)) > 1,
         ];
     }
 }

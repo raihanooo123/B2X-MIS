@@ -32,7 +32,9 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    // 07 §6.1's longest idle limit (customers, 12 h). Shorter per-role
+    // limits and the 7-day absolute cap are EnforceSessionPolicy's job.
+    'lifetime' => (int) env('SESSION_LIFETIME', 720),
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 

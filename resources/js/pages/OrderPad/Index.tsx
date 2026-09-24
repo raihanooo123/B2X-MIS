@@ -28,6 +28,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import { ChevronRight, PackageSearch, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { AccountMenu } from '@/components/auth/AccountMenu';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
@@ -81,13 +82,16 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
             <Head title="Order pad" />
 
             <div className="mx-auto max-w-[1400px] px-4 pb-56 pt-4 md:pb-36">
-                <header className="mb-3 flex items-baseline justify-between gap-4">
-                    <h1 className="text-lg font-semibold tracking-tight">Order pad</h1>
-                    {rows.length > 0 && (
-                        <p className="text-xs tabular-nums text-muted-foreground">
-                            Rows {start_row.toLocaleString('en-GB')}–{lastRow.toLocaleString('en-GB')}
-                        </p>
-                    )}
+                <header className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                    <div className="flex items-baseline gap-4">
+                        <h1 className="text-lg font-semibold tracking-tight">Order pad</h1>
+                        {rows.length > 0 && (
+                            <p className="text-xs tabular-nums text-muted-foreground">
+                                Rows {start_row.toLocaleString('en-GB')}–{lastRow.toLocaleString('en-GB')}
+                            </p>
+                        )}
+                    </div>
+                    <AccountMenu />
                 </header>
 
                 <PadToolbar filters={filters} facets={facets} />

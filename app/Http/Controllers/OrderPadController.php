@@ -3,10 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Catalogue\OrderPadCatalogue;
-use App\Domain\Ordering\CartOwnerResolver;
 use App\Domain\Ordering\OrderPadTotalsContext;
 use App\Http\Requests\Web\OrderPadRequest;
-use App\Models\User;
+use App\Http\Support\CartContext;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,14 +31,15 @@ class OrderPadController extends Controller
     public function __construct(
         private readonly OrderPadCatalogue $catalogue = new OrderPadCatalogue,
         private readonly OrderPadTotalsContext $totalsContext = new OrderPadTotalsContext,
-        private readonly CartOwnerResolver $ownerResolver = new CartOwnerResolver,
+        private readonly CartContext $cartContext = new CartContext,
     ) {}
 
     public function index(OrderPadRequest $request): Response
     {
         $filters = $request->filters();
-        $user = $request->user();
-        $companyId = $user instanceof User ? $this->ownerResolver->forUser($user)->companyId : null;
+        // The company the user is acting for (05.13 §6.3) — the same one
+        // checkout preview prices against.
+        $companyId = $this->cartContext->owner($request, createGuestToken: false)?->companyId;
 
         return Inertia::render('OrderPad/Index', [
             'catalogue' => $this->catalogue->page($request->cursor(), $filters),

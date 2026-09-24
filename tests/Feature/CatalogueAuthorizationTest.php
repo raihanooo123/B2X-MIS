@@ -19,7 +19,8 @@ uses(RefreshDatabase::class);
 
 function userWithRole(?string $roleCode): User
 {
-    $user = User::factory()->create();
+    // Staff must have 2FA to reach the panel (07 §6.1, RequireStaffTwoFactor).
+    $user = $roleCode === null ? User::factory()->create() : User::factory()->withTwoFactor()->create();
 
     if ($roleCode !== null) {
         $role = Role::factory()->create(['code' => $roleCode]);

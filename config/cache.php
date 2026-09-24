@@ -15,7 +15,9 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    // Redis: 05.13 §6.2 keeps sign-in lockout counters in the cache and
+    // nowhere else, so the cache must not be the `database` store.
+    'default' => env('CACHE_STORE', 'redis'),
 
     /*
     |--------------------------------------------------------------------------

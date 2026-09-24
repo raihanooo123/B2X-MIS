@@ -955,12 +955,12 @@ completely empty except for the bare `AdminPanelProvider` with no resources regi
 
 ## 16. `07` — Non-functional requirements
 
-- [ ] **Pre-go-live — password hashing is bcrypt, not Argon2id.** `config/hashing.php`
-      does not exist, so Laravel's default driver (bcrypt) hashes every password; 07 §6.1
-      requires Argon2id. Add the config with `driver => argon2id` (and set `HASH_DRIVER`),
-      then rehash existing hashes on each user's next successful sign-in
-      (`Hash::needsRehash()`), since stored hashes cannot be converted directly. Must be
-      done before any real user sets a password. Flagged in 05.13 §19 Q15. (added 2026-09-24)
+- [x] **Pre-go-live — password hashing is bcrypt, not Argon2id.** Done 2026-09-24:
+      `config/hashing.php` sets Argon2id; bcrypt hashes rehash at next sign-in.
+- [ ] **Pre-go-live — populate the offline breached-password list.** Run
+      `php artisan auth:refresh-breached-passwords` once on the production host (hours;
+      tens of GB under `storage/app/breached-passwords`) and confirm the quarterly schedule
+      runs. Until it exists the check fails open with a `critical` log (05.13 §5.4).
 - [ ] `.github/workflows/ci.yml` — **does not exist.** Runs `composer lint`,
       `composer analyse`, `composer test`, `npm run build`, and the axe-core accessibility
       check (below) on every PR; fails the build on any CI gate from 07 §14's table.
@@ -1155,14 +1155,15 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
 
 - [x] Write `docs/05.13-auth-onboarding.md` — the three flows above, at minimum. [G6]
       Draft for review 2026-09-24; eight decisions resolved the same day (05.13 §19).
-- [ ] Sign off `docs/02-domain-model-erd.md` §17 (DRAFT) — `company_invitations`,
-      `user_two_factor_recovery_codes` — then migrate them.
-- [ ] Once signed off: controllers/Form Requests/Policies implementing it, including
-      installing Laravel Sanctum (approved stack) and the §6.3/§8.4 change to
-      `CartOwnerResolver`/`MergeGuestCartOnLogin` (merge into the *chosen* company).
-- [ ] Answer 05.13 §19's remaining open questions — Q15 (hashing, above in §16),
-      Q17 (offline breached-password list) and Q18 (lockout counter TTL; Redis cache
-      store in production) block implementation.
+- [x] Sign off `docs/02-domain-model-erd.md` §17 — `company_invitations`,
+      `user_two_factor_recovery_codes` — and migrate them. Done 2026-09-24.
+- [x] Implement 05.13: Sanctum, registration, sign-in/out, lockout, reset, verification,
+      2FA with recovery codes, company choice (guest-cart merge moved after it), session
+      limits. Done 2026-09-24 — see 05.13 §20.
+- [x] Resolve 05.13 §19 Q15/Q17/Q18. Done 2026-09-24.
+- [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
+      application form, `application_pending`/unverified-email checkout blockers, admin 2FA
+      reset and user suspension in Filament, §15 audit events (after §18's audit log).
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.

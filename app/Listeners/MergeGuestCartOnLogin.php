@@ -2,30 +2,25 @@
 
 namespace App\Listeners;
 
-use App\Domain\Ordering\CartOwnerResolver;
-use App\Domain\Ordering\CartService;
-use App\Http\Support\CartContext;
+use App\Http\Support\GuestCartMerge;
 use App\Models\User;
 use Illuminate\Auth\Events\Login;
 
 /**
- * Guest cart merge at login (02 §14.3). Runs synchronously on the
- * `Login` event, inside the login request, so the buyer's first page
- * after signing in already shows the merged cart.
+ * Guest cart merge at sign-in (02 §14.3, 05.13 §8). Runs synchronously on
+ * the `Login` event, inside the sign-in request, so the buyer's first page
+ * after signing in already shows the merged cart. SignIn fires `Login`
+ * only after the second factor (05.13 §6.1), so a password alone never
+ * moves a cart onto an account.
  *
- * The guest token is forgotten afterwards whatever the outcome: from
- * here on the cart is found by company/user, and a stale token left in
- * the session would silently start a fresh guest cart after logout.
- *
- * The merge rules themselves live in CartService::mergeGuestCart(). The
- * wider login flow (05.13 auth/onboarding, ROADMAP §23) is still
- * unwritten; this covers only the cart half of it.
+ * For a user in several companies the merge waits for the company choice
+ * (05.13 §8.4) — GuestCartMerge decides; the rules themselves live in
+ * CartService::mergeGuestCart().
  */
 final class MergeGuestCartOnLogin
 {
     public function __construct(
-        private readonly CartService $cartService = new CartService,
-        private readonly CartOwnerResolver $ownerResolver = new CartOwnerResolver,
+        private readonly GuestCartMerge $merge = new GuestCartMerge,
     ) {}
 
     public function handle(Login $event): void
@@ -38,12 +33,6 @@ final class MergeGuestCartOnLogin
             return;
         }
 
-        $token = $request->session()->pull(CartContext::SESSION_KEY);
-
-        if (! is_string($token) || $token === '') {
-            return;
-        }
-
-        $this->cartService->mergeGuestCart($token, $this->ownerResolver->forUser($event->user));
+        $this->merge->atSignIn($request->session(), $event->user);
     }
 }

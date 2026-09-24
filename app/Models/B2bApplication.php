@@ -13,6 +13,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * than a normalised structure — postcode/city inside the application need
  * to be queryable for duplicate detection, but an application isn't yet a
  * `companies`/`addresses` row.
+ *
+ * @property int $id
+ * @property string $company_name
+ * @property string $contact_email
+ * @property string $status
  */
 class B2bApplication extends Model
 {

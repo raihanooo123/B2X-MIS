@@ -2,6 +2,8 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\EnforceSessionPolicy;
+use App\Http\Middleware\RequireStaffTwoFactor;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -26,7 +28,10 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
+            // No Filament login page: staff sign in at /login like everyone
+            // else, so the lockout (05.13 §6.2) and the 2FA challenge
+            // (§12) have one implementation. Unauthenticated panel requests
+            // fall through to the named `login` route.
             ->brandName('B2X Wholesale')
             ->colors([
                 'primary' => Color::Indigo,
@@ -66,6 +71,10 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                // 07 §6.1: staff idle limits and mandatory 2FA apply in the
+                // panel exactly as on every other route (05.13 §12.1, §13).
+                EnforceSessionPolicy::class,
+                RequireStaffTwoFactor::class,
             ]);
     }
 }

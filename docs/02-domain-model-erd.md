@@ -3058,9 +3058,9 @@ None of these are resolved by the schema above; each is a judgment call flagged 
 
 ---
 
-## 17. Schema amendment 2026-09-24 — authentication and onboarding (DRAFT, awaiting sign-off)
+## 17. Schema amendment 2026-09-24 — authentication and onboarding (signed off 2026-09-24)
 
-> **Status: DRAFT — awaiting sign-off.** Nothing in §17.1–§17.2 is migrated. §17.3–§17.4 document two tables that **already exist** (migration `0001_01_01_000000_create_auth_support_tables.php`, Laravel's defaults) but were never recorded here. Sections 15 and 16 are reserved by ROADMAP for `audit_log` and `transfers`.
+> **Status: signed off 2026-09-24.** §17.1–§17.2 are migrated (`2026_10_02_090100_create_company_invitations_table.php`, `2026_10_02_090200_create_user_two_factor_recovery_codes_table.php`). §17.3–§17.4 document two tables that **already existed** (migration `0001_01_01_000000_create_auth_support_tables.php`, Laravel's defaults) but were never recorded here; they are unchanged. Sections 15 and 16 are reserved by ROADMAP for `audit_log` and `transfers`.
 
 Source: `05.13-auth-onboarding.md` (decisions of 2026-09-24): invitations get their own table (05.13 §9), TOTP needs recovery codes (05.13 §12), and password-reset tokens and sessions use Laravel's default tables (05.13 §10, §13). Policy is 07 §6.1.
 
@@ -3151,7 +3151,7 @@ CREATE INDEX user_2fa_recovery_unused_idx
 
 - **A child table, not a JSON column on `users`.** The common Laravel approach, an encrypted JSON array on `users`, rewrites the whole array to spend one code, and records neither *when* a code was used nor that it was. Here each code is a row, spent by setting `used_at`, which is both the single-use guarantee and the audit fact 05.13 §15 needs ("recovery code used").
 - **Codes are hashed with the password hasher** (Argon2id, 07 §6.1), unlike invitation tokens (§17.1). A recovery code is short enough to type from paper and so has far less entropy than a link token. It gets the same slow hash as a password. Verification compares against the user's few unused rows, found through `user_2fa_recovery_unused_idx`, so the slow hash is paid a handful of times, not across the table.
-- **A set is replaced, never topped up.** Generating new codes (at enrolment, or on request) deletes the user's unused rows and inserts a fresh set in one transaction. The set size (8 is conventional) is application configuration, not schema. Used rows remain until the set is replaced, which is enough to tell the user "you have N codes left".
+- **A set is replaced, never topped up.** Generating new codes (at enrolment, or on request) deletes **all** the user's rows — used and unused — and inserts a fresh set in one transaction, so the table only ever holds the current set. The set size (8) is application configuration (`RecoveryCodes::COUNT`), not schema. Used rows stay until then, which is enough to tell the user "you have N codes left"; the lasting record that a code was used is the audit log (05.13 §15), not this table.
 - Disabling 2FA deletes the user's rows together with clearing `two_factor_secret` and `two_factor_enabled`.
 - No `public_id`: codes are never addressed by a client (06 §2).
 

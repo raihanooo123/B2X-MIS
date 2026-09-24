@@ -16,6 +16,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * projections maintained transactionally elsewhere (05.2 §6-8) — never set
  * them directly outside that domain logic.
  *
+ * @property int $id
+ * @property string $public_id
+ * @property string $account_code
+ * @property string $name
+ * @property string $status
  * @property int $credit_limit_minor
  * @property int $credit_used_minor
  * @property int $credit_held_minor

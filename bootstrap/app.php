@@ -1,15 +1,17 @@
 <?php
 
+use App\Domain\Identity\Exceptions\CompanyChoiceRequiredException;
 use App\Http\Exceptions\ApiException;
+use App\Http\Middleware\EnforceSessionPolicy;
+use App\Http\Middleware\EnsureCompanyChosen;
 use App\Http\Middleware\HandleInertiaRequests;
-use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
-use Illuminate\Cookie\Middleware\EncryptCookies;
+use App\Http\Middleware\RequireStaffTwoFactor;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
-use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -22,24 +24,47 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // 05.13 §6.1, §12–13: session limits and account status, mandatory
+        // staff 2FA, the company choice — in that order, on every page and
+        // /api call. AuthenticateSession ends other sessions when the
+        // password changes (07 §6.1), whatever the session driver.
         $middleware->web(append: [
             HandleInertiaRequests::class,
+            AuthenticateSession::class,
+            EnforceSessionPolicy::class,
+            RequireStaffTwoFactor::class,
+            EnsureCompanyChosen::class,
         ]);
 
-        // 06 §1: the first-party SPA authenticates to /api with the
-        // session cookie + CSRF. These are the same four middleware
-        // Sanctum's stateful mode adds for first-party requests; without
-        // them `$request->user()` is always null on /api and guest carts
-        // have no session to key on. Swap for `statefulApi()` if
-        // laravel/sanctum is installed for Phase 4 token clients.
-        $middleware->api(prepend: [
-            EncryptCookies::class,
-            AddQueuedCookiesToResponse::class,
-            StartSession::class,
-            ValidateCsrfToken::class,
+        // 06 §1: the first-party app authenticates to /api with the session
+        // cookie + CSRF, through Laravel Sanctum's stateful middleware
+        // (cookies, session, CSRF, AuthenticateSession) for requests from
+        // the app's own origin (SANCTUM_STATEFUL_DOMAINS). No API tokens
+        // for first-party clients.
+        $middleware->statefulApi();
+        $middleware->api(append: [
+            EnforceSessionPolicy::class,
+            RequireStaffTwoFactor::class,
+            EnsureCompanyChosen::class,
         ]);
+
+        $middleware->redirectGuestsTo(fn () => route('login'));
+        $middleware->redirectUsersTo(fn () => route('order-pad'));
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        // 05.13 §6.3: a multi-company user who has not chosen.
+        $exceptions->render(function (CompanyChoiceRequiredException $e, Request $request) {
+            return $request->is('api/*')
+                ? ApiException::envelope($request, 409, 'company_choice_required', $e->getMessage())
+                : redirect()->guest(route('company.choose'));
+        });
+
+        $exceptions->render(function (AuthenticationException $e, Request $request) {
+            return $request->is('api/*')
+                ? ApiException::envelope($request, 401, 'unauthenticated', 'Sign in to continue.')
+                : null;
+        });
+
         // 06 §4: one error envelope for every /api failure. ApiException
         // renders itself; the framework's own failures are mapped here.
         $exceptions->render(function (ValidationException $e, Request $request) {

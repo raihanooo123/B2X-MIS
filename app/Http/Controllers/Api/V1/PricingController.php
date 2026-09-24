@@ -11,6 +11,7 @@ use App\Domain\Pricing\PriceBreak;
 use App\Domain\Pricing\ResolvedPrice;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\BulkResolveRequest;
+use App\Http\Support\CartContext;
 use App\Models\Sku;
 use Illuminate\Http\JsonResponse;
 
@@ -27,6 +28,7 @@ class PricingController extends Controller
 {
     public function __construct(
         private readonly BulkPriceResolver $bulkPriceResolver = new BulkPriceResolver,
+        private readonly CartContext $context = new CartContext,
     ) {}
 
     public function bulkResolve(BulkResolveRequest $request): JsonResponse
@@ -42,7 +44,9 @@ class PricingController extends Controller
 
         $internalIds = array_values(array_unique(array_map('intval', $internalIdByPublicId->all())));
 
-        $companyId = $request->user()?->companies()->value('companies.id');
+        // The company the user is acting for this session (05.13 §6.3),
+        // resolved exactly as the cart and checkout preview resolve it.
+        $companyId = $this->context->owner($request, createGuestToken: false)?->companyId;
 
         $resolution = $this->bulkPriceResolver->resolveMany(
             $internalIds,

@@ -34,7 +34,9 @@ final class CartContext
     {
         $user = $request->user();
         if ($user instanceof User) {
-            return $this->ownerResolver->forUser($user);
+            $chosen = $request->hasSession() ? ActingCompany::chosenId($request->session(), $user) : null;
+
+            return $this->ownerResolver->forUser($user, $chosen);
         }
 
         $session = $request->session();
