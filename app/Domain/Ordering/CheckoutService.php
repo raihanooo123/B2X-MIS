@@ -2,6 +2,7 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Billing\CardPayments;
 use App\Domain\Inventory\AllocationLine;
 use App\Domain\Inventory\AllocationService;
 use App\Domain\Inventory\DeadlockRetryPolicy;
@@ -139,6 +140,12 @@ final class CheckoutService
             throw new PriceChangedException($request->expectedTotalGrossMinor, $pricing->totalGrossMinor);
         }
 
+        // A card authorisation must cover exactly what is being charged.
+        $card = $request->cardAuthorisation;
+        if ($card !== null && ($card->amountMinor !== $pricing->totalGrossMinor || ! $card->isAuthorised())) {
+            throw new PriceChangedException($card->amountMinor, $pricing->totalGrossMinor);
+        }
+
         $defaultLocation = Location::query()->where('is_default', true)->firstOrFail();
 
         return (new DeadlockRetryPolicy)->run(
@@ -151,6 +158,13 @@ final class CheckoutService
                 $allocationLines = $this->createOrderLines($order, $cart, $pricing, $defaultLocation);
 
                 $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines);
+
+                // 07 §6.4: the authorised card payment exists with its order
+                // or not at all. No gateway call here (04 §4.4) — capture
+                // is the caller's, after commit.
+                if ($request->cardAuthorisation !== null) {
+                    CardPayments::recordAuthorisation($order->id, $request->companyId, $request->cardAuthorisation);
+                }
 
                 // Step 3 — taken last, per 02 §11.3.
                 $orderNumber = $this->numberSequenceService->next('order_number');

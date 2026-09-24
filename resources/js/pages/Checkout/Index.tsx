@@ -19,7 +19,8 @@
  * twice (06 §6).
  */
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
+import { AlertTriangle, ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
@@ -27,10 +28,12 @@ import { Field } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ApiError } from '@/lib/api/client';
-import { useCheckoutPreview, usePlaceOrder, type CheckoutPreview, type DeliveryAddressInput, type PaymentMethod, type PreviewBlocker } from '@/lib/api/checkout';
+import { createCardIntent, useCheckoutPreview, usePlaceOrder, type CheckoutPreview, type DeliveryAddressInput, type PaymentMethod, type PreviewBlocker } from '@/lib/api/checkout';
 import { useCart, type CartLine } from '@/lib/api/orderPad';
 import { lineTotalMinor, totalsRows, vatLabel, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor, subtractInts } from '@/lib/money';
+import { declineMessage, GENERAL_DECLINE } from '@/lib/payments/declines';
+import { getStripe } from '@/lib/payments/stripe';
 import { cn } from '@/lib/utils';
 
 interface SavedAddress {
@@ -55,13 +58,15 @@ interface CheckoutProps {
     addresses: SavedAddress[];
     countries: { code: string; name: string }[];
     payment_methods: { value: PaymentMethod; label: string }[];
+    /** Stripe publishable key; null when card payments are not configured. */
+    stripe_key: string | null;
 }
 
 const NEW_ADDRESS = 'new';
 
 const PAYMENT_HELP: Record<PaymentMethod, string> = {
     on_account: 'Invoiced on your account terms.',
-    card: 'Pay by card before we dispatch your order.',
+    card: 'Pay now by debit or credit card. Your card is charged when your order is placed.',
     bacs: 'Pay by bank transfer, quoting your order number. We dispatch once payment has cleared.',
 };
 
@@ -78,7 +83,22 @@ interface PriceChange {
     before: CheckoutPreview;
 }
 
+/**
+ * Stripe Elements wraps the whole form so the card field and the submit
+ * handler share one Stripe instance. With no publishable key the card
+ * option is not offered at all (CheckoutPageController).
+ */
 export default function CheckoutIndex(props: CheckoutProps) {
+    const stripePromise = useMemo(() => getStripe(props.stripe_key), [props.stripe_key]);
+
+    return (
+        <Elements stripe={stripePromise}>
+            <CheckoutForm {...props} />
+        </Elements>
+    );
+}
+
+function CheckoutForm(props: CheckoutProps) {
     const { display_mode: mode, is_trade: isTrade, addresses, countries, payment_methods: methods } = props;
     const defaultCountry = countries.find((c) => c.code === 'GB')?.code ?? countries[0]?.code ?? 'GB';
 
@@ -128,54 +148,126 @@ export default function CheckoutIndex(props: CheckoutProps) {
 
     const blockers = preview.data?.blockers ?? [];
     const addressComplete = [address.contact_name, address.line1, address.city, address.postcode, address.country_code].every((v) => v.trim() !== '');
-    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && !placeOrder.isPending;
+    const stripe = useStripe();
+    const elements = useElements();
+    const [stage, setStage] = useState<'idle' | 'authorising' | 'placing'>('idle');
+    const [cardComplete, setCardComplete] = useState(false);
+    const [cardError, setCardError] = useState<string | null>(null);
+    const payingByCard = paymentMethod === 'card';
+    const cardReady = !payingByCard || (stripe !== null && elements !== null && cardComplete);
 
-    const submit = (e: FormEvent) => {
+    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && cardReady && stage === 'idle';
+
+    const showFailure = (error: ApiError, shown: CheckoutPreview) => {
+        if (error.code === 'price_changed') {
+            const meta = error.details[0]?.meta ?? {};
+            setPriceChange({
+                expectedMinor: Number(meta.expected_total_gross_minor ?? shown.total_gross_minor),
+                actualMinor: Number(meta.actual_total_gross_minor ?? shown.total_gross_minor),
+                before: shown,
+            });
+        } else if (error.code === 'validation_failed') {
+            setFieldErrors(Object.fromEntries(error.details.filter((d) => d.field).map((d) => [String(d.field), d.message])));
+        } else if (error.code === 'card_declined') {
+            setCardError(error.message);
+        } else {
+            setFailure(error);
+        }
+        // Whatever went wrong, show the server's current view.
+        void preview.refetch();
+    };
+
+    /**
+     * Card (07 §6.4): get this total's authorisation (reused on retry, so it
+     * is never authorised twice), then let Stripe confirm the card against
+     * it — including any 3-D Secure check. A decline stops here: no order,
+     * nothing reserved, nothing charged. Returns the authorised intent's id.
+     */
+    const authoriseCard = async (expectedMinor: number): Promise<string | null> => {
+        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code });
+        if (intent.status === 'requires_capture') {
+            return intent.id;
+        }
+
+        const card = elements?.getElement(CardElement);
+        if (!stripe || !card || intent.client_secret === null) {
+            setCardError('Card payments are not available right now. Please choose another payment method.');
+
+            return null;
+        }
+
+        const result = await stripe.confirmCardPayment(intent.client_secret, {
+            payment_method: {
+                card,
+                billing_details: { name: address.contact_name, address: { line1: address.line1, city: address.city, postal_code: address.postcode, country: address.country_code } },
+            },
+        });
+
+        if (result.error) {
+            setCardError(declineMessage(result.error));
+
+            return null;
+        }
+
+        if (result.paymentIntent?.status !== 'requires_capture') {
+            setCardError(GENERAL_DECLINE);
+
+            return null;
+        }
+
+        return intent.id;
+    };
+
+    const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (!canPlace || preview.data === undefined) {
             return;
         }
 
+        const shown = preview.data;
+        setFailure(null);
+        setFieldErrors({});
+        setCardError(null);
+
+        let paymentIntentId: string | undefined;
+        if (payingByCard) {
+            setStage('authorising');
+            try {
+                paymentIntentId = (await authoriseCard(shown.total_gross_minor)) ?? undefined;
+            } catch (error) {
+                setStage('idle');
+                showFailure(error as ApiError, shown);
+
+                return;
+            }
+            if (paymentIntentId === undefined) {
+                setStage('idle');
+
+                return;
+            }
+        }
+
         const input = {
             payment_method: paymentMethod,
-            expected_total_gross_minor: preview.data.total_gross_minor,
+            expected_total_gross_minor: shown.total_gross_minor,
             customer_reference: isTrade ? reference : '',
             delivery_address: address,
+            ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
         };
         const body = JSON.stringify(input);
         if (idempotency.current?.body !== body) {
             idempotency.current = { body, key: crypto.randomUUID() };
         }
 
-        setFailure(null);
-        setFieldErrors({});
-        const shown = preview.data;
-
-        placeOrder.mutate(
-            { input, idempotencyKey: idempotency.current.key },
-            {
-                onSuccess: (order) => {
-                    setPriceChange(null);
-                    router.visit(order.confirmation_url);
-                },
-                onError: (error) => {
-                    if (error.code === 'price_changed') {
-                        const meta = error.details[0]?.meta ?? {};
-                        setPriceChange({
-                            expectedMinor: Number(meta.expected_total_gross_minor ?? shown.total_gross_minor),
-                            actualMinor: Number(meta.actual_total_gross_minor ?? shown.total_gross_minor),
-                            before: shown,
-                        });
-                    } else if (error.code === 'validation_failed') {
-                        setFieldErrors(Object.fromEntries(error.details.filter((d) => d.field).map((d) => [String(d.field), d.message])));
-                    } else {
-                        setFailure(error);
-                    }
-                    // Whatever went wrong, show the server's current view.
-                    void preview.refetch();
-                },
-            },
-        );
+        setStage('placing');
+        try {
+            const order = await placeOrder.mutateAsync({ input, idempotencyKey: idempotency.current.key });
+            setPriceChange(null);
+            router.visit(order.confirmation_url);
+        } catch (error) {
+            setStage('idle');
+            showFailure(error as ApiError, shown);
+        }
     };
 
     return (
@@ -234,6 +326,16 @@ export default function CheckoutIndex(props: CheckoutProps) {
                                 ))}
                             </fieldset>
                             {fieldErrors.payment_method && <p className="text-xs text-red-700">{fieldErrors.payment_method}</p>}
+                            {payingByCard && (
+                                <CardField
+                                    error={cardError}
+                                    disabled={stage !== 'idle'}
+                                    onChange={(complete) => {
+                                        setCardComplete(complete);
+                                        setCardError(null);
+                                    }}
+                                />
+                            )}
                             {paymentMethod === 'on_account' && preview.data?.credit && (
                                 <p className={cn('text-xs', preview.data.credit.sufficient ? 'text-muted-foreground' : 'text-red-700')}>
                                     Available credit: {formatMinor(preview.data.credit.available_minor)}
@@ -276,7 +378,11 @@ export default function CheckoutIndex(props: CheckoutProps) {
                         )}
 
                         <Button type="submit" className="h-12 w-full text-base" disabled={!canPlace}>
-                            {placeOrder.isPending ? (
+                            {stage === 'authorising' ? (
+                                <>
+                                    <Loader2 className="animate-spin" /> Checking your card…
+                                </>
+                            ) : stage === 'placing' ? (
                                 <>
                                     <Loader2 className="animate-spin" /> Placing order…
                                 </>
@@ -287,11 +393,46 @@ export default function CheckoutIndex(props: CheckoutProps) {
                             )}
                         </Button>
                         {!addressComplete && <p className="text-center text-xs text-muted-foreground">Complete the delivery address to place your order.</p>}
+                        {addressComplete && payingByCard && !cardComplete && <p className="text-center text-xs text-muted-foreground">Enter your card details to place your order.</p>}
                         <p className="text-center text-xs text-muted-foreground">Prices {vatLabel(mode)}. Delivery charges, if any, are confirmed with your order.</p>
                     </aside>
                 </form>
             </div>
         </>
+    );
+}
+
+/**
+ * The card number, expiry, CVC and postcode are Stripe's own iframe
+ * (Elements): typed there, sent to Stripe, never to this server (07 §6.4).
+ */
+function CardField({ error, disabled, onChange }: { error: string | null; disabled: boolean; onChange: (complete: boolean) => void }) {
+    const id = useId();
+
+    return (
+        <div className="space-y-1.5">
+            <label htmlFor={id} className="text-sm font-medium">
+                Card details
+            </label>
+            <div id={id} className={cn('rounded-md border border-input px-3 py-3 shadow-sm', error && 'border-red-500', disabled && 'opacity-60')}>
+                <CardElement
+                    options={{
+                        disabled,
+                        style: { base: { fontSize: '16px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0a0a0a', '::placeholder': { color: '#737373' } }, invalid: { color: '#b91c1c' } },
+                    }}
+                    onChange={(e) => onChange(e.complete)}
+                />
+            </div>
+            {error ? (
+                <p role="alert" className="text-sm text-red-700">
+                    {error}
+                </p>
+            ) : (
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Lock className="size-3" aria-hidden /> Card details go securely to our payment provider, Stripe. We never see or store your card number.
+                </p>
+            )}
+        </div>
     );
 }
 

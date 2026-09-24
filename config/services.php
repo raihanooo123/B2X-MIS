@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    // 07 §6.4: card payments through Stripe Elements (SAQ-A). `key` is the
+    // publishable key the browser uses; `secret` and `webhook_secret`
+    // never leave the server.
+    'stripe' => [
+        'key' => env('STRIPE_KEY'),
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
 ];

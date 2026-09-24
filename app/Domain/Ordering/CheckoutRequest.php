@@ -2,6 +2,8 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Billing\CardIntent;
+
 /**
  * Input to CheckoutService::checkout(). `companyId` is nullable —
  * CLAUDE.md: "Orders must work without a company... the system will
@@ -37,5 +39,11 @@ final readonly class CheckoutRequest
         public ?string $customerReference = null,
         public int $shippingNetMinor = 0,
         public ?DeliveryAddress $deliveryAddress = null,
+        /**
+         * A card payment already *authorised* for this order (07 §6.4, 04
+         * §4.4). Recorded inside the order's transaction; captured by the
+         * caller after commit.
+         */
+        public ?CardIntent $cardAuthorisation = null,
     ) {}
 }

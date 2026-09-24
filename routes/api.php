@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
+use App\Http\Controllers\Api\V1\Webhooks\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -25,4 +26,9 @@ Route::prefix('v1')->group(function (): void {
     Route::post('/checkout/preview', [CheckoutController::class, 'preview']);
     // 06 §9.3 — requires an Idempotency-Key header (06 §6).
     Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('auth');
+    // 07 §6.4 — authorise a card for the previewed total (Stripe Elements confirms it).
+    Route::post('/checkout/card-intent', [CheckoutController::class, 'cardIntent'])->middleware('auth');
+
+    // Stripe → us. Signed, not session-authenticated.
+    Route::post('/webhooks/stripe', StripeWebhookController::class)->name('webhooks.stripe');
 });

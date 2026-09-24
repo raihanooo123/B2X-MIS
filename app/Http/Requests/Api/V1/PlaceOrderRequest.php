@@ -50,6 +50,9 @@ class PlaceOrderRequest extends FormRequest
             // orders placed outside it (PaymentMethod's docblock).
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)->except([PaymentMethod::Prepay])],
             'expected_total_gross_minor' => ['required', 'integer', 'min:0'],
+            // Card only: the PaymentIntent the browser has already authorised
+            // through Stripe Elements (07 §6.4). Never card details.
+            'payment_intent_id' => ['required_if:payment_method,card', 'prohibited_unless:payment_method,card', 'nullable', 'string', 'regex:/^pi_[A-Za-z0-9]{8,64}$/'],
             'customer_reference' => ['nullable', 'string', 'max:64'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],
             'apply_account_credit' => ['sometimes', 'boolean'],
@@ -70,6 +73,13 @@ class PlaceOrderRequest extends FormRequest
     public function paymentMethod(): PaymentMethod
     {
         return PaymentMethod::from((string) $this->validated('payment_method'));
+    }
+
+    public function paymentIntentId(): ?string
+    {
+        $id = $this->validated('payment_intent_id');
+
+        return is_string($id) ? $id : null;
     }
 
     public function expectedTotalGrossMinor(): int

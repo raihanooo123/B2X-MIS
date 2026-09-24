@@ -21,6 +21,7 @@ none of the trade-only machinery (tiers, contracts, credit, multi-user accounts)
 | Frontend | Inertia.js + React (TypeScript), Tailwind, shadcn/ui, Zustand, TanStack Query, Vite |
 | Admin | FilamentPHP v3 |
 | Auth | Laravel Sanctum — session cookie + CSRF for the first-party app and admin (`06` §1, `05.13`) |
+| Payments | Stripe — `stripe/stripe-php` server-side, Stripe.js Elements (`@stripe/stripe-js`, `@stripe/react-stripe-js`) in the browser. Card data never reaches our servers (`07` §6.4, SAQ-A) |
 | Quality | Pest, PHPStan level 8, Pint |
 
 Vue, Blade page views (beyond Inertia's single unavoidable root template), MySQL/MariaDB

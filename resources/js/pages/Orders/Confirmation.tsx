@@ -41,6 +41,8 @@ interface ConfirmationProps {
         /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
         payment_method: PaymentMethod | 'prepay' | null;
         customer_reference: string | null;
+        /** The card payment, if any — brand and last four only (07 §6.4). */
+        card_payment: { status: string; card_brand: string | null; card_last4: string | null } | null;
         subtotal_net_minor: number;
         spend_break_discount_minor: number;
         shipping_net_minor: number;
@@ -64,9 +66,30 @@ function placedAt(iso: string | null): string {
     return iso === null ? '' : new Date(iso).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
 }
 
+const BRANDS: Record<string, string> = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', maestro: 'Maestro', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay' };
+
+/** "Visa ending 4242" — never more of the card than that (07 §6.4). */
+function cardDescription(card: NonNullable<ConfirmationProps['order']['card_payment']>): string {
+    const brand = card.card_brand ? (BRANDS[card.card_brand] ?? card.card_brand) : 'Card';
+
+    return card.card_last4 ? `${brand} ending ${card.card_last4}` : brand;
+}
+
 /** What the buyer should expect, by how they chose to pay. */
 function nextSteps(order: ConfirmationProps['order']): string[] {
     const common = 'We will email you when your order is dispatched.';
+
+    if (order.payment_status === 'paid' && order.card_payment) {
+        return [`Payment of ${formatMinor(order.total_gross_minor)} taken from your ${cardDescription(order.card_payment)}.`, 'We are now picking your order.', common];
+    }
+
+    if (order.card_payment?.status === 'authorized') {
+        return [
+            `Your ${cardDescription(order.card_payment)} is authorised for ${formatMinor(order.total_gross_minor)}; the payment is being completed.`,
+            'Your stock is reserved.',
+            common,
+        ];
+    }
 
     if (order.payment_status === 'on_account' || order.payment_method === 'on_account') {
         return ['Your order is confirmed and will be invoiced on your account terms.', 'We are now picking your order.', common];
@@ -107,6 +130,11 @@ export default function Confirmation({ display_mode: mode, order }: Confirmation
                             {order.placed_at && <> · {placedAt(order.placed_at)}</>}
                             {order.customer_reference && <> · Your reference {order.customer_reference}</>}
                         </p>
+                        {order.payment_status === 'paid' && (
+                            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                <CheckCircle2 className="size-3.5" aria-hidden /> Paid{order.card_payment && ` · ${cardDescription(order.card_payment)}`}
+                            </p>
+                        )}
                     </div>
                 </section>
 

@@ -59,7 +59,7 @@ function checkoutFill(User $user, int $packQty = 3): int
 }
 
 /** @return array<string, mixed> */
-function checkoutBody(int $expected, string $method = 'card', array $overrides = []): array
+function checkoutBody(int $expected, string $method = 'bacs', array $overrides = []): array
 {
     return array_replace_recursive([
         'payment_method' => $method,
@@ -94,7 +94,7 @@ it('places the order, snapshots the delivery address and empties the cart', func
         ->and($response->json('data.confirmation_url'))->toBe(route('orders.confirmation', $order->public_id))
         ->and($order->status)->toBe('confirmed')
         ->and($order->payment_status)->toBe('unpaid')
-        ->and($order->payment_method)->toBe('card')
+        ->and($order->payment_method)->toBe('bacs')
         ->and($order->customer_reference)->toBe('PO-4471')
         ->and($order->total_gross_minor)->toBe($total)
         ->and($address->address_type)->toBe('delivery')

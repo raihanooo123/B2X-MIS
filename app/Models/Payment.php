@@ -14,6 +14,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `refunded_payment_id`), never a mutated amount or a negative value on the
  * original row. Card data never stored beyond `card_brand`/`card_last4`
  * (07-nfr.md §6.4, SAQ-A scope).
+ *
+ * @property int $id
+ * @property int|null $order_id
+ * @property int|null $company_id
+ * @property string $status
+ * @property int $amount_minor
+ * @property string|null $card_brand
+ * @property string|null $card_last4
  */
 class Payment extends Model
 {

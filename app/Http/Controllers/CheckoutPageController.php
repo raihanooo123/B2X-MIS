@@ -45,22 +45,35 @@ class CheckoutPageController extends Controller
                 fn (PaymentMethod $m) => ['value' => $m->value, 'label' => $m->label()],
                 $this->paymentMethods($company),
             ),
+            // 07 §6.4: the publishable key only — Stripe Elements in the
+            // browser takes the card; the secret never leaves the server.
+            'stripe_key' => $this->cardPaymentsAvailable() ? (string) config('services.stripe.key') : null,
         ]);
     }
 
     /**
      * 05.2 §8.1: on-account first for a company on credit terms; card and
-     * BACS for everyone.
+     * BACS for everyone (card only when Stripe is configured).
      *
      * @return list<PaymentMethod>
      */
     private function paymentMethods(?Company $company): array
     {
         $onAccount = $company !== null && $company->payment_terms !== 'prepay';
-
-        return $onAccount
+        $methods = $onAccount
             ? [PaymentMethod::OnAccount, PaymentMethod::Card, PaymentMethod::Bacs]
             : [PaymentMethod::Card, PaymentMethod::Bacs];
+
+        // No card option unless Stripe is configured: never offer a payment
+        // method that cannot be taken.
+        return $this->cardPaymentsAvailable()
+            ? $methods
+            : array_values(array_filter($methods, fn (PaymentMethod $m) => $m !== PaymentMethod::Card));
+    }
+
+    private function cardPaymentsAvailable(): bool
+    {
+        return (string) config('services.stripe.key') !== '' && (string) config('services.stripe.secret') !== '';
     }
 
     /**

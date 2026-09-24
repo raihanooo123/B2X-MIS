@@ -81,12 +81,32 @@ export interface PlaceOrderInput {
     expected_total_gross_minor: number;
     customer_reference: string;
     delivery_address: DeliveryAddressInput;
+    /** Card only: the PaymentIntent the browser has authorised (07 §6.4). */
+    payment_intent_id?: string;
+}
+
+export interface CardIntent {
+    id: string;
+    client_secret: string | null;
+    /** `requires_capture` means already authorised — skip straight to placing the order. */
+    status: string;
+    amount_minor: number;
+}
+
+/**
+ * The card authorisation for the total the buyer is looking at. Reused
+ * across retries for the same cart and total, so trying again never
+ * authorises twice.
+ */
+export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string }): Promise<CardIntent> {
+    return apiRequest<{ data: CardIntent }>('/checkout/card-intent', { method: 'POST', body: input }).then((r) => r.data);
 }
 
 export interface PlacedOrder {
     id: Ulid;
     order_number: string;
     total_gross_minor: number;
+    payment_status: string;
     confirmation_url: string;
 }
 

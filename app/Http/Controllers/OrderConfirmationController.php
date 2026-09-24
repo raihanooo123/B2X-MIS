@@ -8,6 +8,7 @@ use App\Http\Support\PriceDisplay;
 use App\Models\Order;
 use App\Models\OrderAddress;
 use App\Models\OrderLine;
+use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -38,6 +39,8 @@ class OrderConfirmationController extends Controller
                 // 02 §18. Null only for orders placed before the column existed.
                 'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
                 'customer_reference' => $model->customer_reference,
+                // The card payment, if any: brand and last four only (07 §6.4).
+                'card_payment' => $this->cardPayment($model),
                 'subtotal_net_minor' => $model->subtotal_net_minor,
                 'spend_break_discount_minor' => $model->spend_break_discount_minor,
                 'shipping_net_minor' => $model->shipping_net_minor,
@@ -69,5 +72,24 @@ class OrderConfirmationController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * @return array{status: string, card_brand: string|null, card_last4: string|null}|null
+     */
+    private function cardPayment(Order $order): ?array
+    {
+        $payment = Payment::query()
+            ->where('order_id', $order->id)
+            ->where('gateway', 'stripe')
+            ->where('type', 'payment')
+            ->latest('id')
+            ->first();
+
+        return $payment === null ? null : [
+            'status' => $payment->status,
+            'card_brand' => $payment->card_brand,
+            'card_last4' => $payment->card_last4,
+        ];
     }
 }

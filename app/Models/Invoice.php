@@ -14,8 +14,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `shipments` (§14.6) is not yet signed off — so it stays a plain nullable
  * column here rather than a real `REFERENCES`, mirroring the
  * `order_lines.sku_cost_id` precedent (§8.3). `paid_minor` is a
- * projection sourced from `payment_allocations`/`payments` (§11.4), never
- * written directly outside that rebuild.
+ * projection sourced from `payment_allocations`/`payments` (§11.4): written
+ * only by the transaction that writes an allocation
+ * (PaymentAllocationService), which enforces §11.4's two invariants, or by
+ * the rebuild.
+ *
+ * @property int $id
+ * @property int $order_id
+ * @property string $status
+ * @property int $total_gross_minor
+ * @property int $paid_minor
  */
 class Invoice extends Model
 {

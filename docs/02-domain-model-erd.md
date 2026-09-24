@@ -3232,3 +3232,27 @@ ALTER TABLE orders ADD CONSTRAINT orders_payment_method_chk CHECK (
 - **Nullable**, with no default: orders placed before this amendment have no knowable method, except on-account ones, which are backfilled from `payment_status`. Every order placed through `CheckoutService` from now on writes it. A later `SET NOT NULL` is possible once no NULLs remain, via §2.5's `NOT VALID`/`VALIDATE` sequence.
 - **No index.** Nothing filters orders by method on a hot path; accounts reporting that does can use `orders_unpaid_idx` (§8.2) and filter.
 - Adding a nullable column with no default is catalogue-only in PostgreSQL — no rewrite, no long lock (07 §11.1).
+
+---
+
+## 19. Schema amendment 2026-09-24 — `payments.company_id` nullable for public customers (signed off 2026-09-24)
+
+> **Status: signed off 2026-09-24; migrated** (`2026_10_04_090100_make_payments_company_id_nullable.php`).
+
+§14.5.1 made `payments.company_id NOT NULL`, written when every buyer was a trade company. The platform now also sells to the public (01 §4, CLAUDE.md), and public customers pay by card (07 §6.4) — with no company, their payments could not be recorded at all.
+
+```sql
+ALTER TABLE payments ALTER COLUMN company_id DROP NOT NULL;
+
+ALTER TABLE payments ADD CONSTRAINT payments_owner_chk
+  CHECK (company_id IS NOT NULL OR order_id IS NOT NULL) NOT VALID;
+ALTER TABLE payments VALIDATE CONSTRAINT payments_owner_chk;
+```
+
+**Notes**
+
+- **Every payment still belongs to someone.** A trade payment carries its company, as before. A public customer's payment carries its order, and the order carries the customer (`orders.user_id`, §8.2). `payments_owner_chk` makes a payment with neither impossible to persist. The one order-less case §14.5.1 names — a company's account-balance payout (05.4 §7.5A) — always has a company.
+- **No `payments.user_id`.** The order already records the customer; a second copy on the payment could disagree with it.
+- **Public payments are never allocated to an invoice**, because `invoices.company_id` is `NOT NULL` (§14.5.2): public orders are not invoiced on account. A public card payment settles its order directly and stays unallocated in `payment_allocations`, which is correct — there is nothing on account to settle.
+- `payments_company_idx (company_id, created_at DESC)` is unchanged: B-tree indexes hold NULLs, and "a company's payments" never asks for them.
+- `NOT VALID` then `VALIDATE` adds the check without a long exclusive lock (§2.5, 07 §11.1); every existing row already has a company, so validation cannot fail.
