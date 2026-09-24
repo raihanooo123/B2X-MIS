@@ -92,6 +92,17 @@ function AddKey({ secret, otpauthUri }: { secret: string; otpauthUri: string }) 
                         Verify
                     </Button>
                 </form>
+                <p className="text-xs text-muted-foreground">
+                    This key stays the same until you set it up, even if you sign out. Codes not matching?{' '}
+                    <button
+                        type="button"
+                        className="font-medium text-foreground underline underline-offset-4"
+                        onClick={() => router.post('/two-factor/setup/reset', {}, { preserveScroll: true })}
+                    >
+                        Start again with a new key
+                    </button>{' '}
+                    — then remove the old entry from your app.
+                </p>
             </Step>
         </div>
     );

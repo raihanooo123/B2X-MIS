@@ -223,7 +223,7 @@ it('activates a pending staff user who sets their first password (§5.3)', funct
         ->and($user->fresh()->email_verified_at)->not->toBeNull();
 });
 
-it('enrols in 2FA in three steps, persisting nothing until the codes are saved', function () {
+it('enrols in 2FA in three steps, switching it on only once the codes are saved', function () {
     $user = User::factory()->create();
     $this->actingAs($user);
 

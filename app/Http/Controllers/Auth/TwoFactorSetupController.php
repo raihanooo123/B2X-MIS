@@ -19,18 +19,27 @@ use Inertia\Response;
  * 05.13 §12 — enrolling in, and managing, 2FA. Mandatory for staff
  * (RequireStaffTwoFactor sends them here), optional for everyone else.
  *
- * Enrolment is three steps, nothing persisted until the last:
- *   1. a new secret is held in the session and shown (key + otpauth link);
+ * Enrolment is three steps; 2FA is not on until the last:
+ *   1. a secret is generated once and kept on the user
+ *      (`users.two_factor_secret`, encrypted) with `two_factor_enabled`
+ *      still false, and shown as a key and an otpauth link;
  *   2. the user proves their app has it with a code → recovery codes are
- *      generated and shown, still only in the session;
- *   3. the user confirms they have saved the codes → secret, flag and
+ *      generated and shown, held only in the session;
+ *   3. the user confirms they have saved the codes → the flag and the
  *      hashed codes are written in one transaction (§12.2: "enrolment is
  *      not complete until the user confirms they have saved them").
+ *
+ * The pending secret lives on the user, not the session, on purpose. A
+ * session-held secret was replaced by a new one whenever a new session
+ * reached this page — signing in again, an idle timeout (1 h for admin),
+ * a reset ending sessions, another browser — while the authenticator
+ * (Apple Passwords, which also autofills from its first entry for the
+ * site) kept the key it was given: every code, fresh ones included, then
+ * "did not match". The key now changes only when the user asks for a new
+ * one (reset()).
  */
 class TwoFactorSetupController extends Controller
 {
-    private const SETUP_SECRET = 'auth.2fa.setup_secret';
-
     private const SETUP_CODES = 'auth.2fa.setup_codes';
 
     private const SHOW_CODES = 'auth.2fa.show_codes';
@@ -50,11 +59,7 @@ class TwoFactorSetupController extends Controller
             ]);
         }
 
-        $secret = $session->get(self::SETUP_SECRET);
-        if (! is_string($secret)) {
-            $secret = Totp::generateSecret();
-            $session->put(self::SETUP_SECRET, $secret);
-        }
+        $secret = $this->pendingSecret($user);
 
         return Inertia::render('Auth/TwoFactorSetup', [
             'enabled' => false,
@@ -67,10 +72,11 @@ class TwoFactorSetupController extends Controller
 
     public function confirm(TwoFactorCodeRequest $request): RedirectResponse
     {
-        $secret = $request->session()->get(self::SETUP_SECRET);
+        $user = $this->user($request);
+        $secret = $user->two_factor_enabled ? null : $user->two_factor_secret;
 
-        if (! is_string($secret) || ! Totp::verify($secret, $request->code())) {
-            return back()->withErrors(['code' => 'That code does not match. Check the time on your phone and try again.']);
+        if ($secret === null || ! Totp::verify($secret, $request->code())) {
+            return back()->withErrors(['code' => 'That code does not match. If you have added this account to your app more than once, use the newest entry — or start again with a new key.']);
         }
 
         $request->session()->put(self::SETUP_CODES, RecoveryCodes::generate());
@@ -83,19 +89,18 @@ class TwoFactorSetupController extends Controller
         $request->validate(['saved' => ['accepted']], ['saved.accepted' => 'Confirm you have saved your recovery codes.']);
 
         $user = $this->user($request);
-        $secret = $request->session()->get(self::SETUP_SECRET);
         $codes = $request->session()->get(self::SETUP_CODES);
 
-        if (! is_string($secret) || ! is_array($codes)) {
+        if ($user->two_factor_secret === null || ! is_array($codes)) {
             return redirect()->route('two-factor.setup');
         }
 
-        DB::transaction(function () use ($user, $secret, $codes) {
-            $user->forceFill(['two_factor_secret' => $secret, 'two_factor_enabled' => true])->save();
+        DB::transaction(function () use ($user, $codes) {
+            $user->forceFill(['two_factor_enabled' => true])->save();
             RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
         });
 
-        $request->session()->forget([self::SETUP_SECRET, self::SETUP_CODES]);
+        $request->session()->forget(self::SETUP_CODES);
         $request->session()->flash('status', 'Two-factor authentication is on.');
 
         return (new SignIn)->redirectAfter($request, $user);
@@ -125,6 +130,31 @@ class TwoFactorSetupController extends Controller
         });
 
         return redirect()->route('two-factor.setup')->with('status', 'Two-factor authentication is off.');
+    }
+
+    /**
+     * Start enrolment again with a new key — the only way the pending key
+     * changes. The page tells the user to replace the entry in their app.
+     */
+    public function reset(Request $request): RedirectResponse
+    {
+        $user = $this->user($request);
+        abort_if($user->two_factor_enabled, 409);
+
+        $user->forceFill(['two_factor_secret' => Totp::generateSecret()])->save();
+        $request->session()->forget(self::SETUP_CODES);
+
+        return redirect()->route('two-factor.setup')->with('status', 'Here is a new key. Remove the old entry from your authenticator app and add this one.');
+    }
+
+    /** The key being enrolled: generated once, then the same on every visit, session and device. */
+    private function pendingSecret(User $user): string
+    {
+        if ($user->two_factor_secret === null) {
+            $user->forceFill(['two_factor_secret' => Totp::generateSecret()])->save();
+        }
+
+        return (string) $user->two_factor_secret;
     }
 
     private function user(Request $request): User
