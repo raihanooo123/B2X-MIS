@@ -12,6 +12,12 @@
  * qualifying subtotal (contract lines excluded unless the break says
  * otherwise, stated rather than silently miscounted).
  *
+ * It also holds "Add to cart" (AddToCart.tsx) and its reconciliation
+ * result, so the button and the totals it acts on are always together.
+ * Below 768 px it condenses — the total and the button stay, the
+ * subtotal/VAT breakdown and progress bars step aside (05.1 §8.2: the
+ * footer total persists on mobile).
+ *
  * Totals are net of VAT where labelled; nothing is locked in before
  * submit (05.1 §10) — the server re-resolves at checkout.
  */
@@ -21,7 +27,9 @@ import { useMemo, type ReactNode } from 'react';
 import { formatBasisPoints, formatMinor, mulDivHalfUp, subtractInts } from '@/lib/money';
 import { baseQtyOf, recomputeBasket, type BasketLineInput, type SpendBreakRule, type TotalsContext } from '@/lib/pricing/localRecompute';
 import { cn } from '@/lib/utils';
-import { useOrderPadStore } from '@/stores/orderPadStore';
+import { typedLines, useOrderPadStore } from '@/stores/orderPadStore';
+
+import { AddToCartButton, AddToCartResult, useAddToCart } from './AddToCart';
 
 function useBasketTotals(context: TotalsContext) {
     const drafts = useOrderPadStore((s) => s.drafts);
@@ -31,16 +39,13 @@ function useBasketTotals(context: TotalsContext) {
         const inputs: BasketLineInput[] = [];
         let pending = 0;
 
-        for (const [skuId, draft] of Object.entries(drafts)) {
-            if (draft.packQty === null || draft.packBaseUnits === null) {
-                continue;
-            }
-            const linePricing = pricing[skuId];
+        for (const line of typedLines(drafts)) {
+            const linePricing = pricing[line.skuId];
             if (linePricing === undefined || linePricing === null) {
                 pending += 1;
                 continue;
             }
-            inputs.push({ key: skuId, baseQty: baseQtyOf(draft.packQty, draft.packBaseUnits), pricing: linePricing });
+            inputs.push({ key: line.skuId, baseQty: baseQtyOf(line.packQty, line.packBaseUnits), pricing: linePricing });
         }
 
         const totals = recomputeBasket(inputs, context);
@@ -68,10 +73,16 @@ export function StickyFooter({ context }: { context: TotalsContext }) {
     const { totals, unpricedCount } = useBasketTotals(context);
     const { spendBreak, spendProgress, delivery } = totals;
     const hasSpendBreaks = context.spend_breaks.length > 0;
+    const cart = useAddToCart();
 
     return (
         <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 shadow-[0_-1px_3px_rgba(0,0,0,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-            <div className="mx-auto flex max-w-[1400px] flex-col gap-3 px-4 py-2.5 text-sm md:flex-row md:items-center md:justify-between md:gap-6">
+            {cart.outcome !== null && (
+                <div className="mx-auto max-w-[1400px] px-4 pt-2.5">
+                    <AddToCartResult outcome={cart.outcome} pending={cart.pending} onDismiss={cart.dismiss} onAddAcceptable={cart.addAcceptable} />
+                </div>
+            )}
+            <div className="mx-auto flex max-w-[1400px] flex-col gap-2 px-4 py-2.5 text-sm md:flex-row md:items-center md:justify-between md:gap-6">
                 <div className="min-w-0 space-y-1.5 md:max-w-[46%]">
                     <p className="tabular-nums text-muted-foreground">
                         <span className="font-medium text-foreground">{totals.lineCount.toLocaleString('en-GB')}</span> {totals.lineCount === 1 ? 'line' : 'lines'}
@@ -127,21 +138,26 @@ export function StickyFooter({ context }: { context: TotalsContext }) {
                     )}
                 </div>
 
-                <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 self-end tabular-nums md:self-auto" aria-live="polite">
-                    <dt className="text-muted-foreground">Subtotal (ex. VAT)</dt>
-                    <dd className="text-right">{formatMinor(totals.subtotalNetMinor)}</dd>
-                    {spendBreak !== null && spendBreak.discountMinor > 0 && (
-                        <>
-                            <dt className="text-xs text-muted-foreground">incl. spend discount</dt>
-                            <dd className="text-right text-xs text-emerald-700">−{formatMinor(spendBreak.discountMinor)}</dd>
-                        </>
-                    )}
-                    <dt className="text-muted-foreground">VAT</dt>
-                    <dd className="text-right">{formatMinor(totals.taxMinor)}</dd>
-                    <dt className="font-semibold">Total</dt>
-                    <dd className="text-right text-base font-semibold">{formatMinor(totals.totalGrossMinor)}</dd>
-                    <dd className="col-span-2 text-right text-[11px] text-muted-foreground">Delivery confirmed at checkout</dd>
-                </dl>
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-6">
+                    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 tabular-nums md:grid-cols-[auto_auto]" aria-live="polite">
+                        <dt className="hidden text-muted-foreground md:block">Subtotal (ex. VAT)</dt>
+                        <dd className="hidden text-right md:block">{formatMinor(totals.subtotalNetMinor)}</dd>
+                        {spendBreak !== null && spendBreak.discountMinor > 0 && (
+                            <>
+                                <dt className="hidden text-xs text-muted-foreground md:block">incl. spend discount</dt>
+                                <dd className="hidden text-right text-xs text-emerald-700 md:block">−{formatMinor(spendBreak.discountMinor)}</dd>
+                            </>
+                        )}
+                        <dt className="hidden text-muted-foreground md:block">VAT</dt>
+                        <dd className="hidden text-right md:block">{formatMinor(totals.taxMinor)}</dd>
+                        <dt className="font-semibold">
+                            Total <span className="font-normal text-muted-foreground md:hidden">inc. VAT</span>
+                        </dt>
+                        <dd className="text-right text-base font-semibold">{formatMinor(totals.totalGrossMinor)}</dd>
+                        <dd className="col-span-2 text-right text-[11px] text-muted-foreground">Delivery confirmed at checkout</dd>
+                    </dl>
+                    <AddToCartButton count={cart.lines.length} pending={cart.pending} onClick={cart.addAll} />
+                </div>
             </div>
         </footer>
     );
@@ -160,7 +176,7 @@ function Indicator({ icon, label, reached, percent, tone }: { icon: ReactNode; l
             <span className={cn('mt-0.5 shrink-0', reached ? 'text-emerald-600' : t.icon)}>{reached ? <CircleCheck className="size-3.5" aria-hidden /> : icon}</span>
             <div className="min-w-0 flex-1">
                 <p className={cn('text-xs leading-snug sm:text-[13px]', reached && 'text-emerald-800')}>{label}</p>
-                <div className={cn('mt-1 h-1 w-full max-w-72 overflow-hidden rounded-full', t.track)} aria-hidden>
+                <div className={cn('mt-1 hidden h-1 w-full max-w-72 overflow-hidden rounded-full md:block', t.track)} aria-hidden>
                     <div className={cn('h-full rounded-full', reached ? 'bg-emerald-500' : t.bar)} style={{ width: `${percent}%` }} />
                 </div>
             </div>

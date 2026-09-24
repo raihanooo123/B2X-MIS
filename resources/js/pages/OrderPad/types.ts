@@ -13,6 +13,22 @@ export interface PadRowData {
     default_pack_code: string | null;
 }
 
+/** Echoed back normalised by OrderPadRequest; also the query-string keys. */
+export interface PadFilters {
+    q: string | null;
+    /** Category slug; includes its subcategories. */
+    category: string | null;
+    /** Brand slug. */
+    brand: string | null;
+    in_stock: boolean;
+}
+
+export interface PadFacets {
+    /** Tree order; `depth` for indenting. */
+    categories: { slug: string; name: string; depth: number }[];
+    brands: { slug: string; name: string }[];
+}
+
 export interface OrderPadProps {
     catalogue: {
         rows: PadRowData[];
@@ -21,6 +37,8 @@ export interface OrderPadProps {
         /** Opaque; pass back as ?after= to get the next page. */
         next_cursor: string | null;
     };
+    filters: PadFilters;
+    facets: PadFacets;
     page_size: number;
     /** Spend breaks and carriage-paid threshold for local recompute (OrderPadTotalsContext.php). */
     totals_context: TotalsContext;

@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Domain\Catalogue\OrderPadCatalogue;
 use App\Domain\Ordering\CartOwnerResolver;
 use App\Domain\Ordering\OrderPadTotalsContext;
+use App\Http\Requests\Web\OrderPadRequest;
 use App\Models\User;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -15,6 +15,10 @@ use Inertia\Response;
  * SKUs) arrive as Inertia props; prices, stock and the cart are fetched
  * client-side through lib/api/orderPad.ts for those SKU ids, so nothing
  * here duplicates what TanStack Query fetches.
+ *
+ * `filters` echoes the normalised search/category/brand/in-stock state
+ * back (OrderPadRequest); `facets` lists the category and brand options.
+ * The page reloads only `catalogue` and `filters` when a filter changes.
  *
  * `totals_context` is the per-order half of local recompute (spend
  * breaks, carriage-paid threshold — see OrderPadTotalsContext), resolved
@@ -31,16 +35,18 @@ class OrderPadController extends Controller
         private readonly CartOwnerResolver $ownerResolver = new CartOwnerResolver,
     ) {}
 
-    public function index(Request $request): Response
+    public function index(OrderPadRequest $request): Response
     {
-        $after = $request->query('after');
+        $filters = $request->filters();
         $user = $request->user();
         $companyId = $user instanceof User ? $this->ownerResolver->forUser($user)->companyId : null;
 
         return Inertia::render('OrderPad/Index', [
-            'catalogue' => $this->catalogue->page(is_string($after) ? $after : null),
+            'catalogue' => $this->catalogue->page($request->cursor(), $filters),
+            'filters' => $filters->toArray(),
             'page_size' => OrderPadCatalogue::PAGE_SIZE,
-            'totals_context' => $this->totalsContext->for($companyId),
+            'facets' => fn () => $this->catalogue->facets(),
+            'totals_context' => fn () => $this->totalsContext->for($companyId),
         ]);
     }
 }

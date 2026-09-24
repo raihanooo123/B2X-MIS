@@ -2,9 +2,11 @@
 
 namespace App\Domain\Catalogue;
 
+use App\Domain\Inventory\StockAvailabilityPredicate;
 use App\Models\Media;
 use App\Models\Pack;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -24,6 +26,15 @@ use Throwable;
  * OFFSET (02 §9 rule 8). The leading `products (name, id)` index does not
  * exist yet: it is drafted as a proposed 02 §10 amendment (Q23) awaiting
  * sign-off, so until then this query sorts without it.
+ *
+ * Filters (OrderPadFilters) narrow the same query rather than adding
+ * one: search is 02 §5.4a's weighted `tsvector` match or'd with
+ * substring/trigram matches on the product name and SKU code
+ * (`products_search_gin`, `products_name_trgm`, `skus_code_trgm_idx`);
+ * category takes the whole subtree through `category_closure` (Q3);
+ * brand is `products_brand_active_idx`; "in stock only" is Inventory's
+ * StockAvailabilityPredicate. Results keep the keyset order — search
+ * narrows, it does not re-rank — so paging stays keyset (05.1 §9).
  *
  * The cursor is encrypted, not base64: the keyset tuple contains internal
  * ids, which 06 §2 never exposes, and encryption also makes a
@@ -45,9 +56,9 @@ final class OrderPadCatalogue
      *     next_cursor: string|null,
      * }
      */
-    public function page(?string $cursor): array
+    public function page(?string $cursor, OrderPadFilters $filters = new OrderPadFilters): array
     {
-        $position = $this->decodeCursor($cursor);
+        $position = $this->decodeCursor($cursor, $filters->fingerprint());
 
         $query = DB::table('skus as s')
             ->join('products as p', 'p.id', '=', 's.product_id')
@@ -64,6 +75,8 @@ final class OrderPadCatalogue
                 's.id', 's.public_id', 's.sku_code', 's.variant_label', 's.default_pack_id', 's.position',
                 'p.id as product_id', 'p.name as product_name',
             ]);
+
+        $this->applyFilters($query, $filters);
 
         if ($position !== null) {
             $query->whereRaw('(p.name, p.id, s.position, s.id) > (?, ?, ?, ?)', [
@@ -115,8 +128,71 @@ final class OrderPadCatalogue
                 'sku_position' => (int) $last->position,
                 'sku_id' => (int) $last->id,
                 'rows_before' => $startRow - 1 + count($rows),
+                'filters' => $filters->fingerprint(),
             ]) : null,
         ];
+    }
+
+    /**
+     * Options for the category and brand filters: active categories in
+     * tree order (`path` is zero-padded, so lexicographic order is tree
+     * order — CategoryPath) with their depth for indenting, and active
+     * brands by name (`brands_active_idx`).
+     *
+     * @return array{categories: list<array{slug: string, name: string, depth: int}>, brands: list<array{slug: string, name: string}>}
+     */
+    public function facets(): array
+    {
+        $categories = DB::table('categories')
+            ->where('status', 'active')
+            ->orderBy('path')
+            ->orderBy('position')
+            ->orderBy('name')
+            ->get(['slug', 'name', 'depth']);
+
+        $brands = DB::table('brands')
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['slug', 'name']);
+
+        return [
+            'categories' => array_values($categories->map(fn ($c) => ['slug' => (string) $c->slug, 'name' => (string) $c->name, 'depth' => (int) $c->depth])->all()),
+            'brands' => array_values($brands->map(fn ($b) => ['slug' => (string) $b->slug, 'name' => (string) $b->name])->all()),
+        ];
+    }
+
+    private function applyFilters(Builder $query, OrderPadFilters $filters): void
+    {
+        if ($filters->search !== null) {
+            $term = $filters->search;
+            $contains = '%'.addcslashes($term, '%_\\').'%';
+
+            $query->where(function (Builder $q) use ($term, $contains) {
+                $q->whereRaw("p.search_vector @@ websearch_to_tsquery('english', ?)", [$term])
+                    ->orWhere('p.name', 'ilike', $contains)
+                    ->orWhereRaw('p.name % ?', [$term])
+                    ->orWhere('s.sku_code', 'ilike', $contains);
+            });
+        }
+
+        if ($filters->categorySlug !== null) {
+            $query->whereIn('p.primary_category_id', fn (Builder $q) => $q
+                ->select('cc.descendant_id')
+                ->from('category_closure as cc')
+                ->join('categories as c', 'c.id', '=', 'cc.ancestor_id')
+                ->where('c.slug', $filters->categorySlug));
+        }
+
+        if ($filters->brandSlug !== null) {
+            $query->whereIn('p.brand_id', fn (Builder $q) => $q
+                ->select('b.id')
+                ->from('brands as b')
+                ->where('b.slug', $filters->brandSlug));
+        }
+
+        if ($filters->inStockOnly) {
+            StockAvailabilityPredicate::whereInStock($query, 's');
+        }
     }
 
     /**
@@ -230,7 +306,7 @@ final class OrderPadCatalogue
     }
 
     /**
-     * @param  array{name: string, product_id: int, sku_position: int, sku_id: int, rows_before: int}  $position
+     * @param  array{name: string, product_id: int, sku_position: int, sku_id: int, rows_before: int, filters: string}  $position
      */
     private function encodeCursor(array $position): string
     {
@@ -240,11 +316,12 @@ final class OrderPadCatalogue
     /**
      * An unreadable cursor restarts from the first page rather than
      * erroring: it can only come from a stale link (e.g. after an APP_KEY
-     * rotation), never from a client building one.
+     * rotation), never from a client building one. A cursor minted under
+     * different filters restarts too (OrderPadFilters::fingerprint()).
      *
      * @return array{name: string, product_id: int, sku_position: int, sku_id: int, rows_before: int}|null
      */
-    private function decodeCursor(?string $cursor): ?array
+    private function decodeCursor(?string $cursor, string $filtersFingerprint): ?array
     {
         if ($cursor === null || $cursor === '') {
             return null;
@@ -261,7 +338,8 @@ final class OrderPadCatalogue
             || ! is_int($decoded['product_id'] ?? null)
             || ! is_int($decoded['sku_position'] ?? null)
             || ! is_int($decoded['sku_id'] ?? null)
-            || ! is_int($decoded['rows_before'] ?? null)) {
+            || ! is_int($decoded['rows_before'] ?? null)
+            || ($decoded['filters'] ?? null) !== $filtersFingerprint) {
             return null;
         }
 

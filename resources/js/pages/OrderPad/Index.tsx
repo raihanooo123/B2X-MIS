@@ -15,27 +15,40 @@
  * remembered per SKU in the pad store, so the sticky footer totals every
  * typed row — including rows on pages already left — with no request.
  *
- * Not yet: search/filters, bulk entry.
+ * Search and filters (PadToolbar) are server-side partial reloads; the
+ * keyboard contract (05.1 §8.1) lives in rowParts.tsx and
+ * lib/keyboard/tabOrder.ts. Below 768 px rows render as cards (PadCard,
+ * 05.1 §8.2) — one layout at a time, so quantity fields appear once in
+ * the tab order. While a new page or filter loads, the current rows stay
+ * in place, dimmed, so focus is never stolen by an async update.
+ *
+ * Not yet: paste/CSV bulk entry, saved lists, barcode scanning.
  */
 import { Head, Link, router } from '@inertiajs/react';
-import { ChevronRight, PackageSearch, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, PackageSearch, RotateCcw, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
 import { pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
+import { cn } from '@/lib/utils';
 import { useOrderPadStore } from '@/stores/orderPadStore';
 
+import { PadCard } from './components/PadCard';
 import { PadRow } from './components/PadRow';
+import { filterQuery, hasActiveFilters, PadToolbar, visitWithFilters } from './components/PadToolbar';
 import { StickyFooter } from './components/StickyFooter';
-import type { OrderPadProps } from './types';
+import type { OrderPadProps, PadFacets, PadFilters } from './types';
 
-export default function OrderPadIndex({ catalogue, page_size, totals_context }: OrderPadProps) {
+/** The table breakpoint (05.1 §8.2): Tailwind's `md`. */
+const DESKTOP_QUERY = '(min-width: 768px)';
+
+export default function OrderPadIndex({ catalogue, filters, facets, page_size, totals_context }: OrderPadProps) {
     const { rows, start_row, next_cursor } = catalogue;
     const skuIds = useMemo(() => rows.map((r) => r.sku_id), [rows]);
     const navigating = useInertiaNavigating();
+    const desktop = useMediaQuery(DESKTOP_QUERY);
 
     const prices = useBulkResolve(skuIds);
     const stock = useStockAvailability(skuIds);
@@ -56,12 +69,18 @@ export default function OrderPadIndex({ catalogue, page_size, totals_context }: 
     }, [prices.data, rememberPricing]);
 
     const lastRow = start_row + rows.length - 1;
+    const rowData = (skuId: string) => ({
+        price: priceBySku.get(skuId),
+        priceLoading: prices.isPending || prices.isPlaceholderData,
+        stock: stockBySku.get(skuId),
+        stockLoading: stock.isPending || stock.isPlaceholderData,
+    });
 
     return (
         <>
             <Head title="Order pad" />
 
-            <div className="mx-auto max-w-[1400px] px-4 pb-48 pt-4 md:pb-32">
+            <div className="mx-auto max-w-[1400px] px-4 pb-56 pt-4 md:pb-36">
                 <header className="mb-3 flex items-baseline justify-between gap-4">
                     <h1 className="text-lg font-semibold tracking-tight">Order pad</h1>
                     {rows.length > 0 && (
@@ -70,6 +89,13 @@ export default function OrderPadIndex({ catalogue, page_size, totals_context }: 
                         </p>
                     )}
                 </header>
+
+                <PadToolbar filters={filters} facets={facets} />
+                <p className="mb-2 hidden text-[11px] text-muted-foreground md:block">
+                    <Kbd>Tab</Kbd> next item · <Kbd>↑</Kbd>
+                    <Kbd>↓</Kbd> one pack more / fewer · <Kbd>Enter</Kbd> next row · <Kbd>Esc</Kbd> undo changes · <Kbd>Alt</Kbd>+<Kbd>↓</Kbd> pack size ·{' '}
+                    <Kbd>/</Kbd> search
+                </p>
 
                 {(prices.isError || stock.isError) && (
                     <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -91,9 +117,9 @@ export default function OrderPadIndex({ catalogue, page_size, totals_context }: 
                 )}
 
                 {rows.length === 0 && !navigating ? (
-                    <EmptyState onLaterPage={start_row > 1} />
-                ) : (
-                    <div className="rounded-md border">
+                    <EmptyState onLaterPage={start_row > 1} filters={filters} facets={facets} />
+                ) : desktop ? (
+                    <div className={cn('rounded-md border transition-opacity', navigating && 'opacity-60')} aria-busy={navigating}>
                         <Table>
                             <TableHeader className="sticky top-0 z-10 bg-background">
                                 <TableRow className="text-xs hover:bg-transparent">
@@ -112,35 +138,31 @@ export default function OrderPadIndex({ catalogue, page_size, totals_context }: 
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {navigating
-                                    ? Array.from({ length: Math.min(page_size, 12) }, (_, i) => <SkeletonRow key={i} />)
-                                    : rows.map((row, i) => (
-                                          <PadRow
-                                              key={row.sku_id}
-                                              row={row}
-                                              rowNumber={start_row + i}
-                                              price={priceBySku.get(row.sku_id)}
-                                              priceLoading={prices.isPending || prices.isPlaceholderData}
-                                              stock={stockBySku.get(row.sku_id)}
-                                              stockLoading={stock.isPending || stock.isPlaceholderData}
-                                          />
-                                      ))}
+                                {rows.map((row, i) => (
+                                    <PadRow key={row.sku_id} row={row} rowNumber={start_row + i} {...rowData(row.sku_id)} />
+                                ))}
                             </TableBody>
                         </Table>
                     </div>
+                ) : (
+                    <ul className={cn('space-y-2 transition-opacity', navigating && 'opacity-60')} aria-busy={navigating} aria-label="Products">
+                        {rows.map((row, i) => (
+                            <PadCard key={row.sku_id} row={row} rowNumber={start_row + i} {...rowData(row.sku_id)} />
+                        ))}
+                    </ul>
                 )}
 
                 <nav className="mt-3 flex items-center justify-between text-sm" aria-label="Pages">
                     {start_row > 1 ? (
-                        <Link href="/order-pad" className="text-muted-foreground hover:text-foreground">
+                        <Link href="/order-pad" data={filterQuery(filters)} className="inline-flex min-h-11 items-center text-muted-foreground hover:text-foreground md:min-h-0">
                             Back to first page
                         </Link>
                     ) : (
                         <span />
                     )}
                     {next_cursor !== null && (
-                        <Button asChild variant="outline" size="sm">
-                            <Link href="/order-pad" data={{ after: next_cursor }} preserveState={false}>
+                        <Button asChild variant="outline" size="sm" className="h-11 md:h-8">
+                            <Link href="/order-pad" data={{ ...filterQuery(filters), after: next_cursor }} preserveState={false}>
                                 Next {page_size} <ChevronRight />
                             </Link>
                         </Button>
@@ -174,53 +196,64 @@ function useInertiaNavigating(): boolean {
     return navigating;
 }
 
-function SkeletonRow() {
-    return (
-        <TableRow className="hover:bg-transparent">
-            <TableCell className="py-1.5">
-                <Skeleton className="ml-auto h-3 w-5" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="size-9" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-3 w-16" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-4 w-48" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-8 w-32" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="ml-auto h-4 w-16" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-3 w-28" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-4 w-20" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="h-8 w-28" />
-            </TableCell>
-            <TableCell className="py-1.5">
-                <Skeleton className="ml-auto h-4 w-12" />
-            </TableCell>
-        </TableRow>
-    );
+/** Tracks a media query; the order pad renders one layout at a time. */
+function useMediaQuery(query: string): boolean {
+    const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+    useEffect(() => {
+        const list = window.matchMedia(query);
+        const onChange = () => setMatches(list.matches);
+        onChange();
+        list.addEventListener('change', onChange);
+
+        return () => list.removeEventListener('change', onChange);
+    }, [query]);
+
+    return matches;
 }
 
-function EmptyState({ onLaterPage }: { onLaterPage: boolean }) {
+function Kbd({ children }: { children: ReactNode }) {
+    return <kbd className="mx-0.5 rounded border bg-muted px-1 font-mono text-[10px]">{children}</kbd>;
+}
+
+/** The active filters in words, for the empty state (05.1 §10). */
+function describeFilters(filters: PadFilters, facets: PadFacets): string[] {
+    const parts: string[] = [];
+    if (filters.q) parts.push(`“${filters.q}”`);
+    if (filters.category) parts.push(`in ${facets.categories.find((c) => c.slug === filters.category)?.name ?? filters.category}`);
+    if (filters.brand) parts.push(`by ${facets.brands.find((b) => b.slug === filters.brand)?.name ?? filters.brand}`);
+    if (filters.in_stock) parts.push('in stock only');
+
+    return parts;
+}
+
+function EmptyState({ onLaterPage, filters, facets }: { onLaterPage: boolean; filters: PadFilters; facets: PadFacets }) {
+    const filtered = hasActiveFilters(filters);
+
     return (
         <div className="flex flex-col items-center rounded-md border border-dashed px-6 py-16 text-center">
             <PackageSearch className="mb-3 size-8 text-muted-foreground" aria-hidden />
             {onLaterPage ? (
                 <>
-                    <h2 className="font-medium">You've reached the end of the catalogue</h2>
+                    <h2 className="font-medium">You've reached the end of the list</h2>
                     <p className="mt-1 max-w-sm text-sm text-muted-foreground">There are no more products after the last page you viewed.</p>
-                    <Button asChild variant="outline" size="sm" className="mt-4">
-                        <Link href="/order-pad">Back to the first page</Link>
+                    <Button asChild variant="outline" size="sm" className="mt-4 h-11 md:h-8">
+                        <Link href="/order-pad" data={filterQuery(filters)}>
+                            Back to the first page
+                        </Link>
+                    </Button>
+                </>
+            ) : filtered ? (
+                <>
+                    <h2 className="font-medium">No products match {describeFilters(filters, facets).join(', ')}</h2>
+                    <p className="mt-1 max-w-sm text-sm text-muted-foreground">Try a shorter search or fewer filters. Quantities you've typed are kept.</p>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-4 h-11 md:h-8"
+                        onClick={() => visitWithFilters({ q: null, category: null, brand: null, in_stock: false })}
+                    >
+                        <X /> Clear filters
                     </Button>
                 </>
             ) : (
