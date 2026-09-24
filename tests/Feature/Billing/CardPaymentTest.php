@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Billing\CardIntent;
+use App\Domain\Billing\Events\PaymentCaptured;
 use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentAllocationService;
 use App\Domain\Billing\PaymentGateway;
@@ -25,6 +26,7 @@ use App\Models\TaxClass;
 use App\Models\TaxRate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -217,6 +219,53 @@ it('places a card order, captures after commit and stores brand and last four on
         ->and($this->gateway->captured)->toBe([$intent])
         // Sits unallocated until an invoice exists.
         ->and(PaymentAllocation::query()->count())->toBe(0);
+});
+
+it('records the order paid and the payment captured after a successful card checkout, without relying on any listener', function () {
+    // Regression: a stale event cache left the PaymentCaptured listener
+    // unregistered, so orders charged at Stripe stayed `unpaid`. Faking the
+    // event proves "paid" no longer depends on anything listening for it.
+    Event::fake([PaymentCaptured::class]);
+
+    $user = cardTradeBuyer();
+    $total = cardFillCart($user);
+    $intent = cardIntentFor($user, $total);
+    $this->gateway->authorise($intent);
+
+    cardPlace($user, $total, $intent)->assertCreated()->assertJsonPath('data.payment_status', 'paid');
+
+    $order = Order::query()->sole();
+    $payment = Payment::query()->sole();
+    expect($order->payment_status)->toBe('paid')
+        ->and($payment->status)->toBe('captured')
+        ->and($payment->captured_at)->not->toBeNull()
+        ->and($payment->amount_minor)->toBe($order->total_gross_minor);
+
+    Event::assertDispatched(PaymentCaptured::class, fn (PaymentCaptured $e) => $e->orderId === $order->id);
+
+    $this->withoutVite();
+    $props = $this->actingAs($user)->get(route('orders.confirmation', $order->public_id))->viewData('page')['props'];
+    expect($props['order']['payment_status'])->toBe('paid')
+        ->and($props['order']['card_payment']['status'])->toBe('captured');
+});
+
+it('reports captured-but-unpaid drift, and corrects it only when told to', function () {
+    $user = cardTradeBuyer();
+    $total = cardFillCart($user);
+    $intent = cardIntentFor($user, $total);
+    $this->gateway->authorise($intent);
+    cardPlace($user, $total, $intent)->assertCreated();
+
+    // Reproduce the drift the stale event cache caused.
+    Order::query()->update(['payment_status' => 'unpaid']);
+
+    $this->artisan('billing:reconcile-card-payments')->assertFailed();
+    expect(Order::query()->sole()->payment_status)->toBe('unpaid');
+
+    $this->artisan('billing:reconcile-card-payments --fix')->assertSuccessful();
+    expect(Order::query()->sole()->payment_status)->toBe('paid');
+
+    $this->artisan('billing:reconcile-card-payments')->assertSuccessful();
 });
 
 it('commits nothing when the card is declined, and says why', function () {

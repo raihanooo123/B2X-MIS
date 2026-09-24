@@ -3,6 +3,7 @@
 namespace App\Domain\Billing;
 
 use App\Domain\Billing\Events\PaymentCaptured;
+use App\Domain\Ordering\OrderPayments;
 use App\Models\Payment;
 use Illuminate\Support\Facades\DB;
 
@@ -15,6 +16,10 @@ use Illuminate\Support\Facades\DB;
  * transaction, so an order and its payment exist together or not at all —
  * and moves to `captured` after the order commits, or `voided` if the
  * authorisation is released. A declined card writes nothing.
+ *
+ * Capture marks the order `paid` in the same transaction as the row
+ * (OrderPayments::markPaid), never through a listener: a payment captured
+ * at the gateway must never leave its order recorded as unpaid.
  *
  * Every transition is keyed on `payments_gateway_reference_uq` (gateway,
  * gateway_reference) and is idempotent: the checkout request and Stripe's
@@ -72,6 +77,12 @@ final class CardPayments
 
             $paymentId = (int) $payment->id;
             $orderId = $payment->order_id === null ? null : (int) $payment->order_id;
+
+            // Same transaction: captured and paid commit together.
+            if ($orderId !== null) {
+                OrderPayments::markPaid($orderId);
+            }
+
             DB::afterCommit(function () use ($paymentId, $orderId) {
                 event(new PaymentCaptured($paymentId, $orderId));
                 (new PaymentAllocationService)->allocatePayment($paymentId);

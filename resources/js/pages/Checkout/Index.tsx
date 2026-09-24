@@ -403,8 +403,9 @@ function CheckoutForm(props: CheckoutProps) {
 }
 
 /**
- * The card number, expiry, CVC and postcode are Stripe's own iframe
- * (Elements): typed there, sent to Stripe, never to this server (07 §6.4).
+ * The card number, expiry and CVC are Stripe's own iframe (Elements):
+ * typed there, sent to Stripe, never to this server (07 §6.4). The
+ * postcode comes from the delivery address rather than a second field.
  */
 function CardField({ error, disabled, onChange }: { error: string | null; disabled: boolean; onChange: (complete: boolean) => void }) {
     const id = useId();
@@ -418,6 +419,10 @@ function CardField({ error, disabled, onChange }: { error: string | null; disabl
                 <CardElement
                     options={{
                         disabled,
+                        // The delivery postcode is already collected and sent to
+                        // Stripe as the billing postcode (confirmCardPayment's
+                        // billing_details), so Elements does not ask again.
+                        hidePostalCode: true,
                         style: { base: { fontSize: '16px', fontFamily: 'Inter, system-ui, sans-serif', color: '#0a0a0a', '::placeholder': { color: '#737373' } }, invalid: { color: '#b91c1c' } },
                     }}
                     onChange={(e) => onChange(e.complete)}

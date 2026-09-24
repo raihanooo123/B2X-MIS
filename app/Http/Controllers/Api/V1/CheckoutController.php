@@ -110,7 +110,7 @@ class CheckoutController extends Controller
         }
 
         if ($card !== null) {
-            $this->capture($card->id);
+            $this->capture($card->id, $order);
             Cache::forget($this->cardIntentCacheKey($user, $cart));
         }
 
@@ -311,14 +311,38 @@ class CheckoutController extends Controller
         return $intent;
     }
 
-    /** After commit (04 §4.4). A failed capture leaves the order unpaid for a person to follow up. */
-    private function capture(string $intentId): void
+    /**
+     * After commit (04 §4.4). Two different failures, both critical:
+     *
+     *   - the gateway refused the capture → the card was not charged; the
+     *     order stays `unpaid` with the reason on the payments row;
+     *   - the gateway captured but recording it failed, or the order does
+     *     not read `paid` afterwards → money taken, order shown unpaid: a
+     *     reconciliation failure (`billing:reconcile-card-payments`). The
+     *     `payment_intent.succeeded` webhook retries the recording.
+     */
+    private function capture(string $intentId, Order $order): void
     {
         try {
-            CardPayments::markCaptured($intentId, $this->gateway()->capture($intentId));
+            $captured = $this->gateway()->capture($intentId);
         } catch (PaymentGatewayException $e) {
             CardPayments::markCaptureFailed($intentId, $e->getMessage());
-            Log::critical('Card payment authorised but capture failed; order placed unpaid.', ['payment_intent' => $intentId, 'error' => $e->getMessage()]);
+            Log::critical('Card payment authorised but capture failed; order placed unpaid.', ['payment_intent' => $intentId, 'order' => $order->order_number, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        try {
+            $payment = CardPayments::markCaptured($intentId, $captured);
+        } catch (Throwable $e) {
+            Log::critical('Card payment CAPTURED at the gateway but not recorded; order shows unpaid — reconcile.', ['payment_intent' => $intentId, 'order' => $order->order_number, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        $paid = $order->newQuery()->whereKey($order->id)->value('payment_status') === 'paid';
+        if ($payment?->status !== 'captured' || ! $paid) {
+            Log::critical('Card payment captured but the order is not recorded as paid — reconcile.', ['payment_intent' => $intentId, 'order' => $order->order_number, 'payment_status' => $payment?->status]);
         }
     }
 
