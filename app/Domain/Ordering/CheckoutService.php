@@ -19,6 +19,7 @@ use App\Models\CartLine;
 use App\Models\Company;
 use App\Models\Location;
 use App\Models\Order;
+use App\Models\OrderAddress;
 use App\Models\OrderLine;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -139,6 +140,10 @@ final class CheckoutService
         return (new DeadlockRetryPolicy)->run(
             fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation) {
                 $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request));
+
+                if ($request->deliveryAddress !== null) {
+                    OrderAddress::create(['order_id' => $order->id, 'address_type' => 'delivery'] + $request->deliveryAddress->toSnapshot());
+                }
                 $allocationLines = $this->createOrderLines($order, $cart, $pricing, $defaultLocation);
 
                 $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines);

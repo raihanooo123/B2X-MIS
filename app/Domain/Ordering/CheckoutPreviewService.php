@@ -9,13 +9,16 @@ use App\Domain\Pricing\Exceptions\NotPurchasableException;
 use App\Domain\Pricing\Exceptions\PriceUnavailableForCurrencyException;
 use App\Domain\Pricing\OrderLineRequest;
 use App\Domain\Pricing\OrderPricingPipeline;
+use App\Models\B2bApplication;
 use App\Models\Cart;
 use App\Models\CartLine;
 use App\Models\Company;
+use App\Models\CompanyUser;
 use App\Models\Location;
 use App\Models\OrderSpendBreak;
 use App\Models\StockLevel;
 use App\Models\SystemConfiguration;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use RuntimeException;
 
@@ -48,6 +51,12 @@ use RuntimeException;
  * MOQ, increment and max-order come from 05.1 §6 and are deliberately
  * not enforced by CartService (see its docblock); this is where they
  * become blocking.
+ *
+ * Who may place the order is checked here too, when the caller passes
+ * the user (05.13): a guest must sign in (§4.1), an applicant waits for
+ * approval (`application_pending`, §7), a public customer must confirm
+ * their email (`email_unverified`, §11), and a company `viewer` cannot
+ * order (05.2 §10).
  */
 final class CheckoutPreviewService
 {
@@ -64,6 +73,8 @@ final class CheckoutPreviewService
         string $deliveryCountryCode,
         string $fulfilmentType = 'delivery',
         ?CarbonImmutable $at = null,
+        ?User $user = null,
+        bool $checkIdentity = false,
     ): CheckoutPreview {
         $at ??= CarbonImmutable::now();
 
@@ -78,10 +89,13 @@ final class CheckoutPreviewService
             $blockers[] = new CheckoutBlocker('fulfilment_type', 'fulfilment_type_unsupported', "Only delivery checkout is available; '{$fulfilmentType}' is not supported yet.", ['fulfilment_type' => $fulfilmentType]);
         }
 
+        // Listed after the cart's own blockers, whatever the path out.
+        $identityBlockers = $checkIdentity ? $this->identityBlockers($user, $companyId) : [];
+
         if ($cartLines === []) {
             $blockers[] = new CheckoutBlocker(null, 'cart_empty', 'The cart is empty.');
 
-            return $this->emptyPreview($companyId, $blockers);
+            return $this->emptyPreview($companyId, [...$blockers, ...$identityBlockers]);
         }
 
         $priceable = [];
@@ -116,7 +130,7 @@ final class CheckoutPreviewService
         }
 
         if ($priceable === []) {
-            return $this->emptyPreview($companyId, $blockers, $cartLines);
+            return $this->emptyPreview($companyId, [...$blockers, ...$identityBlockers], $cartLines);
         }
 
         $pricing = $this->pricingPipeline->price(
@@ -157,8 +171,42 @@ final class CheckoutPreviewService
             accountCreditAppliedMinor: 0,
             creditAvailableMinor: $this->creditAvailableMinor($companyId),
             minimumOrderNetMinor: $minimumNetMinor,
-            blockers: $blockers,
+            blockers: [...$blockers, ...$identityBlockers],
         );
+    }
+
+    /**
+     * 05.13 §4.1, §7, §11; 05.2 §10 — whether this person may place an
+     * order at all, independent of what is in the cart.
+     *
+     * @return list<CheckoutBlocker>
+     */
+    private function identityBlockers(?User $user, ?int $companyId): array
+    {
+        if ($user === null) {
+            return [new CheckoutBlocker(null, 'sign_in_required', 'Sign in or create an account to check out.')];
+        }
+
+        if ($companyId !== null) {
+            $role = CompanyUser::query()->where('company_id', $companyId)->where('user_id', $user->id)->value('role');
+
+            return $role === 'viewer'
+                ? [new CheckoutBlocker(null, 'not_permitted_to_order', 'Your account can view prices and orders but not place them. Ask your account owner.')]
+                : [];
+        }
+
+        $applicationOpen = B2bApplication::query()
+            ->where('applicant_user_id', $user->id)
+            ->whereIn('status', ['submitted', 'in_review', 'info_requested'])
+            ->exists();
+
+        if ($applicationOpen) {
+            return [new CheckoutBlocker(null, 'application_pending', 'Your trade account application is being reviewed. You can check out once it is approved.')];
+        }
+
+        return $user->hasVerifiedEmail()
+            ? []
+            : [new CheckoutBlocker(null, 'email_unverified', 'Confirm your email address to check out — we have sent you a link.')];
     }
 
     /**

@@ -7,6 +7,9 @@ use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\Auth\TwoFactorChallengeController;
 use App\Http\Controllers\Auth\TwoFactorSetupController;
+use App\Http\Controllers\CartPageController;
+use App\Http\Controllers\CheckoutPageController;
+use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderPadController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -18,6 +21,16 @@ Route::get('/', function () {
 // Doc 05.1. No auth middleware: guests have carts too (02 §14.3) and see
 // base prices (05.13 §14).
 Route::get('/order-pad', [OrderPadController::class, 'index'])->name('order-pad');
+
+// 06 §8–9: cart (guests too — they have carts, 02 §14.3), checkout and
+// the confirmation (signed in, 05.13 §4.1).
+Route::get('/cart', [CartPageController::class, 'show'])->name('cart');
+Route::middleware('auth')->group(function (): void {
+    Route::get('/checkout', [CheckoutPageController::class, 'show'])->name('checkout');
+    Route::get('/orders/{order}/confirmation', [OrderConfirmationController::class, 'show'])
+        ->whereUlid('order')
+        ->name('orders.confirmation');
+});
 
 // Doc 05.13 — authentication and onboarding.
 Route::middleware('guest')->group(function (): void {

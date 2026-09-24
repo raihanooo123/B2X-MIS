@@ -16,6 +16,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * pack_base_units.
  *
  * `price_list_item_id` has no FK in the doc itself — not a gap.
+ *
+ * @property int $line_no
+ * @property string $sku_code_snapshot
+ * @property string $name_snapshot
+ * @property string $pack_label_snapshot
+ * @property int $pack_qty
+ * @property int $pack_base_units
+ * @property int $base_qty
+ * @property int $unit_price_net_e4
+ * @property int $tax_rate_bp
+ * @property int $line_net_minor
+ * @property int $line_tax_minor
+ * @property int $line_gross_minor
  */
 class OrderLine extends Model
 {

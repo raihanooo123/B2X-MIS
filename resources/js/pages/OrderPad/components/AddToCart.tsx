@@ -19,6 +19,7 @@
  * than silently ordered in the wrong quantity.
  */
 import { CircleAlert, CircleCheck, Loader2, ShoppingCart, X } from 'lucide-react';
+import { Link } from '@inertiajs/react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -138,6 +139,9 @@ export function AddToCartResult({ outcome, pending, onDismiss, onAddAcceptable }
                         {outcome.lines.length.toLocaleString('en-GB')} {outcome.lines.length === 1 ? 'line' : 'lines'} added to your cart.
                         {outcome.stillRefused > 0 && ` ${outcome.stillRefused} still need attention — they're flagged in the list.`}
                     </p>
+                    <Link href="/cart" className="mt-0.5 inline-block text-xs font-medium underline underline-offset-4">
+                        View cart and check out
+                    </Link>
                     <ul className="mt-1 max-h-24 overflow-y-auto text-xs">
                         {outcome.lines.map((l) => (
                             <li key={l.skuId} className="truncate">

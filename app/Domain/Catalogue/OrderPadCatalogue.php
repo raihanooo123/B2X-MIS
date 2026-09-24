@@ -3,14 +3,11 @@
 namespace App\Domain\Catalogue;
 
 use App\Domain\Inventory\StockAvailabilityPredicate;
-use App\Models\Media;
 use App\Models\Pack;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Throwable;
 
 /**
  * Doc 05.1 §9 — the order pad's "one paginated catalogue query for the
@@ -92,7 +89,7 @@ final class OrderPadCatalogue
         $productIds = array_values($skus->pluck('product_id')->map(fn ($id) => (int) $id)->unique()->all());
 
         $packsBySku = $this->sellablePacks($skuIds);
-        $thumbnails = $this->thumbnails($skuIds, $productIds);
+        $thumbnails = (new Thumbnails)->lookup($skuIds, $productIds);
 
         $startRow = ($position['rows_before'] ?? 0) + 1;
 
@@ -106,7 +103,7 @@ final class OrderPadCatalogue
                 'sku_code' => (string) $sku->sku_code,
                 'variant_label' => $sku->variant_label,
                 'product_name' => (string) $sku->product_name,
-                'thumbnail_url' => $thumbnails['sku'][$skuId] ?? $thumbnails['product'][(int) $sku->product_id] ?? null,
+                'thumbnail_url' => Thumbnails::pick($thumbnails, $skuId, (int) $sku->product_id),
                 'packs' => array_map(fn (array $p) => [
                     'code' => $p['code'],
                     'label' => $p['label'],
@@ -251,58 +248,6 @@ final class OrderPadCatalogue
         }
 
         return $packs[0]['code'] ?? null;
-    }
-
-    /**
-     * 05.1 §4.2: "From `media` for the SKU, else the product, else a
-     * neutral placeholder" — lowest `position` image wins in each case
-     * (`media_sku_idx` / `media_product_idx`). A disk that cannot build a
-     * URL (e.g. s3 unconfigured locally) yields null → placeholder, as
-     * ProductResource's thumbnail column already does.
-     *
-     * @param  list<int>  $skuIds
-     * @param  list<int>  $productIds
-     * @return array{sku: array<int, string>, product: array<int, string>}
-     */
-    private function thumbnails(array $skuIds, array $productIds): array
-    {
-        $result = ['sku' => [], 'product' => []];
-
-        if ($skuIds === []) {
-            return $result;
-        }
-
-        $media = Media::query()
-            ->where('media_type', 'image')
-            ->where(fn ($q) => $q->whereIn('sku_id', $skuIds)->orWhere(fn ($q) => $q->whereNull('sku_id')->whereIn('product_id', $productIds)))
-            ->orderBy('position')
-            ->orderBy('id')
-            ->get(['sku_id', 'product_id', 'disk', 'path']);
-
-        foreach ($media as $item) {
-            $url = $this->url((string) $item->getAttribute('disk'), (string) $item->getAttribute('path'));
-            if ($url === null) {
-                continue;
-            }
-
-            $skuId = $item->getAttribute('sku_id');
-            if ($skuId !== null) {
-                $result['sku'][(int) $skuId] ??= $url;
-            } else {
-                $result['product'][(int) $item->getAttribute('product_id')] ??= $url;
-            }
-        }
-
-        return $result;
-    }
-
-    private function url(string $disk, string $path): ?string
-    {
-        try {
-            return Storage::disk($disk)->url($path);
-        } catch (Throwable) {
-            return null;
-        }
     }
 
     /**

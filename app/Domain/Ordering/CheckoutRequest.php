@@ -16,8 +16,11 @@ namespace App\Domain\Ordering;
  * `deliveryCountryCode` has no default, for the same reason
  * OrderPricingPipeline's own parameter of the same name doesn't (see its
  * docblock): a silently-assumed country is a silently-wrong VAT rate.
- * CheckoutService has no delivery-address handling yet to derive this
- * from, so it is the caller's job to resolve it and pass it in.
+ * It is the caller's job to resolve it — from `deliveryAddress` when
+ * one is given — and pass it in.
+ *
+ * `deliveryAddress`, when given, is snapshotted onto `order_addresses`
+ * (02 §8.4) in the order's own transaction.
  */
 final readonly class CheckoutRequest
 {
@@ -32,5 +35,6 @@ final readonly class CheckoutRequest
         public string $channel = 'web',
         public ?string $customerReference = null,
         public int $shippingNetMinor = 0,
+        public ?DeliveryAddress $deliveryAddress = null,
     ) {}
 }

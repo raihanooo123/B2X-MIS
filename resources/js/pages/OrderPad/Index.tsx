@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
 import { pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
+import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { useOrderPadStore } from '@/stores/orderPadStore';
 
@@ -41,9 +42,6 @@ import { PadRow } from './components/PadRow';
 import { filterQuery, hasActiveFilters, PadToolbar, visitWithFilters } from './components/PadToolbar';
 import { StickyFooter } from './components/StickyFooter';
 import type { OrderPadProps, PadFacets, PadFilters } from './types';
-
-/** The table breakpoint (05.1 §8.2): Tailwind's `md`. */
-const DESKTOP_QUERY = '(min-width: 768px)';
 
 export default function OrderPadIndex({ catalogue, filters, facets, page_size, totals_context }: OrderPadProps) {
     const { rows, start_row, next_cursor } = catalogue;
@@ -198,22 +196,6 @@ function useInertiaNavigating(): boolean {
     }, []);
 
     return navigating;
-}
-
-/** Tracks a media query; the order pad renders one layout at a time. */
-function useMediaQuery(query: string): boolean {
-    const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-
-    useEffect(() => {
-        const list = window.matchMedia(query);
-        const onChange = () => setMatches(list.matches);
-        onChange();
-        list.addEventListener('change', onChange);
-
-        return () => list.removeEventListener('change', onChange);
-    }, [query]);
-
-    return matches;
 }
 
 function Kbd({ children }: { children: ReactNode }) {

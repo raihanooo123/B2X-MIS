@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Domain\Catalogue\Thumbnails;
 use App\Models\Cart;
 use App\Models\CartLine;
 use Illuminate\Http\Request;
@@ -47,7 +48,14 @@ class CartResource extends JsonResource
     public function toArray(Request $request): array
     {
         $cart = $this->resource;
-        $lines = $cart === null ? [] : $cart->lines->map(fn (CartLine $line) => $this->line($line))->values()->all();
+
+        // One media query for every line's thumbnail (additive field, 06 §2).
+        $thumbnails = $cart === null ? ['sku' => [], 'product' => []] : (new Thumbnails)->lookup(
+            array_values(array_unique(array_map(fn (CartLine $l) => (int) $l->sku_id, $cart->lines->all()))),
+            array_values(array_unique(array_map(fn (CartLine $l) => (int) $l->sku?->product_id, $cart->lines->all()))),
+        );
+
+        $lines = $cart === null ? [] : $cart->lines->map(fn (CartLine $line) => $this->line($line, $thumbnails))->values()->all();
 
         return [
             'id' => $cart?->public_id,
@@ -57,9 +65,10 @@ class CartResource extends JsonResource
     }
 
     /**
+     * @param  array{sku: array<int, string>, product: array<int, string>}  $thumbnails
      * @return array<string, mixed>
      */
-    private function line(CartLine $line): array
+    private function line(CartLine $line, array $thumbnails): array
     {
         $sku = $line->sku ?? throw new RuntimeException("CartLine {$line->id} has no sku loaded.");
         $pack = $line->pack ?? throw new RuntimeException("CartLine {$line->id} has no pack loaded.");
@@ -72,6 +81,7 @@ class CartResource extends JsonResource
                 'name' => $sku->product?->name,
                 'variant_label' => $sku->variant_label,
                 'status' => $sku->status,
+                'thumbnail_url' => Thumbnails::pick($thumbnails, (int) $sku->id, (int) $sku->product_id),
             ],
             'pack' => [
                 'code' => $pack->code,

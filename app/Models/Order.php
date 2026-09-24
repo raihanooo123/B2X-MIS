@@ -8,11 +8,27 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §8.2 — orders.
  *
  * `quote_id` has no FK in the doc itself — not a gap; quotes is Phase 2.
+ *
+ * @property int $id
+ * @property string $public_id
+ * @property string $order_number
+ * @property int|null $company_id
+ * @property int|null $user_id
+ * @property string $status
+ * @property string $payment_status
+ * @property string|null $customer_reference
+ * @property int $subtotal_net_minor
+ * @property int $shipping_net_minor
+ * @property int $tax_minor
+ * @property int $total_gross_minor
+ * @property int $spend_break_discount_minor
+ * @property Carbon|null $placed_at
  */
 class Order extends Model
 {

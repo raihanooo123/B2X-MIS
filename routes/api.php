@@ -23,4 +23,6 @@ Route::prefix('v1')->group(function (): void {
     Route::delete('/cart/lines/{id}', [CartController::class, 'destroyLine'])->whereUlid('id');
     Route::post('/cart/bulk-add', [CartController::class, 'bulkAdd']);
     Route::post('/checkout/preview', [CheckoutController::class, 'preview']);
+    // 06 §9.3 — requires an Idempotency-Key header (06 §6).
+    Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('auth');
 });

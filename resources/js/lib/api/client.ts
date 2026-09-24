@@ -84,6 +84,8 @@ export interface RequestOptions {
     body?: unknown;
     query?: Record<string, QueryValue | undefined>;
     signal?: AbortSignal;
+    /** Extra request headers, e.g. `Idempotency-Key` (06 §6). */
+    headers?: Record<string, string>;
 }
 
 /**
@@ -93,6 +95,7 @@ export interface RequestOptions {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const method = options.method ?? 'GET';
     const headers: Record<string, string> = {
+        ...options.headers,
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
     };

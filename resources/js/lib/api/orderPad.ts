@@ -84,6 +84,7 @@ export interface CartLine {
         name: string | null;
         variant_label: string | null;
         status: string;
+        thumbnail_url: string | null;
     };
     /** Packs are addressed by `code` within their SKU — they have no ULID. */
     pack: { code: string; label: string; base_units: number };
@@ -133,6 +134,9 @@ export const orderPadKeys = {
         [...orderPadKeys.all, 'bulk-resolve', sortedIds(skuIds), baseQty, includeBreaks] as const,
     stock: (skuIds: readonly Ulid[]) => [...orderPadKeys.all, 'stock', sortedIds(skuIds)] as const,
     cart: () => [...orderPadKeys.all, 'cart'] as const,
+    /** Every checkout preview, whatever its country — invalidated on any cart change. */
+    checkoutPreviewAll: () => [...orderPadKeys.all, 'checkout-preview'] as const,
+    checkoutPreview: (countryCode: string) => [...orderPadKeys.all, 'checkout-preview', countryCode] as const,
 };
 
 // --- Queries --------------------------------------------------------------------
@@ -197,6 +201,8 @@ function useCartMutation<TInput>(request: (input: TInput) => Promise<CartRespons
         mutationFn: (input) => request(input).then((r) => r.data),
         onSuccess: (cart) => {
             queryClient.setQueryData(orderPadKeys.cart(), cart);
+            // Totals and blockers depend on the lines — never show a stale preview.
+            void queryClient.invalidateQueries({ queryKey: orderPadKeys.checkoutPreviewAll() });
         },
     });
 }
@@ -233,6 +239,9 @@ export function useRemoveCartLine() {
 
     return useMutation<null, ApiError, Ulid>({
         mutationFn: (id) => apiRequest<null>(`/cart/lines/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: orderPadKeys.cart() }),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: orderPadKeys.cart() });
+            await queryClient.invalidateQueries({ queryKey: orderPadKeys.checkoutPreviewAll() });
+        },
     });
 }

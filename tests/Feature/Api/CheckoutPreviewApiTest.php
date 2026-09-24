@@ -215,5 +215,12 @@ it('needs a delivery country rather than assuming one', function () {
         ->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])
         ->assertOk()
         ->assertJsonPath('credit', null)
-        ->assertJsonPath('blockers', []);
+        // Priced, and nothing wrong with the cart — but a guest must sign
+        // in before checking out (05.13 §4.1).
+        ->assertJsonPath('blockers', [[
+            'field' => null,
+            'code' => 'sign_in_required',
+            'message' => 'Sign in or create an account to check out.',
+            'meta' => [],
+        ]]);
 });

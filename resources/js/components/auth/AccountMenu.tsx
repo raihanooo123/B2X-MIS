@@ -5,7 +5,7 @@
  * An unconfirmed email is flagged here, since checkout will need it.
  */
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, LogOut, MailWarning, ShieldCheck } from 'lucide-react';
+import { Building2, LogOut, MailWarning, ShieldCheck, ShoppingCart } from 'lucide-react';
 
 import type { SharedProps } from '@/types/shared';
 
@@ -16,6 +16,9 @@ export function AccountMenu() {
     if (auth === null) {
         return (
             <nav aria-label="Account" className="flex items-center gap-1 text-sm">
+                <Link href="/cart" className={linkClass}>
+                    <ShoppingCart className="size-4" aria-hidden /> Cart
+                </Link>
                 <Link href="/login" className={linkClass}>
                     Sign in
                 </Link>
@@ -40,6 +43,9 @@ export function AccountMenu() {
                     )}
                 </span>
             )}
+            <Link href="/cart" className={linkClass}>
+                <ShoppingCart className="size-4" aria-hidden /> Cart
+            </Link>
             {!auth.user.email_verified && (
                 <Link href="/email/verify" className={`${linkClass} text-amber-800`}>
                     <MailWarning className="size-4" aria-hidden /> Confirm email
