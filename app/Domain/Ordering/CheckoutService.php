@@ -99,6 +99,10 @@ final class CheckoutService
      */
     public function checkout(CheckoutRequest $request): Order
     {
+        if (PaymentMethod::tryFrom($request->paymentMethod) === null) {
+            throw new InvalidArgumentException("Unknown payment_method '{$request->paymentMethod}'.");
+        }
+
         $strategy = $this->strategyFor($request);
         $strategy->validate($request);
 
@@ -187,6 +191,8 @@ final class CheckoutService
             'channel' => $request->channel,
             'status' => 'draft',
             'payment_status' => $paymentStatus,
+            // 02 §18: what the buyer chose, so the order says how it is being paid.
+            'payment_method' => $request->paymentMethod,
             'fulfilment_type' => 'delivery',
             'currency' => 'GBP',
             'subtotal_net_minor' => $pricing->subtotalNetMinor,

@@ -9,7 +9,8 @@
  *
  * Typing a quantity recomputes locally (05.1 §5.1): the price cell moves
  * to the reached break and marks it, the line total is the item net from
- * lib/pricing/localRecompute.ts (before any order-wide spend discount,
+ * lib/pricing/localRecompute.ts — plus its VAT when prices are shown
+ * inc-VAT (`mode`, as on cart and checkout) — (before any order-wide spend discount,
  * which the footer shows), and a prompt names the next cheaper break
  * (05.1 §5.2). No request per keystroke.
  */
@@ -18,6 +19,7 @@ import { memo } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableCell, TableRow } from '@/components/ui/table';
 import type { BulkResolveEntry, StockAvailabilityEntry } from '@/lib/api/orderPad';
+import type { DisplayMode } from '@/lib/cart/display';
 import { formatMinor } from '@/lib/money';
 import { stockDisplay } from '@/lib/orderPad/display';
 import { cn } from '@/lib/utils';
@@ -32,10 +34,12 @@ export interface PadRowProps {
     priceLoading: boolean;
     stock: StockAvailabilityEntry | undefined;
     stockLoading: boolean;
+    /** Ex- or inc-VAT (PriceDisplay.php), as on the cart and checkout. */
+    mode: DisplayMode;
 }
 
-export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading, stock, stockLoading }: PadRowProps) {
-    const r = usePadRow(row, price);
+export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading, stock, stockLoading, mode }: PadRowProps) {
+    const r = usePadRow(row, price, mode);
 
     return (
         <TableRow className={cn('text-[13px]', r.rejection && 'bg-red-50/60 hover:bg-red-50')}>
@@ -86,10 +90,10 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
             ) : (
                 <>
                     <TableCell className="w-28 py-1.5">
-                        <PackPrice pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} />
+                        <PackPrice pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} mode={mode} />
                     </TableCell>
                     <TableCell className="w-44 py-1.5">
-                        <BreakList pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} />
+                        <BreakList pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} mode={mode} />
                     </TableCell>
                 </>
             )}
@@ -113,7 +117,7 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
             </TableCell>
 
             <TableCell className="w-24 py-1.5 text-right tabular-nums">
-                {r.line !== null ? <span className="font-medium">{formatMinor(r.line.itemNetMinor)}</span> : <span className="text-muted-foreground">—</span>}
+                {r.lineTotalMinor !== null ? <span className="font-medium">{formatMinor(r.lineTotalMinor)}</span> : <span className="text-muted-foreground">—</span>}
             </TableCell>
         </TableRow>
     );

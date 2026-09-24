@@ -88,7 +88,7 @@ class CheckoutController extends Controller
                 cartId: $cart->id,
                 companyId: $companyId,
                 userId: $user->id,
-                paymentMethod: $method->strategyValue(),
+                paymentMethod: $method->value,
                 expectedTotalGrossMinor: $request->expectedTotalGrossMinor(),
                 deliveryCountryCode: $address->countryCode,
                 customerReference: $request->customerReference(),
@@ -123,10 +123,6 @@ class CheckoutController extends Controller
         } catch (BatchTrackedCheckoutNotSupportedException) {
             throw new ApiException(422, 'batch_tracked_not_supported', 'An item in your cart cannot be checked out online yet.');
         }
-
-        // `orders` has no payment-method column; the confirmation page reads
-        // it from here for the "what happens next" text.
-        $request->session()->put("checkout.payment_method.{$order->public_id}", $method->value);
 
         return response()->json(['data' => [
             'id' => $order->public_id,

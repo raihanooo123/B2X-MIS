@@ -46,7 +46,9 @@ class PlaceOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'payment_method' => ['required', Rule::enum(PaymentMethod::class)],
+            // Web checkout offers the buyer's real choice; `prepay` is for
+            // orders placed outside it (PaymentMethod's docblock).
+            'payment_method' => ['required', Rule::enum(PaymentMethod::class)->except([PaymentMethod::Prepay])],
             'expected_total_gross_minor' => ['required', 'integer', 'min:0'],
             'customer_reference' => ['nullable', 'string', 'max:64'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],

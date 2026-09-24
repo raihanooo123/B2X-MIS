@@ -24,6 +24,8 @@ import type { BulkResolveEntry } from '@/lib/api/orderPad';
 import { commitAndAdvance } from '@/lib/keyboard/tabOrder';
 import { nextBreakPrompt, packBreakRows, packNoun, packPriceDisplay, type PadPack, type StockDisplay, type StockTone } from '@/lib/orderPad/display';
 import { baseQtyOf, linePrice, pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
+import { type DisplayMode } from '@/lib/cart/display';
+import { lineTaxMinor, sumInts } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { useOrderPadStore, useRowDraft, useRowRejection } from '@/stores/orderPadStore';
 
@@ -37,7 +39,7 @@ const VISIBLE_BREAKS = 3;
 /** `touch` is the mobile card: 44 px targets (05.1 §8.2). */
 export type ControlSize = 'dense' | 'touch';
 
-export function usePadRow(row: PadRowData, price: BulkResolveEntry | undefined) {
+export function usePadRow(row: PadRowData, price: BulkResolveEntry | undefined, mode: DisplayMode) {
     const draft = useRowDraft(row.sku_id);
     const rejection = useRowRejection(row.sku_id);
     const setPack = useOrderPadStore((s) => s.setPack);
@@ -49,7 +51,11 @@ export function usePadRow(row: PadRowData, price: BulkResolveEntry | undefined) 
     const pricing = useMemo(() => pricingFromEntry(price), [price]);
     const baseQty = pack !== undefined && draft.packQty !== null ? baseQtyOf(draft.packQty, pack.base_units) : null;
     const line = pricing !== null && baseQty !== null ? linePrice(pricing, baseQty) : null;
-    const prompt = pricing !== null && pack !== undefined && draft.packQty !== null ? nextBreakPrompt(pricing.breaks, pack, draft.packQty) : null;
+    const prompt = pricing !== null && pack !== undefined && draft.packQty !== null ? nextBreakPrompt(pricing.breaks, pack, draft.packQty, { mode, taxRateBp: pricing.taxRateBp }) : null;
+    // Inc-VAT: the line's item net plus VAT on it, per line as checkout
+    // computes it (03 §7A.4). Before any order-wide spend discount, which
+    // the footer shows.
+    const lineTotalMinor = line === null || pricing === null ? null : mode === 'gross' ? sumInts([line.itemNetMinor, lineTaxMinor(line.itemNetMinor, pricing.taxRateBp)]) : line.itemNetMinor;
 
     const [packOpen, setPackOpen] = useState(false);
     const qtyRef = useRef<HTMLInputElement>(null);
@@ -60,6 +66,7 @@ export function usePadRow(row: PadRowData, price: BulkResolveEntry | undefined) 
         pack,
         pricing,
         line,
+        lineTotalMinor,
         prompt,
         packOpen,
         setPackOpen,
@@ -252,8 +259,8 @@ export function QuantityStepper({ value, onChange, disabled, label, inputRef, on
 }
 
 /** Pack price at the reached break, with the unit price beneath (05.1 §4.2). */
-export function PackPrice({ pricing, pack, packQty, align = 'right' }: { pricing: LinePricing; pack: PadPack; packQty: number | null; align?: 'left' | 'right' }) {
-    const display = packPriceDisplay(pricing.breaks, pack, packQty === null ? pack.base_units : baseQtyOf(packQty, pack.base_units));
+export function PackPrice({ pricing, pack, packQty, mode, align = 'right' }: { pricing: LinePricing; pack: PadPack; packQty: number | null; mode: DisplayMode; align?: 'left' | 'right' }) {
+    const display = packPriceDisplay(pricing.breaks, pack, packQty === null ? pack.base_units : baseQtyOf(packQty, pack.base_units), { mode, taxRateBp: pricing.taxRateBp });
     if (display === null) {
         return <span className="text-xs text-muted-foreground">Price unavailable</span>;
     }
@@ -270,8 +277,8 @@ export function PackPrice({ pricing, pack, packQty, align = 'right' }: { pricing
 }
 
 /** The break ladder in packs, the reached row marked (05.1 §5.2). */
-export function BreakList({ pricing, pack, packQty }: { pricing: LinePricing; pack: PadPack; packQty: number | null }) {
-    const rows = packBreakRows(pricing.breaks, pack);
+export function BreakList({ pricing, pack, packQty, mode }: { pricing: LinePricing; pack: PadPack; packQty: number | null; mode: DisplayMode }) {
+    const rows = packBreakRows(pricing.breaks, pack, { mode, taxRateBp: pricing.taxRateBp });
     if (rows.length <= 1) {
         return <span className="text-xs text-muted-foreground">No volume breaks</span>;
     }

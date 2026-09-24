@@ -16,8 +16,8 @@ import { cn } from '@/lib/utils';
 import type { PadRowProps } from './PadRow';
 import { BreakList, PackPrice, PackSelector, QuantityStepper, RowNotes, StockCell, Thumbnail, usePadRow } from './rowParts';
 
-export const PadCard = memo(function PadCard({ row, rowNumber, price, priceLoading, stock, stockLoading }: PadRowProps) {
-    const r = usePadRow(row, price);
+export const PadCard = memo(function PadCard({ row, rowNumber, price, priceLoading, stock, stockLoading, mode }: PadRowProps) {
+    const r = usePadRow(row, price, mode);
 
     return (
         <li className={cn('rounded-lg border bg-card p-3 text-[13px] shadow-sm', r.rejection && 'border-red-300 bg-red-50/60')}>
@@ -37,13 +37,13 @@ export const PadCard = memo(function PadCard({ row, rowNumber, price, priceLoadi
                     ) : r.pricing === null ? (
                         <span className="text-xs text-muted-foreground">Price unavailable</span>
                     ) : (
-                        <PackPrice pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} />
+                        <PackPrice pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} mode={mode} />
                     )}
                 </div>
             </div>
 
             <div className="mt-2 flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">{r.pack && r.pricing && <BreakList pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} />}</div>
+                <div className="min-w-0 flex-1">{r.pack && r.pricing && <BreakList pricing={r.pricing} pack={r.pack} packQty={r.draft.packQty} mode={mode} />}</div>
                 <div className="shrink-0">{stockLoading ? <Skeleton className="h-4 w-20" /> : r.pack && <StockCell display={stockDisplay(stock, r.pack)} />}</div>
             </div>
 
@@ -81,7 +81,7 @@ export const PadCard = memo(function PadCard({ row, rowNumber, price, priceLoadi
                 </div>
                 <div className="shrink-0 text-right tabular-nums">
                     <span className="text-xs text-muted-foreground">Line </span>
-                    {r.line !== null ? <span className="font-semibold">{formatMinor(r.line.itemNetMinor)}</span> : <span className="text-muted-foreground">—</span>}
+                    {r.lineTotalMinor !== null ? <span className="font-semibold">{formatMinor(r.lineTotalMinor)}</span> : <span className="text-muted-foreground">—</span>}
                 </div>
             </div>
         </li>

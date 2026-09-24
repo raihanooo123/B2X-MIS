@@ -26,6 +26,7 @@ import { useMemo, type ReactNode } from 'react';
 
 import { formatBasisPoints, formatMinor, mulDivHalfUp, subtractInts } from '@/lib/money';
 import { baseQtyOf, recomputeBasket, type BasketLineInput, type SpendBreakRule, type TotalsContext } from '@/lib/pricing/localRecompute';
+import type { DisplayMode } from '@/lib/cart/display';
 import { cn } from '@/lib/utils';
 import { typedLines, useOrderPadStore } from '@/stores/orderPadStore';
 
@@ -69,7 +70,7 @@ function percentOf(value: number, target: number): number {
     return Math.min(100, Math.max(0, mulDivHalfUp(Math.max(0, value), 100, target)));
 }
 
-export function StickyFooter({ context }: { context: TotalsContext }) {
+export function StickyFooter({ context, mode }: { context: TotalsContext; mode: DisplayMode }) {
     const { totals, unpricedCount } = useBasketTotals(context);
     const { spendBreak, spendProgress, delivery } = totals;
     const hasSpendBreaks = context.spend_breaks.length > 0;
@@ -125,7 +126,7 @@ export function StickyFooter({ context }: { context: TotalsContext }) {
                                     )}
                                     {spendProgress.next !== null && (
                                         <span>
-                                            Spend <strong className="font-semibold">{formatMinor(spendProgress.next.shortfallMinor)}</strong> more for{' '}
+                                            Spend <strong className="font-semibold">{formatMinor(spendProgress.next.shortfallMinor)}</strong> more (ex. VAT) for{' '}
                                             {discountLabel(spendProgress.next.rule)}
                                         </span>
                                     )}
@@ -140,20 +141,37 @@ export function StickyFooter({ context }: { context: TotalsContext }) {
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-6">
                     <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 tabular-nums md:grid-cols-[auto_auto]" aria-live="polite">
-                        <dt className="hidden text-muted-foreground md:block">Subtotal (ex. VAT)</dt>
-                        <dd className="hidden text-right md:block">{formatMinor(totals.subtotalNetMinor)}</dd>
-                        {spendBreak !== null && spendBreak.discountMinor > 0 && (
+                        {mode === 'net' ? (
                             <>
-                                <dt className="hidden text-xs text-muted-foreground md:block">incl. spend discount</dt>
-                                <dd className="hidden text-right text-xs text-emerald-700 md:block">−{formatMinor(spendBreak.discountMinor)}</dd>
+                                <dt className="hidden text-muted-foreground md:block">Subtotal (ex. VAT)</dt>
+                                <dd className="hidden text-right md:block">{formatMinor(totals.subtotalNetMinor)}</dd>
+                                {spendBreak !== null && spendBreak.discountMinor > 0 && (
+                                    <>
+                                        <dt className="hidden text-xs text-muted-foreground md:block">incl. spend discount</dt>
+                                        <dd className="hidden text-right text-xs text-emerald-700 md:block">−{formatMinor(spendBreak.discountMinor)}</dd>
+                                    </>
+                                )}
+                                <dt className="hidden text-muted-foreground md:block">VAT</dt>
+                                <dd className="hidden text-right md:block">{formatMinor(totals.taxMinor)}</dd>
+                                <dt className="font-semibold">
+                                    Total <span className="font-normal text-muted-foreground md:hidden">inc. VAT</span>
+                                </dt>
+                                <dd className="text-right text-base font-semibold">{formatMinor(totals.totalGrossMinor)}</dd>
+                            </>
+                        ) : (
+                            <>
+                                <dt className="font-semibold">Total (inc. VAT)</dt>
+                                <dd className="text-right text-base font-semibold">{formatMinor(totals.totalGrossMinor)}</dd>
+                                {spendBreak !== null && spendBreak.discountMinor > 0 && (
+                                    <>
+                                        <dt className="text-xs text-muted-foreground">incl. spend discount</dt>
+                                        <dd className="text-right text-xs text-emerald-700">−{formatMinor(spendBreak.discountMinor)}</dd>
+                                    </>
+                                )}
+                                <dt className="text-xs text-muted-foreground">Includes VAT of</dt>
+                                <dd className="text-right text-xs text-muted-foreground">{formatMinor(totals.taxMinor)}</dd>
                             </>
                         )}
-                        <dt className="hidden text-muted-foreground md:block">VAT</dt>
-                        <dd className="hidden text-right md:block">{formatMinor(totals.taxMinor)}</dd>
-                        <dt className="font-semibold">
-                            Total <span className="font-normal text-muted-foreground md:hidden">inc. VAT</span>
-                        </dt>
-                        <dd className="text-right text-base font-semibold">{formatMinor(totals.totalGrossMinor)}</dd>
                         <dd className="col-span-2 text-right text-[11px] text-muted-foreground">Delivery confirmed at checkout</dd>
                     </dl>
                     <AddToCartButton count={cart.lines.length} pending={cart.pending} onClick={cart.addAll} />

@@ -22,6 +22,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $user_id
  * @property string $status
  * @property string $payment_status
+ * @property string|null $payment_method
  * @property string|null $customer_reference
  * @property int $subtotal_net_minor
  * @property int $shipping_net_minor
@@ -46,6 +47,7 @@ class Order extends Model
         'channel',
         'status',
         'payment_status',
+        'payment_method',
         'fulfilment_type',
         'currency',
         'subtotal_net_minor',

@@ -1,4 +1,5 @@
 import type { PadPack } from '@/lib/orderPad/display';
+import type { DisplayMode } from '@/lib/cart/display';
 import type { TotalsContext } from '@/lib/pricing/localRecompute';
 
 /** One SKU row, as OrderPadCatalogue serialises it (Inertia prop). */
@@ -42,4 +43,6 @@ export interface OrderPadProps {
     page_size: number;
     /** Spend breaks and carriage-paid threshold for local recompute (OrderPadTotalsContext.php). */
     totals_context: TotalsContext;
+    /** Ex- or inc-VAT (PriceDisplay.php) — the same rule as cart and checkout. */
+    display_mode: DisplayMode;
 }

@@ -3205,3 +3205,30 @@ CREATE INDEX sessions_last_activity_index ON sessions (last_activity);
 - **Lockout counters** — failed-sign-in counts and lockouts live in the cache, not a table (05.13 §6.2).
 - **`users.last_company_id`** — a user in several companies chooses at every sign-in (05.13 §6.3); the choice is not persisted.
 - **Device or sign-in history for "new device" notifications** — undecided (05.13 §19).
+
+---
+
+## 18. Schema amendment 2026-09-24 — `orders.payment_method` (signed off 2026-09-24)
+
+> **Status: signed off 2026-09-24; migrated** (`2026_10_03_090100_add_payment_method_to_orders_table.php`).
+
+`orders` (§8.2) records *whether* an order is paid (`payment_status`) but not *how* the buyer chose to pay. Web checkout offers card, BACS and on-account (06 §9.3, 05.2 §8.1), and the confirmation page, the dispatch hold and accounts all need to know which — without it the choice survived only in the buyer's session.
+
+```sql
+ALTER TABLE orders ADD COLUMN payment_method text;
+
+-- Backfill what is knowable: an on-account order says so in payment_status.
+UPDATE orders SET payment_method = 'on_account' WHERE payment_status = 'on_account';
+
+ALTER TABLE orders ADD CONSTRAINT orders_payment_method_chk CHECK (
+  payment_method IS NULL OR payment_method IN ('card','bacs','on_account','prepay')
+);
+```
+
+**Notes**
+
+- **The values are what checkout accepts**, mirrored by `App\Domain\Ordering\PaymentMethod` (§2.5's enum convention): `card` and `bacs` (paid before dispatch), `on_account` (trade credit terms, with a credit hold — 05.2 §8), and `prepay` (paid before dispatch, method unspecified — for orders placed outside web checkout, e.g. by phone or a rep). Web checkout offers card or BACS rather than `prepay`, so the buyer's actual choice is what gets recorded.
+- **Independent of `payment_status`.** `payment_method` is the choice, fixed at placement; `payment_status` is the state, which moves (`unpaid` → `paid`, `on_account` → settled by invoice, refunds). A card order is `card` and `unpaid` until the payment is taken.
+- **Nullable**, with no default: orders placed before this amendment have no knowable method, except on-account ones, which are backfilled from `payment_status`. Every order placed through `CheckoutService` from now on writes it. A later `SET NOT NULL` is possible once no NULLs remain, via §2.5's `NOT VALID`/`VALIDATE` sequence.
+- **No index.** Nothing filters orders by method on a hot path; accounts reporting that does can use `orders_unpaid_idx` (§8.2) and filter.
+- Adding a nullable column with no default is catalogue-only in PostgreSQL — no rewrite, no long lock (07 §11.1).

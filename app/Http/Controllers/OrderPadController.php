@@ -6,6 +6,7 @@ use App\Domain\Catalogue\OrderPadCatalogue;
 use App\Domain\Ordering\OrderPadTotalsContext;
 use App\Http\Requests\Web\OrderPadRequest;
 use App\Http\Support\CartContext;
+use App\Http\Support\PriceDisplay;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,6 +48,8 @@ class OrderPadController extends Controller
             'page_size' => OrderPadCatalogue::PAGE_SIZE,
             'facets' => fn () => $this->catalogue->facets(),
             'totals_context' => fn () => $this->totalsContext->for($companyId),
+            // Ex- or inc-VAT, the same rule as cart and checkout.
+            'display_mode' => fn () => PriceDisplay::mode($request),
         ]);
     }
 }

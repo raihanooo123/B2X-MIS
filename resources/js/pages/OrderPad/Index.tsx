@@ -34,6 +34,7 @@ import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
 import { pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
+import { vatLabel } from '@/lib/cart/display';
 import { cn } from '@/lib/utils';
 import { useOrderPadStore } from '@/stores/orderPadStore';
 
@@ -43,7 +44,7 @@ import { filterQuery, hasActiveFilters, PadToolbar, visitWithFilters } from './c
 import { StickyFooter } from './components/StickyFooter';
 import type { OrderPadProps, PadFacets, PadFilters } from './types';
 
-export default function OrderPadIndex({ catalogue, filters, facets, page_size, totals_context }: OrderPadProps) {
+export default function OrderPadIndex({ catalogue, filters, facets, page_size, totals_context, display_mode }: OrderPadProps) {
     const { rows, start_row, next_cursor } = catalogue;
     const skuIds = useMemo(() => rows.map((r) => r.sku_id), [rows]);
     const navigating = useInertiaNavigating();
@@ -69,6 +70,7 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
 
     const lastRow = start_row + rows.length - 1;
     const rowData = (skuId: string) => ({
+        mode: display_mode,
         price: priceBySku.get(skuId),
         priceLoading: prices.isPending || prices.isPlaceholderData,
         stock: stockBySku.get(skuId),
@@ -132,7 +134,7 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
                                     <TableHead className="h-8">SKU</TableHead>
                                     <TableHead className="h-8">Product</TableHead>
                                     <TableHead className="h-8">Pack</TableHead>
-                                    <TableHead className="h-8 text-right">Price</TableHead>
+                                    <TableHead className="h-8 text-right">Price ({vatLabel(display_mode)})</TableHead>
                                     <TableHead className="h-8">Breaks</TableHead>
                                     <TableHead className="h-8">Stock</TableHead>
                                     <TableHead className="h-8">Qty</TableHead>
@@ -172,7 +174,7 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
                 </nav>
             </div>
 
-            <StickyFooter context={totals_context} />
+            <StickyFooter context={totals_context} mode={display_mode} />
         </>
     );
 }

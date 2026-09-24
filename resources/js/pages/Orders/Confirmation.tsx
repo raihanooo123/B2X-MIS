@@ -38,7 +38,8 @@ interface ConfirmationProps {
         placed_at: string | null;
         status: string;
         payment_status: string;
-        payment_method: PaymentMethod | null;
+        /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
+        payment_method: PaymentMethod | 'prepay' | null;
         customer_reference: string | null;
         subtotal_net_minor: number;
         spend_break_discount_minor: number;

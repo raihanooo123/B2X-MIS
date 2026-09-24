@@ -449,7 +449,7 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 
 **As built (2026-09-24), additive per §2:**
 
-- `payment_method` is `card`, `bacs` or `on_account`. `on_account` is refused (422 `payment_method_not_available`) unless the company is on credit terms (05.2 §8.1). Card capture (07 §6.4) is not built: card and BACS orders are placed `unpaid`, to be paid before dispatch, and `orders` has no column recording which method was chosen.
+- `payment_method` is `card`, `bacs` or `on_account`, and is stored on the order (`orders.payment_method`, 02 §18). `on_account` is refused (422 `payment_method_not_available`) unless the company is on credit terms (05.2 §8.1). Card capture (07 §6.4) is not built: card and BACS orders are placed `unpaid`, to be paid before dispatch.
 - The delivery address is sent inline as `delivery_address` and snapshotted onto `order_addresses` (02 §8.4); its `country_code` sets the VAT. `delivery_address_id` is refused, as on preview — `addresses` has no `public_id` (02 §4.5), and public customers have no saved addresses.
 - Signed in only. While preview would report any blocker, checkout refuses with 422 `checkout_blocked`, the blockers in `details`. Preview's blockers now include who may order (05.13): `sign_in_required`, `application_pending`, `email_unverified`, `not_permitted_to_order` (a company `viewer`, 05.2 §10), listed after the cart's own.
 - 409 `price_changed` carries `details[0].meta.expected_total_gross_minor` and `actual_total_gross_minor`. Stock that sold out meanwhile is 409 `insufficient_stock`; credit exceeded is 422 `insufficient_credit`.

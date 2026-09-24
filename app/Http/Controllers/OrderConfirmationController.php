@@ -25,7 +25,6 @@ class OrderConfirmationController extends Controller
         $model = Order::query()->where('public_id', $order)->with(['lines' => fn ($q) => $q->orderBy('line_no'), 'addresses'])->firstOrFail();
         Gate::authorize('view', $model);
 
-        $method = $request->session()->get("checkout.payment_method.{$model->public_id}");
         $address = $model->addresses->firstWhere('address_type', 'delivery');
 
         return Inertia::render('Orders/Confirmation', [
@@ -36,7 +35,8 @@ class OrderConfirmationController extends Controller
                 'placed_at' => $model->placed_at?->toIso8601ZuluString(),
                 'status' => $model->status,
                 'payment_status' => $model->payment_status,
-                'payment_method' => is_string($method) ? PaymentMethod::tryFrom($method)?->value : null,
+                // 02 §18. Null only for orders placed before the column existed.
+                'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
                 'customer_reference' => $model->customer_reference,
                 'subtotal_net_minor' => $model->subtotal_net_minor,
                 'spend_break_discount_minor' => $model->spend_break_discount_minor,

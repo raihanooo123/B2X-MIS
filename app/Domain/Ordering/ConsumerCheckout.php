@@ -14,13 +14,13 @@ use InvalidArgumentException;
  */
 final class ConsumerCheckout implements CheckoutStrategy
 {
-    private const ALLOWED_PAYMENT_METHODS = ['card', 'prepay'];
+    private const ALLOWED_PAYMENT_METHODS = ['card', 'bacs', 'prepay'];
 
     public function validate(CheckoutRequest $request): void
     {
         if (! in_array($request->paymentMethod, self::ALLOWED_PAYMENT_METHODS, true)) {
             throw new InvalidArgumentException(
-                "Public/guest checkout is card or prepay only, got payment_method '{$request->paymentMethod}' — on_account requires a company."
+                "Public/guest checkout is card, BACS or prepay only, got payment_method '{$request->paymentMethod}' — on_account requires a company."
             );
         }
     }

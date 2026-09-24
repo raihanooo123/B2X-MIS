@@ -6,8 +6,15 @@
  * lib/pricing/localRecompute.ts — the same functions the footer totals
  * use — so the row and the footer can never disagree about which break
  * applies.
+ *
+ * Every price is shown per `PriceView`: ex-VAT for trade buyers on the
+ * default display mode, inc-VAT for public customers (PriceDisplay.php) —
+ * the same rule, and the same conversion (lib/cart/display.ts), as the
+ * cart and checkout pages. Inc-VAT unit and pack prices are display only
+ * (03 §5); totals are never built from them.
  */
 import type { PriceBreak, StockAvailabilityEntry } from '@/lib/api/orderPad';
+import { unitPriceE4, type DisplayMode } from '@/lib/cart/display';
 import { formatE4, formatMinor, lineNetMinor, subtractInts } from '@/lib/money';
 import { baseQtyOf, nextCheaperRung, packsToReach, rungAt } from '@/lib/pricing/localRecompute';
 
@@ -16,6 +23,12 @@ export interface PadPack {
     label: string;
     pack_level: 'each' | 'inner' | 'outer' | 'pallet';
     base_units: number;
+}
+
+/** How a row shows its prices: the page's display mode and this SKU's VAT rate. */
+export interface PriceView {
+    mode: DisplayMode;
+    taxRateBp: number;
 }
 
 /**
@@ -33,16 +46,18 @@ function floorDiv(numerator: number, denominator: number): number {
  * pence once. `baseQty` is the typed quantity, or one pack when the row
  * is empty. Display only — never used for line arithmetic (03 §5).
  */
-export function packPriceDisplay(breaks: readonly PriceBreak[], pack: PadPack, baseQty: number) {
+export function packPriceDisplay(breaks: readonly PriceBreak[], pack: PadPack, baseQty: number, view: PriceView) {
     const rung = rungAt(breaks, Math.max(baseQty, pack.base_units));
     if (rung === null) {
         return null;
     }
 
+    const shownE4 = unitPriceE4(rung.unit_price_net_e4, view.taxRateBp, view.mode);
+
     return {
         unitPriceE4: rung.unit_price_net_e4,
-        pack: formatMinor(lineNetMinor(rung.unit_price_net_e4, pack.base_units)),
-        unit: formatE4(rung.unit_price_net_e4),
+        pack: formatMinor(lineNetMinor(shownE4, pack.base_units)),
+        unit: formatE4(shownE4),
     };
 }
 
@@ -58,7 +73,7 @@ export interface PackBreakRow {
  * rounded up. Thresholds that land on the same price are collapsed, and
  * the first row is always "1+" — the price of a single pack.
  */
-export function packBreakRows(breaks: readonly PriceBreak[], pack: PadPack): PackBreakRow[] {
+export function packBreakRows(breaks: readonly PriceBreak[], pack: PadPack, view: PriceView): PackBreakRow[] {
     const thresholds = new Set<number>([1]);
     for (const b of breaks) {
         thresholds.add(Math.max(1, packsToReach(b.min_base_qty, pack.base_units)));
@@ -73,10 +88,11 @@ export function packBreakRows(breaks: readonly PriceBreak[], pack: PadPack): Pac
             continue;
         }
         previousE4 = rung.unit_price_net_e4;
+        const shownE4 = unitPriceE4(rung.unit_price_net_e4, view.taxRateBp, view.mode);
         rows.push({
             packQty,
-            unitPrice: formatE4(rung.unit_price_net_e4),
-            packPrice: formatMinor(lineNetMinor(rung.unit_price_net_e4, pack.base_units)),
+            unitPrice: formatE4(shownE4),
+            packPrice: formatMinor(lineNetMinor(shownE4, pack.base_units)),
         });
     }
 
@@ -89,7 +105,7 @@ export function packBreakRows(breaks: readonly PriceBreak[], pack: PadPack): Pac
  * £0.86/unit" otherwise. The price quoted is the one actually reached by
  * the rounded-up pack count, which may be a later rung still.
  */
-export function nextBreakPrompt(breaks: readonly PriceBreak[], pack: PadPack, packQty: number): string | null {
+export function nextBreakPrompt(breaks: readonly PriceBreak[], pack: PadPack, packQty: number, view: PriceView): string | null {
     const baseQty = baseQtyOf(packQty, pack.base_units);
     const next = nextCheaperRung(breaks, baseQty);
     if (next === null) {
@@ -103,7 +119,7 @@ export function nextBreakPrompt(breaks: readonly PriceBreak[], pack: PadPack, pa
     }
 
     const more = subtractInts(targetPacks, packQty);
-    const price = formatE4(reached.unit_price_net_e4);
+    const price = formatE4(unitPriceE4(reached.unit_price_net_e4, view.taxRateBp, view.mode));
 
     return pack.base_units === 1
         ? `Add ${more.toLocaleString('en-GB')} more for ${price} each`

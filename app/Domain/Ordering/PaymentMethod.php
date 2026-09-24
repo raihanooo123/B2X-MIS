@@ -3,34 +3,32 @@
 namespace App\Domain\Ordering;
 
 /**
- * How a buyer pays at checkout (06 §9.3 `payment_method`; 05.2 §8.1).
+ * How an order is paid — `orders.payment_method` (02 §18), mirrored here
+ * as the single source for its CHECK list (CLAUDE.md enum convention).
  *
  *   - `card`       — paid by card before dispatch.
  *   - `bacs`       — paid by bank transfer before dispatch.
  *   - `on_account` — trade only, on the company's credit terms; takes a
  *                    credit hold (05.2 §8).
+ *   - `prepay`     — paid before dispatch, method not specified. Accepted
+ *                    by the checkout domain for orders placed outside web
+ *                    checkout (phone, rep); web checkout offers card or
+ *                    BACS instead, so the buyer's actual choice is recorded.
  *
- * The checkout strategies predate this enum and name the pay-before-
- * dispatch terms `prepay` (05.2 §8.1: "prepay → card or BACS required").
- * `strategyValue()` is the one place the two vocabularies meet.
- *
- * Neither card capture (Stripe, 07 §6.4) nor BACS reconciliation is built,
- * and `orders` has no column recording the method: a card or BACS order
- * is placed `unpaid` and paid before dispatch.
+ * Card capture (Stripe, 07 §6.4) and BACS reconciliation are not built:
+ * card, BACS and prepay orders are placed `unpaid` and paid before dispatch.
  */
 enum PaymentMethod: string
 {
     case Card = 'card';
     case Bacs = 'bacs';
     case OnAccount = 'on_account';
+    case Prepay = 'prepay';
 
-    public function strategyValue(): string
+    /** Paid before dispatch — every method except on-account. */
+    public function isPrepayment(): bool
     {
-        return match ($this) {
-            self::Card => 'card',
-            self::Bacs => 'prepay',
-            self::OnAccount => 'on_account',
-        };
+        return $this !== self::OnAccount;
     }
 
     public function label(): string
@@ -39,6 +37,7 @@ enum PaymentMethod: string
             self::Card => 'Card',
             self::Bacs => 'Bank transfer (BACS)',
             self::OnAccount => 'On account',
+            self::Prepay => 'Payment before dispatch',
         };
     }
 }

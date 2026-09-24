@@ -28,6 +28,7 @@ final readonly class CheckoutRequest
         public int $cartId,
         public ?int $companyId,
         public ?int $userId,
+        /** An `orders.payment_method` value (PaymentMethod, 02 §18) — stored on the order as given. */
         public string $paymentMethod,
         public int $expectedTotalGrossMinor,
         public string $deliveryCountryCode,

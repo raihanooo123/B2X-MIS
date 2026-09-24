@@ -94,6 +94,7 @@ it('places the order, snapshots the delivery address and empties the cart', func
         ->and($response->json('data.confirmation_url'))->toBe(route('orders.confirmation', $order->public_id))
         ->and($order->status)->toBe('confirmed')
         ->and($order->payment_status)->toBe('unpaid')
+        ->and($order->payment_method)->toBe('card')
         ->and($order->customer_reference)->toBe('PO-4471')
         ->and($order->total_gross_minor)->toBe($total)
         ->and($address->address_type)->toBe('delivery')
@@ -198,7 +199,8 @@ it('offers on-account only to a company on credit terms', function () {
         ->postJson('/api/v1/checkout', checkoutBody($total, 'on_account'))
         ->assertCreated();
 
-    expect(Order::query()->sole()->payment_status)->toBe('on_account');
+    expect(Order::query()->sole()->payment_status)->toBe('on_account')
+        ->and(Order::query()->sole()->payment_method)->toBe('on_account');
 });
 
 it('shows the confirmation to the buyer and their colleagues, and no one else', function () {
@@ -209,6 +211,8 @@ it('shows the confirmation to the buyer and their colleagues, and no one else', 
 
     $props = $this->actingAs($user)->get(route('orders.confirmation', $order->public_id))->assertOk()->viewData('page')['props'];
     expect($props['order']['order_number'])->toBe($order->order_number)
+        // From orders.payment_method (02 §18), not the session: it survives sign-out.
+        ->and($order->payment_method)->toBe('bacs')
         ->and($props['order']['payment_method'])->toBe('bacs')
         ->and($props['order']['lines'][0])->not->toHaveKey('unit_cost_e4')
         ->and($props['display_mode'])->toBe('net');
