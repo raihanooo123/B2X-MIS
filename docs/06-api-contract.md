@@ -385,16 +385,16 @@ POST /api/v1/pricing/bulk-resolve
         "next_break_unit_price_net_e4": 8600
       },
       "breaks": [
-        { "min_base_qty": 1,    "unit_price_net_e4": 9800 },
-        { "min_base_qty": 144,  "unit_price_net_e4": 9200 },
-        { "min_base_qty": 1440, "unit_price_net_e4": 8600 }
+        { "min_base_qty": 1,    "unit_price_net_e4": 9800, "price_source": "tier" },
+        { "min_base_qty": 144,  "unit_price_net_e4": 9200, "price_source": "tier" },
+        { "min_base_qty": 1440, "unit_price_net_e4": 8600, "price_source": "tier" }
       ]
     }
   ]
 }
 ```
 
-Returns the **full break table** so quantity changes recompute client-side with no round trip (05.1 §5.1). Cost and margin are absent — this is a customer-facing endpoint (03 §11). Three queries server-side regardless of list length (03 §8); budget 15 ms.
+Returns the **full break table** so quantity changes recompute client-side with no round trip (05.1 §5.1). The table is the SKU's **effective** ladder, not one price list's rows: each entry states the price and source resolution yields from that `min_base_qty` up to the next entry, evaluated across every candidate list — so a list that only starts winning at a higher quantity (03 §4.3's fall-through, e.g. a contract list holding only a 1,000+ row) and the §4.5 promotion cap are both reflected. `price_source` is per entry because 03 §7A.2's contract-line exclusion depends on it. Added 2026-09-24 for 05.1 §11's exact client/server parity; additive per §2. Cost and margin are absent — this is a customer-facing endpoint (03 §11). Three queries server-side regardless of list length (03 §8); budget 15 ms.
 
 ### 9.2 Checkout preview — no side effects
 
