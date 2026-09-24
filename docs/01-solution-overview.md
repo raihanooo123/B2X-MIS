@@ -34,7 +34,7 @@ Sixteen documents (ten originally, six added by the 2026-09-20 completeness corr
 | 05.10 | Order Amendment & Cancellation | Amendment-after-hold, credit re-check, cancellation routing (`orders.cancellation_fee_minor`) | Pending — not yet written (Correction 2026-09-20) |
 | 05.11 | CMS & SEO | Pages, banners, redirects, structured data, sitemap | Pending — not yet written (Correction 2026-09-20) |
 | 05.12 | Notifications | Templates, channels, preferences, delivery tracking | Pending — not yet written (Correction 2026-09-20) |
-| 05.13 | Auth & Onboarding | Guest-cart merge at login, unapproved-applicant login, invited-user onboarding | Pending — not yet written (Correction 2026-09-20) |
+| 05.13 | Auth & Onboarding | Registration (trade and public), guest-cart merge at login, unapproved-applicant login, invited-user onboarding, 2FA, sessions | Draft for review (2026-09-24) |
 | 05.14 | Reporting Suite | Aggregates, materialised views, dashboards | Pending — not yet written (Correction 2026-09-20) |
 | 06 | API Contract | Endpoints, payloads, error envelope, pagination, versioning | Draft for review (its own header; corrected here 2026-09-20 — was shown as "Pending" though substantially written) |
 | 07 | Non-Functional Requirements | Performance budgets, security, GDPR, accessibility | Draft for review (its own header; corrected here 2026-09-20 — was shown as "Pending" though substantially written) |

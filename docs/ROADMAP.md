@@ -955,6 +955,12 @@ completely empty except for the bare `AdminPanelProvider` with no resources regi
 
 ## 16. `07` — Non-functional requirements
 
+- [ ] **Pre-go-live — password hashing is bcrypt, not Argon2id.** `config/hashing.php`
+      does not exist, so Laravel's default driver (bcrypt) hashes every password; 07 §6.1
+      requires Argon2id. Add the config with `driver => argon2id` (and set `HASH_DRIVER`),
+      then rehash existing hashes on each user's next successful sign-in
+      (`Hash::needsRehash()`), since stored hashes cannot be converted directly. Must be
+      done before any real user sets a password. Flagged in 05.13 §19 Q15. (added 2026-09-24)
 - [ ] `.github/workflows/ci.yml` — **does not exist.** Runs `composer lint`,
       `composer analyse`, `composer test`, `npm run build`, and the axe-core accessibility
       check (below) on every PR; fails the build on any CI gate from 07 §14's table.
@@ -1147,8 +1153,16 @@ specifying templates, channels, preferences, or delivery tracking.
 not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
 `b2b_applications` applicant may log in at all, invited-user onboarding.
 
-- [ ] Write `docs/05.13-auth-onboarding.md` — the three flows above, at minimum. [G6]
-- [ ] Once signed off: controllers/Form Requests/Policies implementing it.
+- [x] Write `docs/05.13-auth-onboarding.md` — the three flows above, at minimum. [G6]
+      Draft for review 2026-09-24; eight decisions resolved the same day (05.13 §19).
+- [ ] Sign off `docs/02-domain-model-erd.md` §17 (DRAFT) — `company_invitations`,
+      `user_two_factor_recovery_codes` — then migrate them.
+- [ ] Once signed off: controllers/Form Requests/Policies implementing it, including
+      installing Laravel Sanctum (approved stack) and the §6.3/§8.4 change to
+      `CartOwnerResolver`/`MergeGuestCartOnLogin` (merge into the *chosen* company).
+- [ ] Answer 05.13 §19's remaining open questions — Q15 (hashing, above in §16),
+      Q17 (offline breached-password list) and Q18 (lockout counter TTL; Redis cache
+      store in production) block implementation.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.
