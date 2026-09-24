@@ -442,7 +442,7 @@ Managed secret store, never in the repository. Rotation procedure documented for
 | Companies Act record keeping | Financial records 7 years |
 | **Product traceability** | Batch and serial capture with a recall trace from batch to customer in minutes (04 §7.5, 05.5 §4.3) |
 | Customs and duty | HS code and country of origin captured per product; customs entry documents attached to containers (05.7 §9) |
-| Consumer law | Not directly applicable — B2B. Returns terms are contractual, not statutory-consumer (05.4 §6) |
+| Consumer law | **Applies to public customers** (Correction 2026-09-24 — previously "not directly applicable — B2B"; the platform sells to the public, 01 §4). Trade returns remain contractual (05.4 §6). For public customers, statutory consumer rights apply — among them the distance-selling cancellation right and VAT-inclusive price display — and are **not yet specified** in 05.4 or 05.1: §16 Q10 |
 | Non-UK VAT jurisdictions | Channel Islands and Isle of Man flagged for manual handling (05.6 §4.2); reverse charge deferred (03 §13) |
 | **Accessibility** | WCAG 2.1 AA (§8) — a procurement requirement for many trade buyers, not only an ethical one |
 
@@ -505,3 +505,4 @@ Not built at launch, but not designed out:
 | 7 | ~~Accounting package~~ | **CLOSED — native Xero API integration, plus a Sage-compatible CSV export engine.** §12 |
 | 8 | Is the 99.9% business-hours target contractual? If so, a warm standby with replication belongs in scope before launch, not after the first incident | **Worth answering** — §11.5 |
 | 9 | Does the Xero integration warrant its own module spec (05.9)? Two-way sync, mapping and reconciliation are more than a §12 row can carry | **Worth answering** |
+| 10 | Public customers (§12, 01 §4): how statutory consumer rights are met — cancellation window and process in 05.4, VAT-inclusive price display for public customers (03 §10 stores net and `companies.price_display_mode` needs a company, which a public customer does not have). Needs legal confirmation of the obligations, then spec work | **Yes, before public checkout goes live** |

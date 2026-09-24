@@ -6,6 +6,12 @@ Node.js (TypeScript) real-time gateway
 B2B wholesale/distribution platform. Trade accounts, tiered and contract pricing,
 volume breaks, pack structure, authoritative stock with batch and serial traceability.
 
+The system will also sell to the public: a customer with no trade account buys at `base`
+prices, card/prepay only, no credit check, no credit hold (`ConsumerCheckout`). Trade is
+the core; the public channel runs on the same catalogue, pricing engine and stock, with
+none of the trade-only machinery (tiers, contracts, credit, multi-user accounts). See
+`01` §4–5 and `05.13` §5.2.
+
 ## Approved stack — do not introduce alternatives
 
 | Layer | Technology |
@@ -14,6 +20,7 @@ volume breaks, pack structure, authoritative stock with batch and serial traceab
 | Real-time | Node.js (TypeScript), Fastify, Socket.io, subscribing to Redis Pub/Sub — `services/realtime-gateway/`, doc `11` |
 | Frontend | Inertia.js + React (TypeScript), Tailwind, shadcn/ui, Zustand, TanStack Query, Vite |
 | Admin | FilamentPHP v3 |
+| Auth | Laravel Sanctum — session cookie + CSRF for the first-party app and admin (`06` §1, `05.13`) |
 | Quality | Pest, PHPStan level 8, Pint |
 
 Vue, Blade page views (beyond Inertia's single unavoidable root template), MySQL/MariaDB

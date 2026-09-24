@@ -86,7 +86,8 @@ The catalogue is retained as the migration and load-test fixture (Doc 08). Its *
 
 | Actor | Description | Primary needs |
 |---|---|---|
-| **Guest** | Unauthenticated visitor | Browse catalogue, see indicative pricing, apply for a trade account |
+| **Guest** | Unauthenticated visitor | Browse catalogue, see indicative pricing, apply for a trade account or register as a public customer |
+| **Public customer** | Registered user with no trade account | Buy at `base` prices, card or prepay only — no tier, contract, credit or multi-user account (05.13 §5.2) |
 | **Trade buyer** | Approved company user, `role = buyer` | Order pad, saved lists, reorder, tier and contract pricing, order history |
 | **Company owner** | Senior buyer on a multi-user account | All buyer capability, plus managing users and spend limits |
 | **Approver** | Signs off orders over a threshold | Approval queue |
@@ -97,6 +98,8 @@ The catalogue is retained as the migration and load-test fixture (Doc 08). Its *
 | **Administrator** | Catalogue, pricing, configuration | Full PIM, pricing engine admin, user and account management |
 
 Roles are not mutually exclusive. Permissions are enforced by policy gates, never by hiding UI.
+
+**Correction 2026-09-24 — public sales are in scope.** This table previously listed trade and staff actors only, and §5.3 read as excluding public buyers. The platform sells to both: trade accounts, and the public at `base` prices on card or prepay (`ConsumerCheckout`, CLAUDE.md). The public channel reuses the catalogue, pricing engine (03 §4.2 rank 5) and stock ledger unchanged; it adds no pricing or credit machinery of its own. Registration and sign-in for both are specified in 05.13.
 
 ---
 
@@ -126,7 +129,7 @@ Roles are not mutually exclusive. Permissions are enforced by policy gates, neve
 Stated explicitly because each is a plausible-sounding direction that would damage the design:
 
 - **Not a WooCommerce replacement built like WooCommerce.** The reference system's data model is the problem, not its plugin set.
-- **Not a retail storefront with a trade discount bolted on.** Wholesale pricing, pack structure and credit terms are the core, not a feature flag.
+- **Not a retail storefront with a trade discount bolted on.** Wholesale pricing, pack structure and credit terms are the core, not a feature flag. Public customers are served (§4, Correction 2026-09-24), but as a second channel on the wholesale model — `base` prices, card or prepay — never by reshaping the model around retail.
 - **Not multi-tenant.** One business, one catalogue. Tenancy would change every index in Doc 02.
 - **Not eventually consistent on stock.** Stock is transactionally correct. Overselling is a correctness bug, not a tolerable trade-off.
 
