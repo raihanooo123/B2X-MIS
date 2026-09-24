@@ -3055,3 +3055,153 @@ None of these are resolved by the schema above; each is a judgment call flagged 
 | 7 | `xero_sync_records`' entity list, sync direction, and retry policy cannot be fully confirmed without the 05.9 module doc, which does not yet exist | §14.11 |
 
 **Explicitly not answered, by design:** coupon stacking beyond one per order (CLAUDE.md open decision; §14.9's `coupons` table supports exactly one applied coupon per order and takes no position on stacking) and which SKUs enable batch/serial tracking at launch (unaffected by this draft — governed entirely by the existing `skus.tracking_mode` column, §5.5).
+
+---
+
+## 17. Schema amendment 2026-09-24 — authentication and onboarding (DRAFT, awaiting sign-off)
+
+> **Status: DRAFT — awaiting sign-off.** Nothing in §17.1–§17.2 is migrated. §17.3–§17.4 document two tables that **already exist** (migration `0001_01_01_000000_create_auth_support_tables.php`, Laravel's defaults) but were never recorded here. Sections 15 and 16 are reserved by ROADMAP for `audit_log` and `transfers`.
+
+Source: `05.13-auth-onboarding.md` (decisions of 2026-09-24): invitations get their own table (05.13 §9), TOTP needs recovery codes (05.13 §12), and password-reset tokens and sessions use Laravel's default tables (05.13 §10, §13). Policy is 07 §6.1.
+
+### 17.1 `company_invitations`
+
+A company owner (or an administrator) invites a person onto a trade account (05.2 §10, 05.13 §9). The invitation is its own row, **not** a `pending` user plus a `company_users` row: nothing is granted until the invitee accepts. One invitation can be revoked without touching the membership, and the history of who invited whom, when, with what limit, is queryable.
+
+```sql
+CREATE TABLE company_invitations (
+  id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id           text        NOT NULL,
+  company_id          bigint      NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  email               citext      NOT NULL,
+  first_name          text        NOT NULL,
+  last_name           text        NOT NULL,
+  role                text        NOT NULL DEFAULT 'buyer',
+  order_limit_minor   bigint,
+  requires_approval   boolean     NOT NULL DEFAULT false,
+  token_hash          text        NOT NULL,
+  invited_by_user_id  bigint      NOT NULL REFERENCES users (id),
+  accepted_by_user_id bigint      REFERENCES users (id),
+  expires_at          timestamptz NOT NULL,
+  accepted_at         timestamptz,
+  revoked_at          timestamptz,
+  revoked_by_user_id  bigint      REFERENCES users (id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT company_invitations_public_id_uq  UNIQUE (public_id),
+  CONSTRAINT company_invitations_token_uq      UNIQUE (token_hash),
+  CONSTRAINT company_invitations_role_chk
+    CHECK (role IN ('owner','buyer','approver','viewer')),
+  CONSTRAINT company_invitations_limit_chk
+    CHECK (order_limit_minor IS NULL OR order_limit_minor >= 0),
+  CONSTRAINT company_invitations_expiry_chk CHECK (expires_at > created_at),
+  CONSTRAINT company_invitations_outcome_chk CHECK (
+      NOT (accepted_at IS NOT NULL AND revoked_at IS NOT NULL)
+  ),
+  CONSTRAINT company_invitations_accepted_chk CHECK (
+      (accepted_at IS NULL) = (accepted_by_user_id IS NULL)
+  ),
+  CONSTRAINT company_invitations_revoked_chk CHECK (
+      (revoked_at IS NULL) = (revoked_by_user_id IS NULL)
+  )
+);
+
+-- one open invitation per company per address
+CREATE UNIQUE INDEX company_invitations_open_uq
+  ON company_invitations (company_id, email)
+  WHERE accepted_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX company_invitations_company_idx
+  ON company_invitations (company_id, created_at DESC);
+CREATE INDEX company_invitations_email_open_idx
+  ON company_invitations (email)
+  WHERE accepted_at IS NULL AND revoked_at IS NULL;
+```
+
+**Notes**
+
+- **The token is never stored.** The emailed link carries a random 64-character token; the row holds its SHA-256 (`token_hash`). A leaked database backup yields no working invitation links. SHA-256 rather than the password hasher: the token is high-entropy, so a fast hash is sufficient, and a fast hash can be looked up by equality through `company_invitations_token_uq`. An Argon2id hash would have to be verified against every open row.
+- **States are derived, not stored.** Open: `accepted_at` and `revoked_at` both NULL and `expires_at > now()`. Accepted, revoked or expired otherwise. There is no `status` column to drift from the timestamps; `company_invitations_outcome_chk` makes "accepted and revoked" impossible to persist, and the two pairing checks keep each timestamp with its actor.
+- **`role`, `order_limit_minor`, `requires_approval` mirror `company_users` (§4.4)** and are copied to it on acceptance, in one transaction with setting `accepted_at`. `company_invitations_role_chk` is the same closed list as `company_users_role_chk`, mirrored by the same PHP backed enum (§2.5).
+- **`company_invitations_open_uq`** — a partial unique index, the §4.4 pattern: at most one *open* invitation per address per company, while accepted and revoked invitations stay as history. Re-sending an invitation revokes the open one and inserts a new one, so each emailed link maps to exactly one row. Expired-but-unrevoked rows still count as "open" to this index; re-sending revokes them too. The partial predicate cannot reference `now()`.
+- **`company_invitations_email_open_idx`** serves "does this address have invitations waiting?" at sign-up and sign-in (05.13 §9.2), which is not company-scoped.
+- **Existing users are invited too.** If the address already belongs to a user, acceptance links that user (`accepted_by_user_id`) and creates no account. `email` is matched to `users.email` by `citext` equality, as `users_email_uq` does.
+- **Staff are not invited through this table.** Staff have no company (§14.1). 05.13 §5.3 onboards them through the password-reset broker (§17.3).
+- `invited_by_user_id` / `revoked_by_user_id` follow the actor-attribution pattern of `role_user.granted_by_user_id` (§14.1). The audit log (§15, pending) records the same events; these columns make the owner's own "Invited" screen answerable without it.
+
+### 17.2 `user_two_factor_recovery_codes`
+
+TOTP (05.13 §12.2) against `users.two_factor_secret` (§4.2) is unusable without recovery codes. A lost phone would otherwise lock an account permanently, and for staff 2FA is mandatory (07 §6.1).
+
+```sql
+CREATE TABLE user_two_factor_recovery_codes (
+  id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id     bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  code_hash   text        NOT NULL,
+  used_at     timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX user_2fa_recovery_unused_idx
+  ON user_two_factor_recovery_codes (user_id)
+  WHERE used_at IS NULL;
+```
+
+**Notes**
+
+- **A child table, not a JSON column on `users`.** The common Laravel approach, an encrypted JSON array on `users`, rewrites the whole array to spend one code, and records neither *when* a code was used nor that it was. Here each code is a row, spent by setting `used_at`, which is both the single-use guarantee and the audit fact 05.13 §15 needs ("recovery code used").
+- **Codes are hashed with the password hasher** (Argon2id, 07 §6.1), unlike invitation tokens (§17.1). A recovery code is short enough to type from paper and so has far less entropy than a link token. It gets the same slow hash as a password. Verification compares against the user's few unused rows, found through `user_2fa_recovery_unused_idx`, so the slow hash is paid a handful of times, not across the table.
+- **A set is replaced, never topped up.** Generating new codes (at enrolment, or on request) deletes the user's unused rows and inserts a fresh set in one transaction. The set size (8 is conventional) is application configuration, not schema. Used rows remain until the set is replaced, which is enough to tell the user "you have N codes left".
+- Disabling 2FA deletes the user's rows together with clearing `two_factor_secret` and `two_factor_enabled`.
+- No `public_id`: codes are never addressed by a client (06 §2).
+
+### 17.3 `password_reset_tokens` — exists, Laravel default
+
+```sql
+-- as created by 0001_01_01_000000_create_auth_support_tables.php
+CREATE TABLE password_reset_tokens (
+  email      varchar(255) PRIMARY KEY,
+  token      varchar(255) NOT NULL,
+  created_at timestamp(0) without time zone
+);
+```
+
+**Notes**
+
+- **Framework-owned.** Read and written only by Laravel's password broker. The 05.13 §10 flow is the broker's behaviour, with 07 §6.1's parameters: `auth.passwords.users.expire = 60` (minutes, already set) and single use (the broker deletes the row on success).
+- **One outstanding token per address.** The primary key on `email` means a new reset request replaces the previous token, so only the newest emailed link works.
+- **`token` holds a hash, not the token.** The broker hashes the emailed token with the application hasher before storing it, so, as with §17.1, a leaked table yields no working links.
+- **Departures from §2 conventions, accepted rather than migrated away:** `varchar` rather than `text`/`citext`, `timestamp` without time zone rather than `timestamptz`, and no `id`/`public_id`. The broker writes the stored `users.email` value (after its own `citext` lookup), so case-sensitivity on `email` never splits one user's tokens. `created_at` is written and compared by the same application clock, so the missing zone cannot skew the 60-minute expiry. Rewriting a framework table's column types to match house style buys nothing and risks the next framework upgrade.
+- Also used for **staff onboarding** (05.13 §5.3): a new staff user's "set your password" link is a reset token, and so carries the same 60-minute expiry.
+
+### 17.4 `sessions` — exists, Laravel default (database session driver)
+
+```sql
+-- as created by 0001_01_01_000000_create_auth_support_tables.php
+CREATE TABLE sessions (
+  id            varchar(255) PRIMARY KEY,
+  user_id       bigint,
+  ip_address    varchar(45),
+  user_agent    text,
+  payload       text         NOT NULL,
+  last_activity integer      NOT NULL
+);
+
+CREATE INDEX sessions_user_id_index       ON sessions (user_id);
+CREATE INDEX sessions_last_activity_index ON sessions (last_activity);
+```
+
+**Notes**
+
+- **Framework-owned.** Written by Laravel's database session handler on every request. `last_activity` is a Unix timestamp integer because that is what the handler writes and compares; it is not a `timestamptz` column by design.
+- **`sessions_user_id_index` is what makes "end every session for this user" a single statement.** 07 §6.1 requires it on password reset, 05.13 §13.3 on password change and on suspension. With a cache-backed session store this would need a separate per-user registry. It is the main reason 05.13 chose the database driver.
+- **`sessions_last_activity_index`** serves the handler's garbage collection (`DELETE … WHERE last_activity <= :cutoff`), run by the session lottery. The cutoff is `session.lifetime`, the longest idle limit (12 h); 05.13 §13.1's shorter per-role limits and the 7-day absolute cap are enforced in middleware from timestamps kept in the session payload, not in this table.
+- **No foreign key on `user_id`** (the framework default). A session row outliving a hard-deleted user is inert: the guard finds no user and the session is unauthenticated. `users` is soft-deleted in practice (§4.2), and erasure anonymises rather than deletes (07 §7.3).
+- **Write-heavy, update-in-place.** Every authenticated request updates `payload` and `last_activity`, so this is the highest-churn table in the schema by row updates. It should get per-table autovacuum tuning alongside `price_list_items` (07 §11.6).
+
+### 17.5 Deliberately not added
+
+- **`users.remember_token`** — no "remember me" at launch (05.13 §13.2); a persistent-login cookie would have to be capped at 07 §6.1's 7-day absolute maximum anyway.
+- **Lockout counters** — failed-sign-in counts and lockouts live in the cache, not a table (05.13 §6.2).
+- **`users.last_company_id`** — a user in several companies chooses at every sign-in (05.13 §6.3); the choice is not persisted.
+- **Device or sign-in history for "new device" notifications** — undecided (05.13 §19).
