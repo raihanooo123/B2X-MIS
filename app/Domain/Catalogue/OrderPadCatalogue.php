@@ -75,8 +75,8 @@ final class OrderPadCatalogue
         $hasMore = $skus->count() > self::PAGE_SIZE;
         $skus = $skus->take(self::PAGE_SIZE)->values();
 
-        $skuIds = $skus->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $productIds = $skus->pluck('product_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $skuIds = array_values($skus->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $productIds = array_values($skus->pluck('product_id')->map(fn ($id) => (int) $id)->unique()->all());
 
         $packsBySku = $this->sellablePacks($skuIds);
         $thumbnails = $this->thumbnails($skuIds, $productIds);

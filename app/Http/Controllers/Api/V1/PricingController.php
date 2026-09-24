@@ -104,6 +104,7 @@ class PricingController extends Controller
                 fn (PriceBreak $break): array => [
                     'min_base_qty' => $break->minBaseQty,
                     'unit_price_net_e4' => $break->unitPriceE4,
+                    'price_source' => $break->priceSource->value,
                 ],
                 $breaks,
             );

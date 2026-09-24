@@ -63,15 +63,24 @@ export function roundHalfUpDiv(numerator: number, denominator: number): number {
 }
 
 /**
+ * round_half_up(a × b / denominator), the product taken in BigInt so it
+ * cannot lose precision before rounding. The shape of every scaled
+ * multiplication in 03 §6–§7A: e4 × qty / 100, net × rate_bp / 10000,
+ * discount × line / subtotal.
+ */
+export function mulDivHalfUp(a: number, b: number, denominator: number): number {
+    return toSafeNumber(
+        roundHalfUpDivBig(toBig(a, 'a') * toBig(b, 'b'), toBig(denominator, 'denominator')),
+        'result',
+    );
+}
+
+/**
  * The single `e4 → minor` conversion for a line (03 §6.1, 06 §3.1 rule 3):
- * round_half_up(unit_price_e4 × base_qty / 100). The product is taken in
- * BigInt so a large quantity cannot lose precision before rounding.
+ * round_half_up(unit_price_e4 × base_qty / 100).
  */
 export function lineNetMinor(unitPriceNetE4: number, baseQty: number): number {
-    return toSafeNumber(
-        roundHalfUpDivBig(toBig(unitPriceNetE4, 'unitPriceNetE4') * toBig(baseQty, 'baseQty'), 100n),
-        'lineNetMinor',
-    );
+    return mulDivHalfUp(unitPriceNetE4, baseQty, 100);
 }
 
 /**
@@ -79,10 +88,44 @@ export function lineNetMinor(unitPriceNetE4: number, baseQty: number): number {
  * as OrderPricingPipeline computes it (03 §7A.4 Pass 3).
  */
 export function lineTaxMinor(lineNetMinorValue: number, taxRateBp: number): number {
-    return toSafeNumber(
-        roundHalfUpDivBig(toBig(lineNetMinorValue, 'lineNetMinor') * toBig(taxRateBp, 'taxRateBp'), 10000n),
-        'lineTaxMinor',
-    );
+    return mulDivHalfUp(lineNetMinorValue, taxRateBp, 10000);
+}
+
+/**
+ * Exact integer sum. Every addend and the total are checked to be safe
+ * integers, so a sum can never silently become a rounded double.
+ */
+export function sumInts(values: Iterable<number>): number {
+    let total = 0n;
+    for (const v of values) {
+        total += toBig(v, 'addend');
+    }
+
+    return toSafeNumber(total, 'sum');
+}
+
+/** Exact integer a − b, same checks as sumInts(). */
+export function subtractInts(a: number, b: number): number {
+    return toSafeNumber(toBig(a, 'a') - toBig(b, 'b'), 'difference');
+}
+
+/** Exact integer a × b — a pack count × base units, say. */
+export function multiplyInts(a: number, b: number): number {
+    return toSafeNumber(toBig(a, 'a') * toBig(b, 'b'), 'product');
+}
+
+/**
+ * Integer ceil(a / b) for a ≥ 0, b > 0: the number of packs of `b` units
+ * needed to reach `a` units.
+ */
+export function ceilDivInts(a: number, b: number): number {
+    const n = toBig(a, 'a');
+    const d = toBig(b, 'b');
+    if (n < 0n || d <= 0n) {
+        throw new RangeError(`ceilDivInts needs a >= 0 and b > 0, got ${a} / ${b}.`);
+    }
+
+    return toSafeNumber((n + d - 1n) / d, 'quotient');
 }
 
 function groupThousands(digits: string): string {
@@ -101,6 +144,20 @@ function formatScaled(value: bigint, scale: bigint, fractionDigits: number, minF
     }
 
     return `${negative ? '-' : ''}${CURRENCY_SYMBOL}${pounds}.${fraction}`;
+}
+
+/**
+ * A basis-point rate for display: 300 → "3%", 250 → "2.5%", 1234 → "12.34%".
+ */
+export function formatBasisPoints(bp: number): string {
+    const value = toBig(bp, 'bp');
+    const whole = value / 100n;
+    let fraction = (value % 100n).toString().padStart(2, '0');
+    while (fraction.endsWith('0')) {
+        fraction = fraction.slice(0, -1);
+    }
+
+    return `${whole}${fraction === '' ? '' : `.${fraction}`}%`;
 }
 
 /**

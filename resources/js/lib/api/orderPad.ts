@@ -25,9 +25,15 @@ export type PriceSource = 'contract' | 'customer' | 'promotion' | 'tier' | 'base
 
 // --- /pricing/bulk-resolve (06 §9.1) ---------------------------------------
 
+/**
+ * One rung of the SKU's effective ladder: from `min_base_qty` up to the
+ * next rung, resolution yields this price from a list of this source
+ * (see PriceBreak.php). lib/pricing/localRecompute.ts prices from it.
+ */
 export interface PriceBreak {
     min_base_qty: number;
     unit_price_net_e4: number;
+    price_source: PriceSource;
 }
 
 export interface ResolvedPrice {

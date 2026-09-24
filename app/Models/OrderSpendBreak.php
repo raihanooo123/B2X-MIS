@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * then priority DESC, then id DESC — resolution and apportionment are
  * domain logic for 03 — Pricing Engine, not this model.
  *
+ * @property int $min_subtotal_minor
  * @property string $discount_type
  * @property int|null $discount_rate_bp
  * @property int|null $discount_amount_minor

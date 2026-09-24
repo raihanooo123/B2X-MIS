@@ -2,14 +2,14 @@
  * Pure display derivations for one order pad row — no React, no fetching.
  * Integer arithmetic only, through lib/money.ts (CLAUDE.md invariant 1).
  *
- * Deliberately NOT here: recomputing line totals or the footer as the
- * quantity changes (05.1 §5.1). That is lib/pricing/localRecompute.ts's
- * job (ROADMAP §5), which must mirror OrderLinePricer exactly. What is
- * here is quantity-independent: the price of *one* selected pack, the
- * break ladder translated into packs, and the stock figure in pack units.
+ * Prices are read off the SKU's effective ladder with
+ * lib/pricing/localRecompute.ts — the same functions the footer totals
+ * use — so the row and the footer can never disagree about which break
+ * applies.
  */
 import type { PriceBreak, StockAvailabilityEntry } from '@/lib/api/orderPad';
-import { formatE4, formatMinor, lineNetMinor } from '@/lib/money';
+import { formatE4, formatMinor, lineNetMinor, subtractInts } from '@/lib/money';
+import { baseQtyOf, nextCheaperRung, packsToReach, rungAt } from '@/lib/pricing/localRecompute';
 
 export interface PadPack {
     code: string;
@@ -27,41 +27,22 @@ function floorDiv(numerator: number, denominator: number): number {
     return (numerator - (numerator % denominator)) / denominator;
 }
 
-function ceilDiv(numerator: number, denominator: number): number {
-    return floorDiv(numerator + denominator - 1, denominator);
-}
-
 /**
- * The unit price that applies at `baseQty`: the break with the highest
- * `min_base_qty` not exceeding it (03 §4.4). `fallbackE4` — the price
- * resolved at base_qty 1 — covers an absent break table.
+ * Price of one selected pack for display (03 §5) at the break the row
+ * has reached: unit price at `baseQty` × base_units, rounded half-up to
+ * pence once. `baseQty` is the typed quantity, or one pack when the row
+ * is empty. Display only — never used for line arithmetic (03 §5).
  */
-export function unitPriceE4At(breaks: readonly PriceBreak[] | undefined, fallbackE4: number, baseQty: number): number {
-    let price = fallbackE4;
-    let bestMin = -1;
-
-    for (const b of breaks ?? []) {
-        if (b.min_base_qty <= baseQty && b.min_base_qty > bestMin) {
-            bestMin = b.min_base_qty;
-            price = b.unit_price_net_e4;
-        }
+export function packPriceDisplay(breaks: readonly PriceBreak[], pack: PadPack, baseQty: number) {
+    const rung = rungAt(breaks, Math.max(baseQty, pack.base_units));
+    if (rung === null) {
+        return null;
     }
 
-    return price;
-}
-
-/**
- * Price of one selected pack for display (03 §5): unit price at the
- * pack's own base quantity × base_units, rounded half-up to pence once.
- * Display only — never used for line arithmetic (03 §5).
- */
-export function packPriceDisplay(breaks: readonly PriceBreak[] | undefined, fallbackE4: number, pack: PadPack) {
-    const unitE4 = unitPriceE4At(breaks, fallbackE4, pack.base_units);
-
     return {
-        unitPriceE4: unitE4,
-        pack: formatMinor(lineNetMinor(unitE4, pack.base_units)),
-        unit: formatE4(unitE4),
+        unitPriceE4: rung.unit_price_net_e4,
+        pack: formatMinor(lineNetMinor(rung.unit_price_net_e4, pack.base_units)),
+        unit: formatE4(rung.unit_price_net_e4),
     };
 }
 
@@ -73,33 +54,60 @@ export interface PackBreakRow {
 
 /**
  * The break ladder "translated from base units" into the selected pack
- * (05.1 §4.2): each break becomes the number of packs needed to reach it,
+ * (05.1 §4.2): each rung becomes the number of packs needed to reach it,
  * rounded up. Thresholds that land on the same price are collapsed, and
  * the first row is always "1+" — the price of a single pack.
  */
-export function packBreakRows(breaks: readonly PriceBreak[] | undefined, fallbackE4: number, pack: PadPack): PackBreakRow[] {
+export function packBreakRows(breaks: readonly PriceBreak[], pack: PadPack): PackBreakRow[] {
     const thresholds = new Set<number>([1]);
-    for (const b of breaks ?? []) {
-        thresholds.add(Math.max(1, ceilDiv(b.min_base_qty, pack.base_units)));
+    for (const b of breaks) {
+        thresholds.add(Math.max(1, packsToReach(b.min_base_qty, pack.base_units)));
     }
 
     const rows: PackBreakRow[] = [];
     let previousE4: number | null = null;
 
     for (const packQty of [...thresholds].sort((a, b) => a - b)) {
-        const unitE4 = unitPriceE4At(breaks, fallbackE4, packQty * pack.base_units);
-        if (unitE4 === previousE4) {
+        const rung = rungAt(breaks, baseQtyOf(packQty, pack.base_units));
+        if (rung === null || rung.unit_price_net_e4 === previousE4) {
             continue;
         }
-        previousE4 = unitE4;
+        previousE4 = rung.unit_price_net_e4;
         rows.push({
             packQty,
-            unitPrice: formatE4(unitE4),
-            packPrice: formatMinor(lineNetMinor(unitE4, pack.base_units)),
+            unitPrice: formatE4(rung.unit_price_net_e4),
+            packPrice: formatMinor(lineNetMinor(rung.unit_price_net_e4, pack.base_units)),
         });
     }
 
     return rows;
+}
+
+/**
+ * The row's nudge toward the next cheaper break (05.1 §5.2), in packs:
+ * "Add 2 more for £0.86 each" for single units, "Add 1 more outer for
+ * £0.86/unit" otherwise. The price quoted is the one actually reached by
+ * the rounded-up pack count, which may be a later rung still.
+ */
+export function nextBreakPrompt(breaks: readonly PriceBreak[], pack: PadPack, packQty: number): string | null {
+    const baseQty = baseQtyOf(packQty, pack.base_units);
+    const next = nextCheaperRung(breaks, baseQty);
+    if (next === null) {
+        return null;
+    }
+
+    const targetPacks = packsToReach(next.min_base_qty, pack.base_units);
+    const reached = rungAt(breaks, baseQtyOf(targetPacks, pack.base_units));
+    if (reached === null) {
+        return null;
+    }
+
+    const more = subtractInts(targetPacks, packQty);
+    const price = formatE4(reached.unit_price_net_e4);
+
+    return pack.base_units === 1
+        ? `Add ${more.toLocaleString('en-GB')} more for ${price} each`
+        : `Add ${more.toLocaleString('en-GB')} more ${packNoun(pack, more)} for ${price}/unit`;
 }
 
 const PLURALS: Record<PadPack['pack_level'], [string, string]> = {

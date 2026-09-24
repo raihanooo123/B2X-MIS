@@ -11,7 +11,11 @@
  * number with each page, carried in the (opaque) cursor rather than
  * counted.
  *
- * Not yet: local recompute, sticky footer, search/filters, bulk entry.
+ * Quantities recompute locally (05.1 §5.1): each bulk-resolve answer is
+ * remembered per SKU in the pad store, so the sticky footer totals every
+ * typed row — including rows on pages already left — with no request.
+ *
+ * Not yet: search/filters, bulk entry.
  */
 import { Head, Link, router } from '@inertiajs/react';
 import { ChevronRight, PackageSearch, RotateCcw } from 'lucide-react';
@@ -21,11 +25,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
+import { pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
+import { useOrderPadStore } from '@/stores/orderPadStore';
 
 import { PadRow } from './components/PadRow';
+import { StickyFooter } from './components/StickyFooter';
 import type { OrderPadProps } from './types';
 
-export default function OrderPadIndex({ catalogue, page_size }: OrderPadProps) {
+export default function OrderPadIndex({ catalogue, page_size, totals_context }: OrderPadProps) {
     const { rows, start_row, next_cursor } = catalogue;
     const skuIds = useMemo(() => rows.map((r) => r.sku_id), [rows]);
     const navigating = useInertiaNavigating();
@@ -36,13 +43,25 @@ export default function OrderPadIndex({ catalogue, page_size }: OrderPadProps) {
     const priceBySku = useMemo(() => indexBySku<BulkResolveEntry>(prices.data?.data), [prices.data]);
     const stockBySku = useMemo(() => indexBySku<StockAvailabilityEntry>(stock.data?.data), [stock.data]);
 
+    const rememberPricing = useOrderPadStore((s) => s.rememberPricing);
+    useEffect(() => {
+        if (prices.data === undefined) {
+            return;
+        }
+        const bySku: Record<string, LinePricing | null> = {};
+        for (const entry of prices.data.data) {
+            bySku[entry.sku_id] = pricingFromEntry(entry);
+        }
+        rememberPricing(bySku);
+    }, [prices.data, rememberPricing]);
+
     const lastRow = start_row + rows.length - 1;
 
     return (
         <>
             <Head title="Order pad" />
 
-            <div className="mx-auto max-w-[1400px] px-4 py-4">
+            <div className="mx-auto max-w-[1400px] px-4 pb-48 pt-4 md:pb-32">
                 <header className="mb-3 flex items-baseline justify-between gap-4">
                     <h1 className="text-lg font-semibold tracking-tight">Order pad</h1>
                     {rows.length > 0 && (
@@ -128,6 +147,8 @@ export default function OrderPadIndex({ catalogue, page_size }: OrderPadProps) {
                     )}
                 </nav>
             </div>
+
+            <StickyFooter context={totals_context} />
         </>
     );
 }

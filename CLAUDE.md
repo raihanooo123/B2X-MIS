@@ -100,6 +100,11 @@ npm run dev / npm run build          # realtime gateway, from services/realtime-
 
 Run `composer lint && composer test` before reporting any task complete.
 
+**Never run `php artisan config:cache`, `route:cache` or `event:cache` in this project.**
+A cached config makes Laravel ignore `phpunit.xml`'s environment overrides, so the suite
+runs against the wrong settings and fails with 419 CSRF errors. If one was run by
+mistake, clear it with `php artisan optimize:clear`.
+
 ## Conventions
 
 - Domain logic in `app/Domain/{Context}/`, thin controllers, no business logic in models

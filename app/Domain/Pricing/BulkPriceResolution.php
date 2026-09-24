@@ -14,7 +14,7 @@ final readonly class BulkPriceResolution
     /**
      * @param  array<int, ResolvedPrice>  $resolved  keyed by sku_id
      * @param  array<int, class-string<\Throwable>>  $failures  keyed by sku_id — the exception class that would have been thrown for that SKU alone
-     * @param  array<int, list<PriceBreak>>  $breaks  keyed by sku_id, present only for resolved SKUs — the winning price_list's full ladder (06 §9.1)
+     * @param  array<int, list<PriceBreak>>  $breaks  keyed by sku_id, present only for resolved SKUs — the effective ladder across every candidate list (06 §9.1, see PriceBreak)
      */
     public function __construct(
         public array $resolved,

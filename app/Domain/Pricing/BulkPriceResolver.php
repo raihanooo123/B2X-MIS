@@ -199,33 +199,95 @@ final class BulkPriceResolver
      */
     private function resolveOne(int $skuId, array $rows, array $lists, int $baseQty, CarbonImmutable $at, string $currency, int $taxRateBp): array
     {
+        $winning = $this->winnerAt($rows, $lists, $baseQty);
+
+        if ($winning === null) {
+            $this->failResolution($skuId, $at, $currency);
+        }
+
+        [$winner, $priceSource, $rowsConsidered, $promotionCapped] = $winning;
+
+        return [
+            $this->toResolvedPrice($skuId, $baseQty, $winner, $rowsConsidered, $priceSource, $taxRateBp, $promotionCapped),
+            $this->effectiveLadder($rows, $lists),
+        ];
+    }
+
+    /**
+     * Resolution at one quantity over the in-memory row set: §4.2/§4.3
+     * ranking, then the §4.5 promotion cap — free here, no extra query:
+     * the same row set already has every non-promotion candidate.
+     *
+     * @param  list<\stdClass>  $rows
+     * @param  array<int, \stdClass>  $lists
+     * @return array{0: \stdClass, 1: PriceSource, 2: list<\stdClass>, 3: bool}|null winner, its source, the row set it was chosen from, promotion capped
+     */
+    private function winnerAt(array $rows, array $lists, int $baseQty): ?array
+    {
         $winner = $this->rank($rows, $lists, $baseQty);
 
         if ($winner === null) {
-            $this->failResolution($skuId, $at, $currency);
+            return null;
         }
 
         $priceSource = $this->classify($winner, $lists);
 
-        $result = $this->toResolvedPrice($skuId, $baseQty, $winner, $rows, $priceSource, $taxRateBp);
-
         if ($priceSource !== PriceSource::Promotion) {
-            return $result;
+            return [$winner, $priceSource, $rows, false];
         }
 
-        // §4.5 promotion cap — free here, no extra query: the same
-        // in-memory row set already has every non-promotion candidate.
         $nonPromotionListIds = array_keys(array_filter($lists, fn ($l) => $l->scope !== 'promotion'));
         $rowsWithoutPromotion = array_values(array_filter($rows, fn ($r) => in_array((int) $r->price_list_id, $nonPromotionListIds, true)));
         $withoutPromotion = $this->rank($rowsWithoutPromotion, $lists, $baseQty);
 
         if ($withoutPromotion !== null && (int) $withoutPromotion->unit_price_e4 < (int) $winner->unit_price_e4) {
-            $fallbackSource = $this->classify($withoutPromotion, $lists);
-
-            return $this->toResolvedPrice($skuId, $baseQty, $withoutPromotion, $rowsWithoutPromotion, $fallbackSource, $taxRateBp, promotionCapped: true);
+            return [$withoutPromotion, $this->classify($withoutPromotion, $lists), $rowsWithoutPromotion, true];
         }
 
-        return $result;
+        return [$winner, $priceSource, $rows, false];
+    }
+
+    /**
+     * The effective ladder (PriceBreak's docblock): resolution evaluated
+     * at every distinct `min_base_qty` across all candidate lists. The set
+     * of qualifying rows — and so the winner — only changes at one of
+     * those thresholds, so the price between two consecutive rungs is
+     * constant and the ladder reproduces winnerAt() for every quantity.
+     * Consecutive rungs with the same price and source are collapsed.
+     *
+     * @param  list<\stdClass>  $rows
+     * @param  array<int, \stdClass>  $lists
+     * @return list<PriceBreak>
+     */
+    private function effectiveLadder(array $rows, array $lists): array
+    {
+        $thresholds = [];
+        foreach ($rows as $row) {
+            if (isset($lists[(int) $row->price_list_id])) {
+                $thresholds[(int) $row->min_base_qty] = true;
+            }
+        }
+        $thresholds = array_keys($thresholds);
+        sort($thresholds);
+
+        $ladder = [];
+        $previous = null;
+        foreach ($thresholds as $qty) {
+            $winning = $this->winnerAt($rows, $lists, $qty);
+            if ($winning === null) {
+                continue;
+            }
+
+            $rung = new PriceBreak($qty, (int) $winning[0]->unit_price_e4, $winning[1]);
+
+            if ($previous !== null && $previous->unitPriceE4 === $rung->unitPriceE4 && $previous->priceSource === $rung->priceSource) {
+                continue;
+            }
+
+            $ladder[] = $previous = $rung;
+        }
+
+        return $ladder;
     }
 
     /**
@@ -283,25 +345,17 @@ final class BulkPriceResolver
     }
 
     /**
-     * @param  list<\stdClass>  $rowsConsidered  the row set the winner was chosen from, reused to find the next break — and now the full break table (06 §9.1) — with no extra query
-     * @return array{0: ResolvedPrice, 1: list<PriceBreak>}
+     * @param  list<\stdClass>  $rowsConsidered  the row set the winner was chosen from, reused to find the next break with no extra query
      */
-    private function toResolvedPrice(int $skuId, int $baseQty, \stdClass $winner, array $rowsConsidered, PriceSource $priceSource, int $taxRateBp, bool $promotionCapped = false): array
+    private function toResolvedPrice(int $skuId, int $baseQty, \stdClass $winner, array $rowsConsidered, PriceSource $priceSource, int $taxRateBp, bool $promotionCapped = false): ResolvedPrice
     {
         $winningListId = (int) $winner->price_list_id;
         $appliedBreakQty = (int) $winner->min_base_qty;
 
         $nextBreakQty = null;
         $nextBreakUnitPriceE4 = null;
-        $breaks = [];
         foreach ($rowsConsidered as $row) {
-            if ((int) $row->price_list_id !== $winningListId) {
-                continue;
-            }
-
-            $breaks[] = new PriceBreak((int) $row->min_base_qty, (int) $row->unit_price_e4);
-
-            if ((int) $row->min_base_qty <= $appliedBreakQty) {
+            if ((int) $row->price_list_id !== $winningListId || (int) $row->min_base_qty <= $appliedBreakQty) {
                 continue;
             }
             if ($nextBreakQty === null || (int) $row->min_base_qty < $nextBreakQty) {
@@ -310,9 +364,7 @@ final class BulkPriceResolver
             }
         }
 
-        usort($breaks, fn (PriceBreak $a, PriceBreak $b) => $a->minBaseQty <=> $b->minBaseQty);
-
-        $resolved = new ResolvedPrice(
+        return new ResolvedPrice(
             skuId: $skuId,
             baseQty: $baseQty,
             unitPriceE4: (int) $winner->unit_price_e4,
@@ -327,8 +379,6 @@ final class BulkPriceResolver
             skuCostId: null,
             promotionCapped: $promotionCapped,
         );
-
-        return [$resolved, $breaks];
     }
 
     /**

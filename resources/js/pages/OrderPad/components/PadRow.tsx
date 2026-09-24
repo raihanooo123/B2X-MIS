@@ -7,13 +7,14 @@
  * figure goes through lib/money.ts via lib/orderPad/display.ts — no
  * floating-point arithmetic here.
  *
- * Line total shows "—" until local recompute (05.1 §5.1,
- * lib/pricing/localRecompute.ts) lands: computing it means picking the
- * break for the typed quantity and mirroring OrderLinePricer exactly,
- * which is that module's job, not the row's.
+ * Typing a quantity recomputes locally (05.1 §5.1): the price cell moves
+ * to the reached break and marks it, the line total is the item net from
+ * lib/pricing/localRecompute.ts (before any order-wide spend discount,
+ * which the footer shows), and a prompt names the next cheaper break
+ * (05.1 §5.2). No request per keystroke.
  */
 import { ImageOff, Minus, Plus } from 'lucide-react';
-import { memo, useState, type KeyboardEvent } from 'react';
+import { memo, useMemo, useState, type KeyboardEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableCell, TableRow } from '@/components/ui/table';
 import type { BulkResolveEntry, StockAvailabilityEntry } from '@/lib/api/orderPad';
-import { packBreakRows, packNoun, packPriceDisplay, stockDisplay, type PadPack, type StockTone } from '@/lib/orderPad/display';
+import { formatMinor } from '@/lib/money';
+import { nextBreakPrompt, packBreakRows, packNoun, packPriceDisplay, stockDisplay, type PadPack, type StockTone } from '@/lib/orderPad/display';
+import { baseQtyOf, linePrice, pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
 import { cn } from '@/lib/utils';
 import { useOrderPadStore, useRowDraft } from '@/stores/orderPadStore';
 
@@ -49,6 +52,11 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
     const packCode = draft.packCode ?? row.default_pack_code;
     const pack = row.packs.find((p) => p.code === packCode) ?? row.packs[0];
 
+    const pricing = useMemo(() => pricingFromEntry(price), [price]);
+    const baseQty = pack !== undefined && draft.packQty !== null ? baseQtyOf(draft.packQty, pack.base_units) : null;
+    const line = pricing !== null && baseQty !== null ? linePrice(pricing, baseQty) : null;
+    const prompt = pricing !== null && pack !== undefined && draft.packQty !== null ? nextBreakPrompt(pricing.breaks, pack, draft.packQty) : null;
+
     return (
         <TableRow className="text-[13px]">
             <TableCell className="w-10 py-1.5 pr-0 text-right tabular-nums text-muted-foreground">{rowNumber}</TableCell>
@@ -65,7 +73,14 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
             </TableCell>
 
             <TableCell className="w-40 py-1.5">
-                <PackSelector packs={row.packs} value={pack?.code ?? null} onChange={(code) => setPack(row.sku_id, code)} />
+                <PackSelector
+                    packs={row.packs}
+                    value={pack?.code ?? null}
+                    onChange={(code) => {
+                        const next = row.packs.find((p) => p.code === code);
+                        if (next) setPack(row.sku_id, code, next.base_units);
+                    }}
+                />
             </TableCell>
 
             {pack === undefined ? (
@@ -73,7 +88,7 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
                     No sellable pack
                 </TableCell>
             ) : (
-                <PriceCells price={price} loading={priceLoading} pack={pack} />
+                <PriceCells price={price} pricing={pricing} loading={priceLoading} pack={pack} packQty={draft.packQty} />
             )}
 
             <TableCell className="w-32 py-1.5">
@@ -83,13 +98,20 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
             <TableCell className="w-32 py-1.5">
                 <QuantityStepper
                     value={draft.packQty}
-                    onChange={(qty) => setQty(row.sku_id, qty)}
+                    onChange={(qty) => pack && setQty(row.sku_id, qty, pack.base_units)}
                     disabled={pack === undefined}
                     label={`Quantity of ${row.sku_code} in ${pack ? packNoun(pack, 2) : 'packs'}`}
                 />
+                {prompt && <div className="mt-0.5 max-w-40 text-[11px] leading-tight text-emerald-700">{prompt}</div>}
             </TableCell>
 
-            <TableCell className="w-24 py-1.5 text-right tabular-nums text-muted-foreground">—</TableCell>
+            <TableCell className="w-24 py-1.5 text-right tabular-nums">
+                {line !== null ? (
+                    <span className="font-medium">{formatMinor(line.itemNetMinor)}</span>
+                ) : (
+                    <span className="text-muted-foreground">—</span>
+                )}
+            </TableCell>
         </TableRow>
     );
 });
@@ -146,7 +168,15 @@ function PackSelector({ packs, value, onChange }: { packs: PadPack[]; value: str
     );
 }
 
-function PriceCells({ price, loading, pack }: { price: BulkResolveEntry | undefined; loading: boolean; pack: PadPack }) {
+interface PriceCellsProps {
+    price: BulkResolveEntry | undefined;
+    pricing: LinePricing | null;
+    loading: boolean;
+    pack: PadPack;
+    packQty: number | null;
+}
+
+function PriceCells({ price, pricing, loading, pack, packQty }: PriceCellsProps) {
     if (loading && price === undefined) {
         return (
             <>
@@ -162,7 +192,9 @@ function PriceCells({ price, loading, pack }: { price: BulkResolveEntry | undefi
         );
     }
 
-    if (price === undefined || 'error' in price) {
+    const display = pricing === null ? null : packPriceDisplay(pricing.breaks, pack, packQty === null ? pack.base_units : baseQtyOf(packQty, pack.base_units));
+
+    if (pricing === null || display === null) {
         return (
             <TableCell colSpan={2} className="py-1.5 text-xs text-muted-foreground" title={price && 'error' in price ? price.error.message : undefined}>
                 Price unavailable
@@ -170,11 +202,13 @@ function PriceCells({ price, loading, pack }: { price: BulkResolveEntry | undefi
         );
     }
 
-    const { breaks } = price;
-    const fallback = price.resolved.unit_price_net_e4;
-    const display = packPriceDisplay(breaks, fallback, pack);
-    const rows = packBreakRows(breaks, fallback, pack);
+    const rows = packBreakRows(pricing.breaks, pack);
     const noun = packNoun(pack, 1);
+    // The crossed break is marked (05.1 §5.2): the last row the typed quantity reaches.
+    let reachedIndex = -1;
+    rows.forEach((r, i) => {
+        if (packQty !== null && r.packQty <= packQty) reachedIndex = i;
+    });
 
     return (
         <>
@@ -190,8 +224,12 @@ function PriceCells({ price, loading, pack }: { price: BulkResolveEntry | undefi
                     <span className="text-xs text-muted-foreground">No volume breaks</span>
                 ) : (
                     <ul className="space-y-px text-xs tabular-nums">
-                        {rows.slice(0, VISIBLE_BREAKS).map((r) => (
-                            <li key={r.packQty} className="flex justify-between gap-3">
+                        {rows.slice(0, VISIBLE_BREAKS).map((r, i) => (
+                            <li
+                                key={r.packQty}
+                                className={cn('flex justify-between gap-3 rounded-sm px-1 -mx-1', i === reachedIndex && 'bg-emerald-50 font-medium text-emerald-800')}
+                                aria-current={i === reachedIndex ? 'true' : undefined}
+                            >
                                 <span className="text-muted-foreground">{r.packQty.toLocaleString('en-GB')}+</span>
                                 <span>
                                     {r.packPrice}
