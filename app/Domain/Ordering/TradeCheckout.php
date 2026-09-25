@@ -3,6 +3,7 @@
 namespace App\Domain\Ordering;
 
 use App\Domain\Inventory\AllocationService;
+use App\Domain\Notifications\Notifications;
 use App\Models\Company;
 use App\Models\CreditHold;
 use App\Models\Order;
@@ -68,6 +69,9 @@ final class TradeCheckout implements CheckoutStrategy
         // company row is still held from the lock above, so this needs
         // no further lock.
         if ($creditCompanyId !== null) {
+            $credit = Company::query()->whereKey($creditCompanyId)->firstOrFail(['id', 'credit_limit_minor', 'credit_used_minor', 'credit_held_minor']);
+            $usageBefore = $credit->credit_used_minor + $credit->credit_held_minor;
+
             CreditHold::create([
                 'company_id' => $creditCompanyId,
                 'order_id' => $order->id,
@@ -76,6 +80,9 @@ final class TradeCheckout implements CheckoutStrategy
                 'held_at' => now(),
             ]);
             Company::whereKey($creditCompanyId)->increment('credit_held_minor', $totalGrossMinor);
+
+            // 05.12 §5.1.2: warn the owners if this hold took usage past 80%.
+            (new Notifications)->creditUsageChanged($creditCompanyId, $credit->credit_limit_minor, $usageBefore, $usageBefore + $totalGrossMinor, "order:{$order->id}");
         }
     }
 

@@ -5,6 +5,8 @@ namespace App\Http\Support;
 use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
+use App\Domain\Notifications\Notices\TwoFactorChanged;
+use App\Domain\Notifications\Notifications;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -109,16 +111,21 @@ final class SignIn
         }
 
         $secret = $user->two_factor_secret;
-        $valid = ($secret !== null && Totp::verify($secret, $code, 'user:'.$user->id))
-            || RecoveryCodes::consume($user, $code);
+        $totpValid = $secret !== null && Totp::verify($secret, $code, 'user:'.$user->id);
+        $recoveryUsed = ! $totpValid && RecoveryCodes::consume($user, $code);
 
-        if (! $valid) {
+        if (! $totpValid && ! $recoveryUsed) {
             $lock = $this->throttle->recordFailure($ip, $user->email);
 
             return $lock > 0 ? SignInResult::locked($lock) : SignInResult::failed();
         }
 
         $this->complete($request, $user);
+
+        if ($recoveryUsed) {
+            // 05.13 §12: using a recovery code is audited and notified.
+            (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::RECOVERY_CODE_USED), $user);
+        }
 
         return SignInResult::signedIn();
     }

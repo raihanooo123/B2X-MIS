@@ -4,13 +4,14 @@ namespace App\Http\Controllers\Auth;
 
 use App\Domain\Identity\BusinessType;
 use App\Domain\Identity\Registration;
+use App\Domain\Notifications\Notices\ApplicationSubmitted;
+use App\Domain\Notifications\Notices\EmailVerification;
+use App\Domain\Notifications\Notices\ExistingAccount;
+use App\Domain\Notifications\Notifications;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterPublicRequest;
 use App\Http\Requests\Auth\RegisterTradeRequest;
 use App\Models\User;
-use App\Notifications\Auth\ApplicationReceived;
-use App\Notifications\Auth\ExistingAccount;
-use App\Notifications\Auth\VerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -51,12 +52,13 @@ class RegisterController extends Controller
 
         $existing = User::query()->where('email', $person['email'])->first();
         if ($existing !== null) {
-            $existing->notify(new ExistingAccount);
+            (new Notifications)->toUser(new ExistingAccount($existing->id), $existing);
 
             return $this->confirmation();
         }
 
-        Registration::publicCustomer($person)->notify(new VerifyEmail);
+        $user = Registration::publicCustomer($person);
+        (new Notifications)->toUser(new EmailVerification($user->id), $user);
 
         return $this->confirmation();
     }
@@ -68,7 +70,7 @@ class RegisterController extends Controller
 
         $existing = User::query()->where('email', $person['email'])->first();
         if ($existing !== null) {
-            $existing->notify(new ExistingAccount);
+            (new Notifications)->toUser(new ExistingAccount($existing->id), $existing);
 
             return $this->confirmation();
         }
@@ -80,8 +82,8 @@ class RegisterController extends Controller
         }
 
         [$user, $application] = Registration::tradeApplicant($person, $request->application());
-        $user->notify(new VerifyEmail);
-        $user->notify(new ApplicationReceived($application));
+        (new Notifications)->toUser(new EmailVerification($user->id), $user);
+        (new Notifications)->toUser(new ApplicationSubmitted($application->id), $user);
 
         return $this->confirmation();
     }

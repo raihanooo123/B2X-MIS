@@ -2,6 +2,7 @@
 
 namespace App\Domain\Billing;
 
+use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Company;
 use App\Models\Invoice;
@@ -72,9 +73,9 @@ final class PaymentAllocationService
 
     private function allocate(int $paymentId, int $invoiceId): void
     {
-        $creditCompanyId = $this->creditCompanyId($invoiceId);
+        [$creditCompanyId, $orderPaymentMethod] = $this->invoiceContext($invoiceId);
 
-        DB::transaction(function () use ($paymentId, $invoiceId, $creditCompanyId) {
+        DB::transaction(function () use ($paymentId, $invoiceId, $creditCompanyId, $orderPaymentMethod) {
             if ($creditCompanyId !== null) {
                 Company::query()->whereKey($creditCompanyId)->lockForUpdate()->first(['id']);
             }
@@ -114,26 +115,35 @@ final class PaymentAllocationService
             if ($creditCompanyId !== null) {
                 Company::query()->whereKey($creditCompanyId)->decrement('credit_used_minor', $amount);
             }
+
+            // 05.12 §5.1.1: queued after commit; skipped for card orders.
+            (new Notifications)->paymentApplied($invoiceId, $paymentId, $amount, $orderPaymentMethod);
         });
     }
 
     /**
      * The company whose `credit_used_minor` this invoice counts in — set
-     * only for an on-account order's invoice. Read before the transaction
-     * so `companies` can be locked first; neither column ever changes on
-     * an issued invoice or placed order.
+     * only for an on-account order's invoice — and the order's payment
+     * method. Read before the transaction so `companies` can be locked
+     * first; neither ever changes on an issued invoice or placed order.
+     *
+     * @return array{0: int|null, 1: string|null}
      */
-    private function creditCompanyId(int $invoiceId): ?int
+    private function invoiceContext(int $invoiceId): array
     {
         $row = Invoice::query()
             ->join('orders', 'orders.id', '=', 'invoices.order_id')
             ->where('invoices.id', $invoiceId)
             ->first(['invoices.company_id', 'orders.payment_method']);
 
-        if ($row === null || $row->company_id === null || $row->getAttribute('payment_method') !== PaymentMethod::OnAccount->value) {
-            return null;
+        if ($row === null) {
+            return [null, null];
         }
 
-        return (int) $row->company_id;
+        $method = $row->getAttribute('payment_method');
+        $method = is_string($method) ? $method : null;
+        $creditCompanyId = $row->company_id !== null && $method === PaymentMethod::OnAccount->value ? (int) $row->company_id : null;
+
+        return [$creditCompanyId, $method];
     }
 }

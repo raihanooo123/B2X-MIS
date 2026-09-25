@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Domain\Identity\EmailVerificationLink;
+use App\Domain\Notifications\Notices\EmailVerification;
+use App\Domain\Notifications\Notifications;
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Notifications\Auth\VerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -36,7 +37,7 @@ class EmailVerificationController extends Controller
         abort_unless($user instanceof User, 401);
 
         if (! $user->hasVerifiedEmail()) {
-            $user->notify(new VerifyEmail);
+            (new Notifications)->toUser(new EmailVerification($user->id), $user);
         }
 
         return back()->with('status', 'We have sent a new confirmation link.');

@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
+use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
 use App\Http\Controllers\Api\V1\Webhooks\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -31,4 +32,6 @@ Route::prefix('v1')->group(function (): void {
 
     // Stripe → us. Signed, not session-authenticated.
     Route::post('/webhooks/stripe', StripeWebhookController::class)->name('webhooks.stripe');
+    // 05.12 §10.2 — email delivery, bounce and complaint events.
+    Route::post('/webhooks/postmark', PostmarkWebhookController::class)->name('webhooks.postmark');
 });

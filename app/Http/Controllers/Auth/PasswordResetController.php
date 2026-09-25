@@ -2,13 +2,15 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Notifications\Notices\PasswordChanged;
+use App\Domain\Notifications\Notices\PasswordReset as PasswordResetNotice;
+use App\Domain\Notifications\Notifications;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Http\Support\SignIn;
 use App\Http\Support\UserSessions;
 use App\Models\User;
-use App\Notifications\Auth\ResetPassword;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Passwords\PasswordBroker;
 use Illuminate\Auth\Passwords\TokenRepositoryInterface;
@@ -64,7 +66,7 @@ class PasswordResetController extends Controller
         $tokens = $this->tokens();
 
         if ($user !== null && ! $tokens->recentlyCreatedToken($user)) {
-            $user->notify(new ResetPassword($tokens->create($user)));
+            (new Notifications)->toUser(new PasswordResetNotice($user->id, $tokens->create($user)), $user);
         }
 
         return back()->with('status', self::GENERIC);
@@ -102,6 +104,7 @@ class PasswordResetController extends Controller
 
         UserSessions::endAll($user);
         event(new PasswordReset($user));
+        (new Notifications)->toUser(new PasswordChanged($user->id), $user);
 
         $result = $this->signIn->attempt($request, $email, $password);
 

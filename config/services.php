@@ -14,8 +14,11 @@ return [
     |
     */
 
+    // 05.12 §6.1: email delivery. Webhooks authenticate by HTTP basic auth.
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
+        'webhook_user' => env('POSTMARK_WEBHOOK_USER'),
+        'webhook_password' => env('POSTMARK_WEBHOOK_PASSWORD'),
     ],
 
     'ses' => [

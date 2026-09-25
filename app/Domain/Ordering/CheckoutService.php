@@ -14,6 +14,7 @@ use App\Domain\Inventory\AllocationService;
 use App\Domain\Inventory\DeadlockRetryPolicy;
 use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
+use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\Events\OrderPlaced;
 use App\Domain\Ordering\Exceptions\BatchTrackedCheckoutNotSupportedException;
 use App\Domain\Ordering\Exceptions\PriceChangedException;
@@ -98,6 +99,7 @@ final class CheckoutService
         private readonly CheckoutStrategy $consumerCheckout = new ConsumerCheckout,
         private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
         private readonly InvoiceService $invoiceService = new InvoiceService,
+        private readonly Notifications $notifications = new Notifications,
     ) {}
 
     /**
@@ -177,6 +179,19 @@ final class CheckoutService
 
         $defaultLocation = Location::query()->where('is_default', true)->firstOrFail();
 
+        try {
+            return $this->place($request, $strategy, $cart, $pricing, $defaultLocation, $delivery);
+        } catch (InsufficientCreditException $e) {
+            // 05.2 §11: accounts hear about a refused on-account order. Nothing
+            // was committed; the notification is queued outside any transaction.
+            $this->notifications->creditLimitReached($e->companyId, $pricing->totalGrossMinor);
+
+            throw $e;
+        }
+    }
+
+    private function place(CheckoutRequest $request, CheckoutStrategy $strategy, Cart $cart, OrderPricingResult $pricing, Location $defaultLocation, ?DeliveryQuote $delivery): Order
+    {
         return (new DeadlockRetryPolicy)->run(
             fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation, $delivery) {
                 $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request), $delivery);
@@ -208,6 +223,7 @@ final class CheckoutService
                 $cart->lines()->delete();
 
                 DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
+                $this->notifications->orderConfirmed($order->id);
                 // 05.5 §7.3: a trade BACS/prepay order is invoiced at placement,
                 // after commit, so a failure to invoice never loses the order.
                 $this->invoiceService->whenPlaced($order->id);

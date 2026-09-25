@@ -4,6 +4,7 @@ namespace App\Domain\Billing;
 
 use App\Domain\Billing\Events\InvoiceIssued;
 use App\Domain\Billing\Exceptions\SellerVatNumberMissingException;
+use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Reference\NumberSequenceService;
 use App\Jobs\ArchiveInvoicePdf;
@@ -72,6 +73,7 @@ final class InvoiceService
     public function __construct(
         private readonly NumberSequenceService $numberSequenceService = new NumberSequenceService,
         private readonly PaymentAllocationService $paymentAllocationService = new PaymentAllocationService,
+        private readonly Notifications $notifications = new Notifications,
     ) {}
 
     /**
@@ -153,6 +155,8 @@ final class InvoiceService
             DB::afterCommit(function () use ($invoiceId, $orderId) {
                 $this->paymentAllocationService->allocateInvoice($invoiceId);
                 ArchiveInvoicePdf::dispatch($invoiceId);
+                // 05.12 §12.2: sent at issue; the PDF is attached once archived.
+                $this->notifications->invoiceIssued($invoiceId);
                 event(new InvoiceIssued($invoiceId, $orderId));
             });
 
@@ -228,11 +232,19 @@ final class InvoiceService
             ->lockForUpdate()
             ->first();
 
+        $credit = Company::query()->whereKey($companyId)->firstOrFail(['id', 'credit_limit_minor', 'credit_used_minor', 'credit_held_minor']);
+        $usageBefore = $credit->credit_used_minor + $credit->credit_held_minor;
+        $released = 0;
+
         if ($hold !== null) {
             $hold->update(['status' => 'invoiced', 'invoice_id' => $invoice->id]);
             Company::query()->whereKey($companyId)->decrement('credit_held_minor', $hold->amount_minor);
+            $released = $hold->amount_minor;
         }
 
         Company::query()->whereKey($companyId)->increment('credit_used_minor', $invoice->total_gross_minor);
+
+        // 05.12 §5.1.2: an invoice total can exceed its hold.
+        $this->notifications->creditUsageChanged($companyId, $credit->credit_limit_minor, $usageBefore, $usageBefore - $released + $invoice->total_gross_minor, "invoice:{$invoice->id}");
     }
 }

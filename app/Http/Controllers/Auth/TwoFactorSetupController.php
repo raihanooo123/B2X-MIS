@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
+use App\Domain\Notifications\Notices\TwoFactorChanged;
+use App\Domain\Notifications\Notifications;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ConfirmPasswordRequest;
 use App\Http\Requests\Auth\TwoFactorCodeRequest;
@@ -97,6 +99,8 @@ class TwoFactorSetupController extends Controller
             RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
         });
 
+        (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::ENABLED), $user);
+
         $request->session()->forget(self::SETUP_CODES);
         $request->session()->flash('status', 'Two-factor authentication is on.');
 
@@ -155,6 +159,8 @@ class TwoFactorSetupController extends Controller
             $user->forceFill(['two_factor_secret' => null, 'two_factor_enabled' => false])->save();
             $user->recoveryCodes()->delete();
         });
+
+        (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::DISABLED), $user);
 
         $request->session()->forget(self::REGENERATED_CODES);
 

@@ -2,20 +2,19 @@
 
 use App\Domain\Identity\EmailVerificationLink;
 use App\Domain\Identity\Totp;
+use App\Domain\Notifications\Notices\PasswordReset;
+use App\Jobs\SendNotification;
 use App\Models\B2bApplication;
+use App\Models\NotificationLog;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
 use App\Models\UserTwoFactorRecoveryCode;
-use App\Notifications\Auth\ApplicationReceived;
-use App\Notifications\Auth\ExistingAccount;
-use App\Notifications\Auth\ResetPassword;
-use App\Notifications\Auth\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
@@ -27,7 +26,8 @@ const RECOVERY_PASSWORD = 'a-long-enough-passphrase';
 
 beforeEach(function () {
     $this->withoutVite();
-    Notification::fake();
+    // Notification rows are written; the send jobs are held (05.12 §9).
+    Queue::fake();
     $this->breachedDir = storage_path('framework/testing/breached-'.uniqid());
     File::ensureDirectoryExists($this->breachedDir);
     config(['auth.breached_passwords.path' => $this->breachedDir]);
@@ -36,6 +36,21 @@ beforeEach(function () {
 afterEach(function () {
     File::deleteDirectory($this->breachedDir);
 });
+
+/** @return list<string> notification keys queued for the user (05.12 §8.2) */
+function notifiedKeys(User $user): array
+{
+    return NotificationLog::query()->where('user_id', $user->id)->orderBy('id')->pluck('notification_key')->all();
+}
+
+/** The reset token in the queued `auth.password_reset` message. */
+function resetToken(User $user): string
+{
+    $job = Queue::pushed(SendNotification::class, fn (SendNotification $job) => $job->notice instanceof PasswordReset && $job->notice->userId === $user->id)->last();
+    expect($job)->not->toBeNull();
+
+    return $job->notice->token;
+}
 
 /** Puts `$password` on the offline breached list, as HIBP's range file would. */
 function markBreached(string $dir, string $password): void
@@ -76,7 +91,7 @@ it('registers a public customer, unverified and not signed in', function () {
         ->and(Hash::info((string) $user->password_hash)['algoName'])->toBe('argon2id')
         ->and($user->companies()->exists())->toBeFalse();
 
-    Notification::assertSentTo($user, VerifyEmail::class);
+    expect(notifiedKeys($user))->toBe(['auth.email_verification']);
     $this->assertGuest();
 });
 
@@ -94,8 +109,7 @@ it('files a trade application with the account, in one step', function () {
         ->and($application->address['postcode'])->toBe('E1 6AN')
         ->and($application->contact_name)->toBe('Asha Patel');
 
-    Notification::assertSentTo($user, VerifyEmail::class);
-    Notification::assertSentTo($user, ApplicationReceived::class);
+    expect(notifiedKeys($user))->toBe(['auth.email_verification', 'application.submitted']);
 });
 
 it('rejects an invalid VAT number and company number', function () {
@@ -112,8 +126,7 @@ it('answers an already-registered email exactly like a new one, and emails the o
 
     expect(User::query()->count())->toBe(1)
         ->and(B2bApplication::query()->count())->toBe(0);
-    Notification::assertSentTo($existing, ExistingAccount::class);
-    Notification::assertNotSentTo($existing, VerifyEmail::class);
+    expect(notifiedKeys($existing))->toBe(['auth.existing_account']);
 });
 
 it('refuses a password on the offline breached list, and one under 12 characters', function () {
@@ -165,20 +178,15 @@ it('sends a reset link only for a real account, answering both the same way', fu
     $this->post('/forgot-password', ['email' => $user->email])->assertSessionHas('status');
     $this->post('/forgot-password', ['email' => 'nobody@example.com'])->assertSessionHas('status');
 
-    Notification::assertSentToTimes($user, ResetPassword::class, 1);
-    Notification::assertCount(1);
+    expect(notifiedKeys($user))->toBe(['auth.password_reset'])
+        ->and(NotificationLog::query()->count())->toBe(1);
 });
 
 it('resets the password once per link and signs in on this device', function () {
     $user = User::factory()->create();
     $this->post('/forgot-password', ['email' => $user->email]);
 
-    $token = null;
-    Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $n) use (&$token) {
-        $token = $n->token;
-
-        return true;
-    });
+    $token = resetToken($user);
 
     $new = 'a-brand-new-passphrase';
     $this->post('/reset-password', ['token' => $token, 'email' => $user->email, 'password' => $new, 'password_confirmation' => $new])
@@ -195,12 +203,7 @@ it('resets the password once per link and signs in on this device', function () 
 it('never skips the second factor after a reset', function () {
     $user = User::factory()->withTwoFactor()->create();
     $this->post('/forgot-password', ['email' => $user->email]);
-    $token = null;
-    Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $n) use (&$token) {
-        $token = $n->token;
-
-        return true;
-    });
+    $token = resetToken($user);
 
     $this->post('/reset-password', ['token' => $token, 'email' => $user->email, 'password' => 'a-brand-new-passphrase', 'password_confirmation' => 'a-brand-new-passphrase'])
         ->assertRedirect(route('two-factor.challenge'));
@@ -210,12 +213,7 @@ it('never skips the second factor after a reset', function () {
 it('activates a pending staff user who sets their first password (§5.3)', function () {
     $user = User::factory()->pending()->create(['password_hash' => null]);
     $this->post('/forgot-password', ['email' => $user->email]);
-    $token = null;
-    Notification::assertSentTo($user, ResetPassword::class, function (ResetPassword $n) use (&$token) {
-        $token = $n->token;
-
-        return true;
-    });
+    $token = resetToken($user);
 
     $this->post('/reset-password', ['token' => $token, 'email' => $user->email, 'password' => 'a-brand-new-passphrase', 'password_confirmation' => 'a-brand-new-passphrase']);
 

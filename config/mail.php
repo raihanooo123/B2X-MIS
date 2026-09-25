@@ -55,7 +55,8 @@ return [
 
         'postmark' => [
             'transport' => 'postmark',
-            // 'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID'),
+            // 05.12 §6.1: transactional stream; marketing would need its own.
+            'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID', 'outbound'),
             // 'client' => [
             //     'timeout' => 5,
             // ],

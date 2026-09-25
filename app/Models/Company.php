@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string $account_code
  * @property string $name
  * @property string|null $vat_number
+ * @property string|null $accounts_email
  * @property string $status
  * @property string $payment_terms
  * @property string $price_display_mode
@@ -40,6 +41,7 @@ class Company extends Model
         'name',
         'trading_name',
         'vat_number',
+        'accounts_email',
         'registration_number',
         'status',
         'price_tier_id',
