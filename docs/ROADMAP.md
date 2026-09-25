@@ -85,6 +85,27 @@ Conventions used below:
    **Action: a demo seeder early, the real import once `docs/08-migration-seed.md` exists —
    see §26.**
 
+8. **⚠ BLOCKING (pre-go-live) — Laravel 11 has unpatched framework advisories.** Added
+   2026-09-25. `composer audit` on `laravel/framework` v11.56.1 reports three advisories,
+   which cover two distinct flaws:
+   - **CRLF injection in the default `email` validation rule** (GHSA-5vg9-5847-vvmq, **high**;
+     the same flaw is also listed as CVE-2026-48019). Fixed in 12.60.0, never backported to 11.
+   - **Temporary signed URL path confusion** (GHSA-crmm-hgp2-wgrp, medium). Fixed in 12.61.1.
+
+   **Mitigations in place:** every email field refuses CR and LF before `email` runs
+   (`app/Http/Requests/Concerns/AuthFields.php`), and email verification is an HMAC checked
+   in the controller (`app/Domain/Identity/EmailVerificationLink.php`), not a Laravel signed
+   route. **These are compensating controls, not fixes.** They depend on discipline: any new
+   email field must use `AuthFields::email()`, and nothing may use `temporarySignedRoute` or
+   the `signed` middleware. That includes 07 §6.3's signed-URL attachment serving, which
+   must not be built on Laravel's signed routes while on 11. They also mean 07 §6.3's
+   `composer audit` CI gate ("build fails on high severity") cannot pass.
+
+   **Resolution: upgrade to Laravel 12, ≥ 12.61.1** (clears both). That is a stack amendment:
+   amend CLAUDE.md's approved-stack table in its own commit first, then upgrade (check
+   Filament v3, Sanctum and Inertia compatibility). **Not being done now; it must be done
+   before go-live.** See 07 §16 Q11 and §16 below.
+
 ---
 
 ## 1. `02` — Domain Model: remaining Phase-1 schema
@@ -961,6 +982,10 @@ completely empty except for the bare `AdminPanelProvider` with no resources regi
       `php artisan auth:refresh-breached-passwords` once on the production host (hours;
       tens of GB under `storage/app/breached-passwords`) and confirm the quarterly schedule
       runs. Until it exists the check fails open with a `critical` log (05.13 §5.4).
+- [ ] **Pre-go-live — upgrade Laravel 11 → 12 (≥ 12.61.1).** Clears the CRLF `email`-rule
+      and signed-URL path-confusion advisories (§0.8, 07 §16 Q11). Amend CLAUDE.md's stack
+      table first, in its own commit. After the upgrade, `composer audit` is clean and the
+      two compensating controls can stay as defence in depth.
 - [ ] `.github/workflows/ci.yml` — **does not exist.** Runs `composer lint`,
       `composer analyse`, `composer test`, `npm run build`, and the axe-core accessibility
       check (below) on every PR; fails the build on any CI gate from 07 §14's table.
@@ -1221,7 +1246,7 @@ suite are effectively untestable against empty tables, and the 920-SKU reference
 This roadmap identifies **269 concrete file-level tasks across the original 17 sections**
 (migrations, models, factories, domain services, jobs, controllers, Form Requests, Policies,
 API Resources, Filament Resources, React pages/components, and their accompanying tests),
-plus **7 blocking issues** (§0, two added 2026-09-20) and **2 clusters of genuine
+plus **8 blocking issues** (§0, two added 2026-09-20, one 2026-09-25) and **2 clusters of genuine
 schema/doc gaps — roughly 20 tables total** — that need a signed-off doc amendment to
 `docs/02-domain-model-erd.md` or the relevant `05.x` module spec before their migrations
 can be written at all. Since 2026-09-17, `app/Domain/Pricing` (§2) has been substantially
