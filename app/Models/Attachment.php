@@ -14,6 +14,17 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * (attachable_type/attachable_id). `path` is a storage-driver key, never a
  * public URL (07-nfr.md §6.3) — serve via a signed URL minted per request,
  * never expose this column directly in a response.
+ *
+ * @property int $id
+ * @property string $public_id
+ * @property string $attachable_type
+ * @property int $attachable_id
+ * @property string $disk
+ * @property string $path
+ * @property string|null $original_name
+ * @property string $mime_type
+ * @property int $size_bytes
+ * @property bool $is_customer_visible
  */
 class Attachment extends Model
 {

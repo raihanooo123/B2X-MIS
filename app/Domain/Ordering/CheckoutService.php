@@ -3,6 +3,7 @@
 namespace App\Domain\Ordering;
 
 use App\Domain\Billing\CardPayments;
+use App\Domain\Billing\InvoiceService;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
@@ -96,6 +97,7 @@ final class CheckoutService
         private readonly CheckoutStrategy $tradeCheckout = new TradeCheckout,
         private readonly CheckoutStrategy $consumerCheckout = new ConsumerCheckout,
         private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
+        private readonly InvoiceService $invoiceService = new InvoiceService,
     ) {}
 
     /**
@@ -206,6 +208,9 @@ final class CheckoutService
                 $cart->lines()->delete();
 
                 DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
+                // 05.5 §7.3: a trade BACS/prepay order is invoiced at placement,
+                // after commit, so a failure to invoice never loses the order.
+                $this->invoiceService->whenPlaced($order->id);
 
                 return $order->load('lines');
             }),

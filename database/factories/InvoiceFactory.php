@@ -42,6 +42,18 @@ class InvoiceFactory extends Factory
         ]);
     }
 
+    /** 02 §21.2: a public customer's receipt — no company, terms or due date. */
+    public function receipt(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'invoice_number' => 'RCP-'.fake()->unique()->numerify('######'),
+            'company_id' => null,
+            'order_id' => Order::factory()->state(['company_id' => null]),
+            'payment_terms' => null,
+            'due_at' => null,
+        ]);
+    }
+
     public function forShipment(int $shipmentId): static
     {
         return $this->state(fn (array $attributes) => ['shipment_id' => $shipmentId]);

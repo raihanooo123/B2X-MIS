@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §14.5.2 — invoices. `shipment_id` is a deferred foreign key —
@@ -19,11 +21,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * (PaymentAllocationService), which enforces §11.4's two invariants, or by
  * the rebuild.
  *
+ * §21.2: a row with no company is a public customer's **receipt** —
+ * `payment_terms` and `due_at` are NULL with it (`invoices_kind_chk`).
+ * Issued only by App\Domain\Billing\InvoiceService.
+ *
  * @property int $id
+ * @property string $public_id
+ * @property string $invoice_number
+ * @property int|null $company_id
  * @property int $order_id
+ * @property int|null $shipment_id
  * @property string $status
+ * @property string $currency
+ * @property int $subtotal_net_minor
+ * @property int $discount_net_minor
+ * @property int $shipping_net_minor
+ * @property int $tax_minor
  * @property int $total_gross_minor
  * @property int $paid_minor
+ * @property string|null $payment_terms
+ * @property Carbon|null $due_at
+ * @property Carbon $issued_at
  */
 class Invoice extends Model
 {
@@ -86,5 +104,37 @@ class Invoice extends Model
     public function allocations(): HasMany
     {
         return $this->hasMany(PaymentAllocation::class);
+    }
+
+    /** 02 §21.2: no company means a public customer's receipt, not a VAT invoice. */
+    public function isReceipt(): bool
+    {
+        return $this->company_id === null;
+    }
+
+    /**
+     * The lines this document bills, derived from `order_lines` (02
+     * §14.5.2 — there is no `invoice_lines`). Whole-order documents only:
+     * a per-shipment invoice joins through `shipment_lines`, which does
+     * not exist yet (§14.6), and InvoiceService issues none.
+     *
+     * @return HasMany<OrderLine, $this>
+     */
+    public function orderLines(): HasMany
+    {
+        return $this->hasMany(OrderLine::class, 'order_id', 'order_id')->orderBy('line_no');
+    }
+
+    /**
+     * The PDF archived at issue (02 §21.1) — what the customer received.
+     *
+     * @return HasOne<Attachment, $this>
+     */
+    public function archivedPdf(): HasOne
+    {
+        return $this->hasOne(Attachment::class, 'attachable_id')
+            ->where('attachable_type', 'invoice')
+            ->where('mime_type', 'application/pdf')
+            ->oldest('id');
     }
 }

@@ -29,7 +29,9 @@ use Illuminate\Support\Carbon;
  * @property int|null $shipping_tax_rate_bp
  * @property int $shipping_tax_minor
  * @property string|null $customer_reference
+ * @property string $currency
  * @property int $subtotal_net_minor
+ * @property int $discount_net_minor
  * @property int $shipping_net_minor
  * @property int $tax_minor
  * @property int $total_gross_minor

@@ -16,6 +16,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * domain logic (05.2 §8.3's hold lifecycle table), never set ad hoc —
  * that write discipline belongs with the checkout/invoicing services,
  * not this model.
+ *
+ * @property int $id
+ * @property int $company_id
+ * @property int $order_id
+ * @property int $amount_minor
+ * @property string $status
+ * @property int|null $invoice_id
  */
 class CreditHold extends Model
 {

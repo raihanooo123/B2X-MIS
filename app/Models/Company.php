@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string $public_id
  * @property string $account_code
  * @property string $name
+ * @property string|null $vat_number
  * @property string $status
  * @property string $payment_terms
  * @property string $price_display_mode

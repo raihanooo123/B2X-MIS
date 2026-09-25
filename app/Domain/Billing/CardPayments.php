@@ -86,6 +86,10 @@ final class CardPayments
             DB::afterCommit(function () use ($paymentId, $orderId) {
                 event(new PaymentCaptured($paymentId, $orderId));
                 (new PaymentAllocationService)->allocatePayment($paymentId);
+                // 05.5 §7.3: a card order is invoiced (receipted) at capture.
+                if ($orderId !== null) {
+                    (new InvoiceService)->whenPaid($orderId);
+                }
             });
 
             return $payment;

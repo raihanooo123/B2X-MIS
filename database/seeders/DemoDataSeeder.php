@@ -19,6 +19,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\Sku;
 use App\Models\StockLevel;
+use App\Models\SystemConfiguration;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
 use App\Models\User;
@@ -56,6 +57,7 @@ class DemoDataSeeder extends Seeder
         $roles = $this->seedRoles();
         $this->seedAdminUser($roles['admin']);
         $this->seedNumberSequences();
+        $this->seedSellerDetails();
 
         $tiers = $this->seedPriceTiers();
         $taxClasses = $this->seedTaxClasses();
@@ -126,12 +128,36 @@ class DemoDataSeeder extends Seeder
         foreach ([
             'order_number' => 'SO-',
             'invoice_number' => 'INV-',
+            'receipt_number' => 'RCP-',
             'rma_number' => 'RMA-',
             'credit_note_number' => 'CN-',
             'quote_number' => 'QT-',
             'po_number' => 'PO-',
         ] as $keyName => $prefix) {
             NumberSequence::factory()->forSeries($keyName, $prefix)->create();
+        }
+    }
+
+    /**
+     * Doc 02 §21.3 — the supplier details a VAT invoice prints. Demo
+     * placeholders, plainly not real: replace them before issuing a
+     * document anyone will rely on.
+     */
+    private function seedSellerDetails(): void
+    {
+        foreach ([
+            'seller.legal_name' => 'Demo Wholesale Ltd',
+            'seller.address' => "1 Demo Trading Estate\nLondon\nE1 6AN",
+            'seller.vat_number' => 'GB000000000',
+            'seller.company_number' => '00000000',
+        ] as $key => $value) {
+            SystemConfiguration::factory()->create([
+                'config_key' => $key,
+                'value_type' => 'text',
+                'value_int' => null,
+                'value_text' => $value,
+                'description' => 'Printed on invoices and receipts (02 §21.3).',
+            ]);
         }
     }
 
