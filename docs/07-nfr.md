@@ -245,6 +245,7 @@ The dropship decision is the load-bearing one: **there is no end-customer table*
 | Applications, rejected | 2 years | Duplicate detection and re-application history |
 | Web/session logs | 90 days | |
 | Marketing consent records | Duration of consent + 3 years | Proof of consent |
+| Notification log (`notification_log`) | 2 years | Delivery evidence (05.12 §14; decided 2026-09-25) |
 | Backups | Per §4 | Erasure requests reconciled against backup rotation |
 
 ### 7.3 Erasure versus statutory retention
@@ -274,7 +275,7 @@ Doc 02 §4.2 already provides for this: `users` carries `deleted_at`, and the un
 
 ### 7.5 Processors
 
-Every third party handling personal data is recorded with its purpose, location and DPA status: payment gateway, email delivery, error tracking, CDN, hosting, search. Error tracking is configured to **scrub personal data before transmission** — an exception payload containing a customer's address is a data transfer nobody assessed.
+Every third party handling personal data is recorded with its purpose, location and DPA status: payment gateway, email delivery, error tracking, CDN, hosting, search. Email delivery is **Postmark** (05.12 §6.1, decided 2026-09-25). Error tracking is configured to **scrub personal data before transmission** — an exception payload containing a customer's address is a data transfer nobody assessed.
 
 ---
 

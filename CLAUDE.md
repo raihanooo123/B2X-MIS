@@ -22,10 +22,16 @@ none of the trade-only machinery (tiers, contracts, credit, multi-user accounts)
 | Admin | FilamentPHP v3 |
 | Auth | Laravel Sanctum — session cookie + CSRF for the first-party app and admin (`06` §1, `05.13`) |
 | Payments | Stripe — `stripe/stripe-php` server-side, Stripe.js Elements (`@stripe/stripe-js`, `@stripe/react-stripe-js`) in the browser. Card data never reaches our servers (`07` §6.4, SAQ-A) |
+| Email | Postmark, through Laravel's `postmark` mail transport (`symfony/postmark-mailer`, `symfony/http-client`). Delivery, bounce and complaint webhooks feed `notification_log` (`05.12`) |
 | Quality | Pest, PHPStan level 8, Pint |
 
 Vue, Blade page views (beyond Inertia's single unavoidable root template), MySQL/MariaDB
 and Laravel Mix are not part of this stack. Do not reintroduce them.
+
+**Blade is approved for mail and PDF document templates only** (`resources/views/mail/`,
+`resources/views/documents/`) — email bodies and printable documents, rendered server-side
+from an explicit data array. Never for a page a browser navigates to: every page is an
+Inertia React component (`05.12` §13).
 
 ## Specifications are binding
 

@@ -1136,10 +1136,9 @@ Every module spec written so far assumes notifications exist (order confirmation
 back-in-stock, approval requests, RMA status, quote-approval, etc.) without any of them
 specifying templates, channels, preferences, or delivery tracking.
 
-- [ ] Write `docs/05.12-notifications.md` — templates, channels, per-user/company
-      preferences, delivery tracking. [G5]
-- [ ] Once signed off: `notification_preferences`, `notification_log` migrations (naming per
-      the spec, not fixed here).
+- [x] Write `docs/05.12-notifications.md` — templates, channels, per-user/company
+      preferences, delivery tracking. [G5] Signed off 2026-09-25.
+- [ ] `notification_preferences`, `notification_log` migrations (02 §22).
 - [ ] `app/Domain/Notifications/NotificationDispatcher.php` — the single dispatch path every
       other domain service calls rather than each sending its own mail/SMS ad hoc.
 - [ ] Wire `back_in_stock_subscriptions` (02 §14.10, DRAFT) as the first real consumer — it
