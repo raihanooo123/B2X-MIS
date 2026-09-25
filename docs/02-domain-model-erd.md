@@ -2101,7 +2101,7 @@ Consistency comes from explicit `FOR UPDATE` on specific rows, not from the isol
 
 ### 11.3 Number sequences
 
-`order_number`, `invoice_number`, `rma_number`, `credit_note_number`, `quote_number`, `po_number` must be **gapless** for accounting.
+`order_number`, `invoice_number`, `receipt_number` (§21.2), `rma_number`, `credit_note_number`, `quote_number`, `po_number` must be **gapless** for accounting.
 
 Postgres sequences — like MySQL's `AUTO_INCREMENT` — are explicitly non-transactional and gap on rollback. That is correct behaviour for surrogate keys and unacceptable for a document series HMRC may inspect.
 
@@ -2345,6 +2345,7 @@ CREATE TABLE attachments (
   CONSTRAINT attachments_attachable_type_chk CHECK (attachable_type IN
     ('b2b_application','rma','purchase_order','container','product','sku'))
 );
+-- §21.1 (2026-09-25) adds 'invoice' to this list.
 
 CREATE INDEX attachments_attachable_idx ON attachments (attachable_type, attachable_id)
   WHERE deleted_at IS NULL;
@@ -2576,6 +2577,7 @@ CREATE INDEX invoices_unpaid_idx   ON invoices (company_id)
 - `invoices_company_issued_idx` is the exact index `05.2-b2b-accounts-credit.md` §9 already names by identifier ("Aged debt buckets... driven by `invoices_company_issued_idx`") — this DDL is what makes that forward reference resolvable.
 - `invoices_unpaid_idx` is partial and covering, purpose-built for the `credit_used_minor` rebuild query already written in 05.2 §7.2 (`SUM(total_gross_minor - paid_minor) WHERE status IN ('issued','part_paid','overdue')`) — an index-only scan over exactly the rows that query touches, following §9 rule 1.
 - `shipment_id` is **nullable**: `05.5-goods-in-picking-dispatch.md` §7.3 makes per-shipment invoicing the default but allows `invoicing.mode = 'on_completion'` (one invoice for the whole order). When `shipment_id` is set, the invoice's line-level detail is derived by joining `order_lines` through `shipment_lines` for that shipment; when `NULL`, by joining `order_lines` directly on `order_id`. It is also a **deferred foreign key**: Appendix A places `invoices` in Phase 1 (migration-ordering step 13) but `shipments` in Phase 2, so the real `REFERENCES shipments (id)` cannot be added at creation without a cross-phase dependency. `invoices_shipment_idx` (below) does not require the FK to exist and is unaffected. **No separate `invoice_lines` table is introduced** — it is not in the twenty-table list this section is scoped to, and `order_lines` already carries the immutable per-line price/tax/quantity snapshot (invariant 4); duplicating that snapshot into a second table would create exactly the two-sources-of-truth problem CLAUDE.md invariant 3/4 exists to prevent. This is a considered design choice, not an oversight — flagged explicitly below in case the reviewer wants a materialised `invoice_lines` for Xero export performance once volume is known.
+- **Amended by §21.2 (2026-09-25):** `company_id`, `payment_terms` and `due_at` are nullable together. A row with no company is a public customer's receipt.
 - `payment_terms` and `due_at` are **snapshotted** onto the invoice at issue, mirroring the snapshot discipline applied everywhere else in this document (order-line prices, RMA fee rates) — a customer's terms changing after an invoice is issued must not retroactively move that invoice's due date.
 - **Flagged tension, not resolved here:** `orders.xero_invoice_id` already exists (§8.2). It predates per-shipment invoicing (05.5 §7.3), which was specified later and makes "the Xero invoice for this order" potentially plural. This draft adds `invoices.xero_invoice_id` as the correct per-invoice sync pointer and leaves `orders.xero_invoice_id` untouched, but the column is now redundant at best and misleading at worst for a part-dispatched, multiply-invoiced order. See the open-questions table.
 - Once this section exists, `credit_holds.invoice_id` (05.2 §7.1) and `rep_commissions.invoice_id` (05.8 §10.3) — both already written against a table that didn't exist — become enforceable as real foreign keys.
@@ -3253,6 +3255,7 @@ ALTER TABLE payments VALIDATE CONSTRAINT payments_owner_chk;
 
 - **Every payment still belongs to someone.** A trade payment carries its company, as before. A public customer's payment carries its order, and the order carries the customer (`orders.user_id`, §8.2). `payments_owner_chk` makes a payment with neither impossible to persist. The one order-less case §14.5.1 names — a company's account-balance payout (05.4 §7.5A) — always has a company.
 - **No `payments.user_id`.** The order already records the customer; a second copy on the payment could disagree with it.
+- **Superseded by §21.2:** public orders now receive a receipt on `invoices`, and their payments are allocated to it.
 - **Public payments are never allocated to an invoice**, because `invoices.company_id` is `NOT NULL` (§14.5.2): public orders are not invoiced on account. A public card payment settles its order directly and stays unallocated in `payment_allocations`, which is correct — there is nothing on account to settle.
 - `payments_company_idx (company_id, created_at DESC)` is unchanged: B-tree indexes hold NULLs, and "a company's payments" never asks for them.
 - `NOT VALID` then `VALIDATE` adds the check without a long exclusive lock (§2.5, 07 §11.1); every existing row already has a company, so validation cannot fail.
@@ -3312,3 +3315,61 @@ ALTER TABLE orders
 - `shipping_tax_minor = round_half_up(shipping_net_minor × shipping_tax_rate_bp / 10000)` — one rounding, as for a line (03 §6.3).
 - All four are NULL/0 when there is no carriage. Free delivery past the carriage-paid threshold records the zone and method, with `shipping_net_minor = 0` and `delivery_rate_id` NULL: no rate row priced it, and a carriage-paid order needs no weight data to be free (05.6 §6), so there may be no band to point at. `delivery_rate_id IS NULL` with a zone set therefore means "carriage paid".
 - `delivery_zone_id` (§8.2) already existed; it is now written.
+
+---
+
+## 21. Schema amendment 2026-09-25 — invoicing: receipts, archived PDFs, seller details (signed off 2026-09-25)
+
+> **Status: signed off 2026-09-25.** Migration to follow with the invoicing implementation (05.5 §7.3).
+
+Building invoicing against §14.5.2 surfaced three gaps: the invoice PDF has nowhere to be archived, a public customer's order cannot be documented at all, and nothing records the seller details a VAT invoice must carry.
+
+### 21.1 `attachments` — `invoice` added to the attachable types
+
+Line detail is derived from `order_lines`, not materialised (§14.5.2). The condition on that choice is that the rendered document is archived when it is issued, so what the customer received survives exactly. It is archived as an attachment, which §14.2's closed type list did not allow.
+
+```sql
+ALTER TABLE attachments DROP CONSTRAINT attachments_attachable_type_chk;
+ALTER TABLE attachments ADD CONSTRAINT attachments_attachable_type_chk CHECK (attachable_type IN
+  ('b2b_application','rma','purchase_order','container','product','sku','invoice')) NOT VALID;
+ALTER TABLE attachments VALIDATE CONSTRAINT attachments_attachable_type_chk;
+```
+
+- An archived invoice PDF is `is_customer_visible = true` and `uploaded_by_user_id` NULL (the system generated it).
+- The archive is the document as issued. A re-render never replaces it; a corrected document is a credit note plus a new invoice (§14.5.3).
+
+### 21.2 `invoices` — receipts for public customers
+
+§19 left public orders undocumented because `invoices.company_id` is `NOT NULL`. A public customer is owed a receipt. It is the same document on the same table, with no payment terms and no due date, since there is no account to be on.
+
+```sql
+ALTER TABLE invoices
+  ALTER COLUMN company_id    DROP NOT NULL,
+  ALTER COLUMN payment_terms DROP NOT NULL,
+  ALTER COLUMN due_at        DROP NOT NULL;
+
+ALTER TABLE invoices ADD CONSTRAINT invoices_kind_chk CHECK (
+    (company_id IS NOT NULL AND payment_terms IS NOT NULL AND due_at IS NOT NULL)
+ OR (company_id IS NULL     AND payment_terms IS NULL     AND due_at IS NULL)
+) NOT VALID;
+ALTER TABLE invoices VALIDATE CONSTRAINT invoices_kind_chk;
+```
+
+- **`company_id IS NULL` means receipt.** There is no separate kind column: the rule has one input, and `invoices_kind_chk` makes a half-receipt, half-invoice row impossible to persist. The customer is the order's `orders.user_id` (§8.2), as for §19's payments.
+- **Receipts take their own gapless series**, `number_sequences.key_name = 'receipt_number'` (prefix `RCP-`), stored in `invoice_number`. `invoices_number_uq` still holds across both series because the prefixes differ. §11.3's gapless list gains `receipt_number`.
+- **Supersedes §19's allocation note.** A public card payment is now allocated to its receipt through `payment_allocations`, like any other payment. `invoices.paid_minor` (§11.4) stays a true projection for every row, so the rebuild needs no special case. Public payments still never touch any credit projection, since there is no company.
+- Existing indexes are unaffected. `invoices_company_issued_idx` and `invoices_unpaid_idx` hold the NULL rows but are only ever queried for a company.
+- `NOT VALID` then `VALIDATE` (§2.5): every existing row has all three columns, so validation cannot fail.
+
+### 21.3 Seller details — `system_configurations` keys
+
+A valid UK VAT invoice names the supplier and its VAT registration number. These change without a deployment, so they are configuration (§2.7), global scope, `value_type = 'text'`:
+
+| `config_key` | Content |
+|---|---|
+| `seller.legal_name` | Registered company name |
+| `seller.address` | Registered or trading address, newline-separated |
+| `seller.vat_number` | UK VAT registration number |
+| `seller.company_number` | Companies House registration number |
+
+No schema change: these are rows, not columns. A missing `seller.vat_number` blocks issuing a VAT invoice, rather than printing an invalid one. Receipts don't need it, but print it when it is set.
