@@ -106,12 +106,29 @@ npm run dev / npm run build          # Inertia/React frontend, from repo root
 npm run dev / npm run build          # realtime gateway, from services/realtime-gateway/
 ```
 
-Run `composer lint && composer test` before reporting any task complete.
+Run `composer lint` before reporting any task complete. The user runs the tests.
 
-**Never run `php artisan config:cache`, `route:cache` or `event:cache` in this project.**
-A cached config makes Laravel ignore `phpunit.xml`'s environment overrides, so the suite
-runs against the wrong settings and fails with 419 CSRF errors. If one was run by
-mistake, clear it with `php artisan optimize:clear`.
+## Commands Claude must never run
+
+The user runs all of these themselves. Never run them, even when a task, a spec or a
+skill says to:
+
+- `git add`, `git commit`, `git push`
+- `composer test`, in any form, including `--filter`
+- `php artisan migrate`, in any form, including `migrate:fresh` and `--seed`
+- any `:cache` command (`config:cache`, `route:cache`, `event:cache`, `view:cache`,
+  `icons:cache`, …)
+- any optimize command (`optimize`, `optimize:clear`, `filament:optimize`,
+  `filament:optimize-clear`)
+
+When the work is done, report what changed (files, migrations to run, tests to run)
+and stop.
+
+**Why:** a stale cache has caused three separate wasted debugging sessions. A cached
+config makes Laravel ignore `phpunit.xml`'s environment overrides, so the suite runs
+against the wrong settings and fails with 419 CSRF errors; a stale event cache left a
+listener unregistered and card orders unpaid. If a cache looks stale, say so and let
+the user clear it.
 
 ## Conventions
 
