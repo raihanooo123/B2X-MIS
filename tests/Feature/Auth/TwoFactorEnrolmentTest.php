@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Identity\RecoveryCodes;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -175,4 +176,86 @@ it('does not ask for a second factor at sign-in while enrolment is unfinished', 
 
     $this->post('/login', ['email' => $user->email, 'password' => ENROL_PASSWORD])->assertRedirect(route('order-pad'));
     $this->assertAuthenticatedAs($user);
+});
+
+/**
+ * Regression (2026-09-25): the key field rendered empty. `two_factor_secret`
+ * is bytea, which pdo_pgsql returns as a stream; the cast drained it, so
+ * the second read in one request returned nothing — and the setup page
+ * reads it twice. The tests above passed because their users were built
+ * in memory, never read back from the database. These load the user from
+ * the database, exactly as a real request does.
+ */
+it('puts the 32-character key in the page for a user loaded from the database', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user)->get('/two-factor/setup')->assertOk(); // creates and stores the pending key
+
+    $stored = User::query()->findOrFail($user->id);
+    $this->actingAs($stored);
+
+    $body = html_entity_decode((string) $this->get('/two-factor/setup')->assertOk()->getContent(), ENT_QUOTES);
+
+    expect(preg_match('/"secret":"([A-Z2-7]{32})"/', $body, $key))->toBe(1)
+        ->and($key[1])->toBe(User::query()->findOrFail($user->id)->two_factor_secret)
+        ->and($body)->toContain('secret='.$key[1]);
+});
+
+it('reads the stored secret the same every time', function () {
+    $user = User::factory()->withTwoFactor()->create();
+    $stored = User::query()->findOrFail($user->id);
+
+    expect($stored->two_factor_secret)->toMatch('/^[A-Z2-7]{32}$/')
+        ->and($stored->two_factor_secret)->toBe($stored->two_factor_secret)
+        ->and($stored->two_factor_secret)->toBe(User::query()->findOrFail($user->id)->two_factor_secret);
+});
+
+it('turns 2FA on only after the recovery codes are ticked as saved', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+    $uri = enrolmentProps()['otpauth_uri'];
+    $this->post('/two-factor/setup/confirm', ['code' => authenticatorCode($uri, now()->getTimestamp())['code']]);
+
+    $this->post('/two-factor/setup/complete', [])->assertSessionHasErrors('saved');
+    $this->post('/two-factor/setup/complete', ['saved' => '0'])->assertSessionHasErrors('saved');
+    expect(User::query()->findOrFail($user->id)->two_factor_enabled)->toBeFalse();
+
+    $this->post('/two-factor/setup/complete', ['saved' => '1'])->assertSessionHasNoErrors();
+    expect(User::query()->findOrFail($user->id)->two_factor_enabled)->toBeTrue();
+
+    // Enrolled: the setup page now hands over to the account page.
+    $this->get('/two-factor/setup')->assertRedirect(route('account'));
+});
+
+it('regenerates recovery codes from the account page, keeping the old ones until the new are ticked as saved', function () {
+    $user = User::factory()->withTwoFactor()->create(['password_hash' => Hash::make(ENROL_PASSWORD)]);
+    RecoveryCodes::replace($user, ['abcde-fghjk']);
+    $this->actingAs($user);
+
+    $this->post('/two-factor/recovery-codes', ['password' => 'not-my-password-at-all'])->assertSessionHasErrors('password');
+    $this->post('/two-factor/recovery-codes', ['password' => ENROL_PASSWORD])->assertRedirect(route('account'));
+
+    $pending = $this->get('/account')->assertOk()->viewData('page')['props']['two_factor']['pending_codes'];
+    expect($pending)->toHaveCount(8);
+
+    // Not ticked: nothing changes, and the old code still works.
+    $this->post('/two-factor/recovery-codes/confirm', [])->assertSessionHasErrors('saved');
+    expect(RecoveryCodes::remaining($user))->toBe(1);
+
+    $this->post('/two-factor/recovery-codes/confirm', ['saved' => '1'])->assertSessionHasNoErrors()->assertRedirect(route('account'));
+
+    expect(RecoveryCodes::remaining($user))->toBe(8)
+        ->and(RecoveryCodes::consume($user, 'abcde-fghjk'))->toBeFalse()
+        ->and(RecoveryCodes::consume($user, $pending[0]))->toBeTrue()
+        ->and($this->get('/account')->viewData('page')['props']['two_factor']['pending_codes'])->toBeNull();
+});
+
+it('keeps the current recovery codes when regeneration is cancelled', function () {
+    $user = User::factory()->withTwoFactor()->create(['password_hash' => Hash::make(ENROL_PASSWORD)]);
+    RecoveryCodes::replace($user, ['abcde-fghjk']);
+    $this->actingAs($user);
+
+    $this->post('/two-factor/recovery-codes', ['password' => ENROL_PASSWORD]);
+    $this->post('/two-factor/recovery-codes/cancel')->assertRedirect(route('account'));
+
+    expect(RecoveryCodes::consume($user, 'abcde-fghjk'))->toBeTrue();
 });

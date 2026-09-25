@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Auth\CompanyChoiceController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -70,7 +71,11 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/two-factor/setup/complete', [TwoFactorSetupController::class, 'complete'])->name('two-factor.setup.complete');
     Route::post('/two-factor/setup/reset', [TwoFactorSetupController::class, 'reset'])->name('two-factor.setup.reset');
     Route::post('/two-factor/recovery-codes', [TwoFactorSetupController::class, 'regenerateCodes'])->name('two-factor.setup.recovery-codes');
+    Route::post('/two-factor/recovery-codes/confirm', [TwoFactorSetupController::class, 'confirmRegeneratedCodes'])->name('two-factor.setup.recovery-codes.confirm');
+    Route::post('/two-factor/recovery-codes/cancel', [TwoFactorSetupController::class, 'cancelRegeneratedCodes'])->name('two-factor.setup.recovery-codes.cancel');
     Route::delete('/two-factor', [TwoFactorSetupController::class, 'destroy'])->name('two-factor.setup.disable');
+
+    Route::get('/account', [AccountController::class, 'show'])->name('account');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');

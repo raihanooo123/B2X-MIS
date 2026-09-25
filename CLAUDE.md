@@ -18,7 +18,7 @@ none of the trade-only machinery (tiers, contracts, credit, multi-user accounts)
 |---|---|
 | Backend | PHP 8.3, Laravel 11, PostgreSQL 16 |
 | Real-time | Node.js (TypeScript), Fastify, Socket.io, subscribing to Redis Pub/Sub — `services/realtime-gateway/`, doc `11` |
-| Frontend | Inertia.js + React (TypeScript), Tailwind, shadcn/ui, Zustand, TanStack Query, Vite |
+| Frontend | Inertia.js + React (TypeScript), Tailwind, shadcn/ui, Zustand, TanStack Query, Vite, `qrcode.react` (2FA enrolment QR, drawn in the browser — `05.13` §12.2) |
 | Admin | FilamentPHP v3 |
 | Auth | Laravel Sanctum — session cookie + CSRF for the first-party app and admin (`06` §1, `05.13`) |
 | Payments | Stripe — `stripe/stripe-php` server-side, Stripe.js Elements (`@stripe/stripe-js`, `@stripe/react-stripe-js`) in the browser. Card data never reaches our servers (`07` §6.4, SAQ-A) |

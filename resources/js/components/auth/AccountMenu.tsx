@@ -51,10 +51,10 @@ export function AccountMenu() {
                     <MailWarning className="size-4" aria-hidden /> Confirm email
                 </Link>
             )}
-            <Link href="/two-factor/setup" className={linkClass} title="Two-factor authentication">
+            <Link href="/account" className={linkClass} title="Your account and security">
                 <ShieldCheck className="size-4" aria-hidden />
                 <span className="hidden sm:inline">{auth.user.first_name}</span>
-                <span className="sr-only sm:hidden">Account security</span>
+                <span className="sr-only sm:hidden">Your account</span>
             </Link>
             <Link href="/logout" method="post" as="button" className={linkClass}>
                 <LogOut className="size-4" aria-hidden /> Sign out

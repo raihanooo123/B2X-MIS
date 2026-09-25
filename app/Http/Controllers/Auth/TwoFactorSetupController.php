@@ -42,21 +42,18 @@ class TwoFactorSetupController extends Controller
 {
     private const SETUP_CODES = 'auth.2fa.setup_codes';
 
-    private const SHOW_CODES = 'auth.2fa.show_codes';
+    /** New recovery codes awaiting the user's "I have saved these" (read by AccountController). */
+    public const REGENERATED_CODES = 'auth.2fa.regenerated_codes';
 
-    public function show(Request $request): Response
+    public function show(Request $request): Response|RedirectResponse
     {
         $user = $this->user($request);
         $session = $request->session();
 
+        // Enrolment only. Once 2FA is on, it is managed from the account
+        // page (recovery codes, turning it off).
         if ($user->two_factor_enabled) {
-            return Inertia::render('Auth/TwoFactorSetup', [
-                'enabled' => true,
-                'is_staff' => $user->isStaff(),
-                'remaining_codes' => RecoveryCodes::remaining($user),
-                'low_watermark' => RecoveryCodes::LOW_WATERMARK,
-                'new_codes' => $session->get(self::SHOW_CODES),
-            ]);
+            return redirect()->route('account');
         }
 
         $secret = $this->pendingSecret($user);
@@ -106,16 +103,46 @@ class TwoFactorSetupController extends Controller
         return (new SignIn)->redirectAfter($request, $user);
     }
 
+    /**
+     * Regenerating recovery codes, step 1 (after re-entering the password):
+     * a new set is generated and shown, but held only in the session. The
+     * current codes keep working until the user confirms they have saved
+     * the new ones (confirmRegeneratedCodes) — so nobody can end up with
+     * codes they never saw, the way a one-step regenerate allowed.
+     */
     public function regenerateCodes(ConfirmPasswordRequest $request): RedirectResponse
     {
         $user = $this->user($request);
         abort_unless($user->two_factor_enabled, 409);
 
-        $codes = RecoveryCodes::generate();
-        RecoveryCodes::replace($user, $codes);
-        $request->session()->flash(self::SHOW_CODES, $codes);
+        $request->session()->put(self::REGENERATED_CODES, RecoveryCodes::generate());
 
-        return redirect()->route('two-factor.setup');
+        return redirect()->route('account');
+    }
+
+    /** Step 2: the user ticked that they saved the new set → it replaces the old one. */
+    public function confirmRegeneratedCodes(Request $request): RedirectResponse
+    {
+        $request->validate(['saved' => ['accepted']], ['saved.accepted' => 'Tick to confirm you have saved your new recovery codes.']);
+
+        $user = $this->user($request);
+        $codes = $request->session()->get(self::REGENERATED_CODES);
+        if (! $user->two_factor_enabled || ! is_array($codes)) {
+            return redirect()->route('account');
+        }
+
+        RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
+        $request->session()->forget(self::REGENERATED_CODES);
+
+        return redirect()->route('account')->with('status', 'Your new recovery codes are active. The old ones no longer work.');
+    }
+
+    /** Changed their mind: the new set is discarded; the current codes stay. */
+    public function cancelRegeneratedCodes(Request $request): RedirectResponse
+    {
+        $request->session()->forget(self::REGENERATED_CODES);
+
+        return redirect()->route('account')->with('status', 'Your existing recovery codes are unchanged.');
     }
 
     /** Optional for trade users only; staff cannot turn it off (07 §6.1). */
@@ -129,7 +156,9 @@ class TwoFactorSetupController extends Controller
             $user->recoveryCodes()->delete();
         });
 
-        return redirect()->route('two-factor.setup')->with('status', 'Two-factor authentication is off.');
+        $request->session()->forget(self::REGENERATED_CODES);
+
+        return redirect()->route('account')->with('status', 'Two-factor authentication is off.');
     }
 
     /**
