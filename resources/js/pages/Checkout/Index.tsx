@@ -409,7 +409,9 @@ function CheckoutForm(props: CheckoutProps) {
                             </p>
                         )}
                         {addressComplete && payingByCard && !cardComplete && <p className="text-center text-xs text-muted-foreground">Enter your card details to place your order.</p>}
-                        <p className="text-center text-xs text-muted-foreground">Prices {vatLabel(mode)}. Delivery charges, if any, are confirmed with your order.</p>
+                        <p className="text-center text-xs text-muted-foreground">
+                            Prices {vatLabel(mode)}.{carriageKnown ? ' The total includes delivery.' : ' Delivery is added once your postcode is entered.'}
+                        </p>
                     </aside>
                 </form>
             </div>
