@@ -611,12 +611,25 @@ itself once its DDL is amended in).
 
 ## 9. `05.5` — Goods-in, Picking & Dispatch
 
-Blocked on §4's `BatchSelector`/`SerialSelector` and §0.3's `shipments`/`shipment_lines`/
-`shipment_line_batches`/`shipment_line_serials`/`stocktakes`/`stocktake_lines` doc gap.
+Blocked on §4's `BatchSelector`/`SerialSelector`. **Migrated 2026-09-25:** `shipments`,
+`shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`,
+`stocktake_lines` (02 §14.6–14.7) with models and factories, plus the deferred
+`invoices.shipment_id` FK (`2026_10_08_090100`–`090700`).
 
-- [ ] `app/Domain/Inventory/GoodsInService.php` — 04 §7.1 / 05.5 §4: the receipt transaction
-      (batch-tracked-without-batch-code rejected at entry, `requires_expiry` mandatory
-      capture, variance with mandatory reason code, `sku_costs` row creation at `e4` scale).
+- [x] 02 §23 `goods_receipts`/`goods_receipt_lines` — signed off and migrated 2026-09-25
+      (`2026_10_10_090100`, which also seeds `po_number`).
+- [x] `app/Domain/Warehouse/GoodsInService.php` — done 2026-09-25: open / receive / close,
+      04 §7.1 transaction, 05.5 §4.3 capture rules, variance at close, `sku_costs` at `e4`,
+      idempotent on `goods_receipt_lines_idempotency_uq`, incoming per 02 §23.5. With
+      `ExpiryPolicy`, `ScanResolver`, `GoodsReceiptPolicy`,
+      `Api/V1/Warehouse/GoodsReceiptController` (`/api/v1/warehouse/receipts*`, `/lookup`),
+      `Warehouse/GoodsInPageController` and `resources/js/pages/Warehouse/GoodsIn.tsx`.
+      Tests: `tests/Feature/Warehouse/GoodsIn{Service,Api}Test.php`,
+      `resources/js/lib/goodsIn/entry.test.ts`.
+- [ ] `StockReceived` listeners — back-in-stock, search reindex, backorder auto-allocation
+      (05.5 §4.6). The event is dispatched after commit; nothing listens yet.
+- [ ] PO confirmation raising `incoming_base_qty` on the NULL-batch row (05.7 §5.1, 02
+      §23.5). Until it exists, receiving against a PO takes incoming below zero.
 - [ ] `app/Domain/Inventory/PickListGenerator.php` — 05.5 §5.1's per-shipment (not
       per-order) generation, sorted by `bins.walk_sequence` then SKU code.
 - [ ] `app/Domain/Inventory/PickConfirmationService.php` — 05.5 §5.2/§5.4: blocks scanning
@@ -644,9 +657,7 @@ Blocked on §4's `BatchSelector`/`SerialSelector` and §0.3's `shipments`/`shipm
       `PickListController.php`, `ShipmentController.php`, `StocktakeController.php` — the
       full `/warehouse/*` endpoint set from 06 §8.
 - [ ] `app/Policies/WarehouseOperationPolicy.php`
-- [ ] `resources/js/pages/Warehouse/GoodsIn.tsx` — 05.5 §4.2's screen flow, conditional
-      batch/expiry/serial capture per `tracking_mode` (§4.3), pack-quantity-with-live-base-unit-
-      equivalent display.
+- [x] `resources/js/pages/Warehouse/GoodsIn.tsx` — done 2026-09-25 (see GoodsInService above).
 - [ ] `resources/js/pages/Warehouse/PickList.tsx` — bin-ordered, batch/serial shown per line,
       48px touch targets, scan-everywhere (05.5 §9).
 - [ ] `resources/js/pages/Warehouse/Dispatch.tsx` — partial-dispatch UI, delivery-type
@@ -710,19 +721,19 @@ the domain logic and everything downstream:
 Phase 3. No schema exists yet; all DDL is fully specified in 05.7 itself (no doc-gap issue
 here — safe to migrate directly).
 
-- [ ] `database/migrations/2026_09_30_090100_create_suppliers_table.php` — 05.7 §4.
-- [ ] `database/migrations/2026_09_30_090200_create_containers_table.php` — 05.7 §6 (create
-      before `purchase_orders` since the latter FKs to it).
-- [ ] `database/migrations/2026_09_30_090300_create_purchase_orders_table.php` — 05.7 §5.
-- [ ] `database/migrations/2026_09_30_090400_create_purchase_order_lines_table.php` — 05.7 §5.
+- [x] Done 2026-09-25 as `2026_10_09_090100_create_suppliers_table.php` — 05.7 §4.
+- [x] Done 2026-09-25 as `2026_10_09_090200_create_containers_table.php` — 05.7 §6.
+- [x] Done 2026-09-25 as `2026_10_09_090300_create_purchase_orders_table.php` — 05.7 §5.
+- [x] Done 2026-09-25 as `2026_10_09_090400_create_purchase_order_lines_table.php` — 05.7 §5.
 - [ ] `database/migrations/2026_09_30_090500_create_container_costs_table.php` — 05.7 §6.
 - [ ] `database/migrations/2026_09_30_090600_create_container_cost_allocations_table.php` —
       05.7 §7.
 - [ ] `database/migrations/2026_09_30_090700_create_commodity_duty_rates_table.php` — 05.7
       §9.2.
-- [ ] `app/Models/Supplier.php`, `Container.php`, `PurchaseOrder.php`,
-      `PurchaseOrderLine.php`, `ContainerCost.php`, `ContainerCostAllocation.php`,
-      `CommodityDutyRate.php` + factories for each.
+- [x] `app/Models/Supplier.php`, `Container.php`, `PurchaseOrder.php`,
+      `PurchaseOrderLine.php` + factories — done 2026-09-25.
+- [ ] `app/Models/ContainerCost.php`, `ContainerCostAllocation.php`, `CommodityDutyRate.php`
+      + factories — with their migrations above (05.7 §6–7, §9.2 still draft).
 - [ ] `app/Domain/Purchasing/LandedCostApportioner.php` — 05.7 §8.2's algorithm exactly:
       independent per-bucket apportionment (fob_value/weight/volume/units basis), remainder-
       to-largest-basis-value rule, `rounding_residual_minor` recorded not discarded. **Hand-
@@ -737,7 +748,7 @@ here — safe to migrate directly).
       calculation from `stock_levels_reorder_idx` and dispatched-order-line sales history.
 - [ ] `app/Domain/Purchasing/SupplierPerformanceReport.php` — 05.7 §11's on-time/
       short-shipment/quality-rate aggregation.
-- [ ] Extend `app/Domain/Inventory/GoodsInService.php` (§9) to write `container_id`/
+- [ ] Extend `app/Domain/Warehouse/GoodsInService.php` (§9) to write `container_id`/
       `purchase_order_id` references and update `purchase_order_lines.received_base_qty` —
       this is an edit to an existing file once §9 exists, not a new one.
 - [ ] `app/Http/Controllers/Api/Admin/SupplierController.php`, `PurchaseOrderController.php`,

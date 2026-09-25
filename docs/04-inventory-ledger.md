@@ -76,7 +76,7 @@ Signs are from the perspective of the location. The **Touches** column states wh
 
 | Type | Sign | Touches | Reference | Trigger |
 |---|---|---|---|---|
-| `goods_in` | + | `on_hand` | `purchase_order` / `container` / manual | Receipt booked in |
+| `goods_in` | + | `on_hand` | `goods_receipt_line` (02 §23.3) | Receipt booked in |
 | `allocation` | 0 | `allocated` +qty | `allocation` | Order confirmed |
 | `deallocation` | 0 | `allocated` −qty | `allocation` | Order cancelled, or reaper released |
 | `dispatch` | − | `on_hand` −qty, `allocated` −qty | `shipment` | Goods shipped or collected |
@@ -319,6 +319,7 @@ Rules:
 - `requires_expiry = 1` makes `expires_on` mandatory.
 - Over-receipt against a PO line is permitted with a variance reason, because it happens.
 - Cost entry at receipt is what populates `sku_costs` and therefore margin (Doc 03 §11).
+- **Amended 2026-09-25 (02 §23).** Each receipt entry is a `goods_receipt_lines` row, idempotent on `(goods_receipt_id, purchase_order_line_id, client_token)`, and its `goods_in` movement references that row. `incoming_base_qty` decrements on the `(sku, location, NULL)` row, and `on_hand_base_qty` increments on the received batch's row. For a batch-tracked SKU these are different rows (02 §23.5), and §9's reconciliation sums across them.
 
 ### 7.2 Pick, pack, dispatch
 
@@ -380,6 +381,7 @@ Three scheduled jobs. Each writes a result record; each failure is an alert, not
 | Job | Frequency | Assertion | On drift |
 |---|---|---|---|
 | Level vs ledger | Nightly | `stock_levels.on_hand_base_qty` = ledger sum, per key | **P1.** Report, do not auto-correct |
+| Incoming vs open POs | Nightly | Σ `incoming_base_qty` per `(sku, location)`, summed across that SKU's rows (it lives on the NULL-batch row, 02 §23.5), = 05.7 §5.1's open-PO query | **P1** |
 | Allocation vs levels | Hourly | `Σ stock_allocations(active).base_qty` = `allocated_base_qty` | **P1** |
 | Serial count vs level | Nightly | §6.3 invariant | **P1** |
 | Stale allocation reaper | Every 15 min | Release allocations on `pending_payment` orders older than the hold window (default 2 h) | Normal operation, logged |

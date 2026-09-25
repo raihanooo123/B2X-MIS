@@ -24,6 +24,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $gross_weight_g
  * @property int|null $packs_per_layer
  * @property int|null $layers_per_pallet
+ * @property int $id
+ * @property string|null $barcode
  */
 class Pack extends Model
 {

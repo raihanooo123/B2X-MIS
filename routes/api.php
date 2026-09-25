@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
+use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
 use App\Http\Controllers\Api\V1\Webhooks\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -29,6 +30,16 @@ Route::prefix('v1')->group(function (): void {
     Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('auth');
     // 07 §6.4 — authorise a card for the previewed total (Stripe Elements confirms it).
     Route::post('/checkout/card-intent', [CheckoutController::class, 'cardIntent'])->middleware('auth');
+
+    // 06 §8 — goods-in (05.5 §4). Staff only; GoodsReceiptPolicy decides who.
+    // Receiving a line requires an Idempotency-Key (06 §6, 05.5 §10).
+    Route::middleware('auth')->prefix('warehouse')->group(function (): void {
+        Route::get('/lookup', [GoodsReceiptController::class, 'lookup']);
+        Route::post('/receipts', [GoodsReceiptController::class, 'store']);
+        Route::get('/receipts/{id}', [GoodsReceiptController::class, 'show'])->whereUlid('id');
+        Route::post('/receipts/{id}/lines', [GoodsReceiptController::class, 'storeLine'])->whereUlid('id');
+        Route::post('/receipts/{id}/close', [GoodsReceiptController::class, 'close'])->whereUlid('id');
+    });
 
     // Stripe → us. Signed, not session-authenticated.
     Route::post('/webhooks/stripe', StripeWebhookController::class)->name('webhooks.stripe');

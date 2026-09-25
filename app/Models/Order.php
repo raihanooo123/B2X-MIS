@@ -153,6 +153,14 @@ class Order extends Model
     }
 
     /**
+     * @return HasMany<Shipment, $this>
+     */
+    public function shipments(): HasMany
+    {
+        return $this->hasMany(Shipment::class);
+    }
+
+    /**
      * @return HasMany<OrderAddress, $this>
      */
     public function addresses(): HasMany

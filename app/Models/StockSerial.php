@@ -7,11 +7,23 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §7.6 — stock_serials. Uniqueness is scoped `(sku_id,
  * serial_number)`, not global — two manufacturers can legitimately issue
  * the same serial string.
+ *
+ * @property int $id
+ * @property int $sku_id
+ * @property string $serial_number
+ * @property int|null $batch_id
+ * @property int|null $location_id
+ * @property int|null $bin_id
+ * @property string $status
+ * @property int|null $order_line_id
+ * @property int|null $received_movement_id
+ * @property Carbon|null $received_at
  */
 class StockSerial extends Model
 {

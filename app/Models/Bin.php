@@ -13,6 +13,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * (§7.4): `suggested_bin_id` on `stock_allocations` is a hint on the
  * picking slip, not part of the allocation key — allocation happens at
  * (sku_id, location_id, batch_id) granularity only.
+ *
+ * @property int $id
+ * @property int $location_id
+ * @property string $code
+ * @property int|null $walk_sequence
  */
 class Bin extends Model
 {

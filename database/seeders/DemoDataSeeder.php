@@ -132,7 +132,7 @@ class DemoDataSeeder extends Seeder
             'rma_number' => 'RMA-',
             'credit_note_number' => 'CN-',
             'quote_number' => 'QT-',
-            'po_number' => 'PO-',
+            // 'po_number' is seeded by migration 2026_10_10_090100 (02 §23).
         ] as $keyName => $prefix) {
             NumberSequence::factory()->forSeries($keyName, $prefix)->create();
         }

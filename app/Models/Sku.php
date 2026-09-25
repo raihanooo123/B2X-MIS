@@ -26,6 +26,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int $order_increment_base_qty
  * @property int|null $max_order_base_qty
  * @property int|null $default_pack_id
+ * @property string|null $barcode_ean
+ * @property bool $requires_expiry
+ * @property int|null $shelf_life_days
  */
 class Sku extends Model
 {

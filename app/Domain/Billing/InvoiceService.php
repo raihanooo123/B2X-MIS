@@ -26,10 +26,11 @@ use Throwable;
  *   - card       — at capture (whenPaid), whole order.
  *   - BACS, prepay (trade) — at placement (whenPlaced), whole order.
  *   - on account — at dispatch. The dispatch flow does not exist yet
- *                  (`shipments`, 02 §14.6), so nothing calls
- *                  issueForOrder() for these orders today. Per-shipment
- *                  invoicing (`invoicing.mode = per_shipment`) needs
- *                  `shipment_lines` to derive lines and lands with it.
+ *                  (the `shipments` tables do, 02 §14.6), so nothing
+ *                  calls issueForOrder() for these orders today.
+ *                  Per-shipment invoicing (`invoicing.mode =
+ *                  per_shipment`) derives lines from `shipment_lines`
+ *                  and lands with the dispatch flow.
  *   - public customers — a receipt (no company, no terms, no due date),
  *                  only once paid: card at capture. A public BACS or
  *                  prepay receipt waits for payment recording.

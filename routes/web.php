@@ -12,6 +12,7 @@ use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CheckoutPageController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderPadController;
+use App\Http\Controllers\Warehouse\GoodsInPageController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -76,6 +77,9 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/two-factor', [TwoFactorSetupController::class, 'destroy'])->name('two-factor.setup.disable');
 
     Route::get('/account', [AccountController::class, 'show'])->name('account');
+
+    // 05.5 §4 — goods-in. Reads and writes via /api/v1/warehouse/*.
+    Route::get('/warehouse/goods-in', [GoodsInPageController::class, 'show'])->name('warehouse.goods-in');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');

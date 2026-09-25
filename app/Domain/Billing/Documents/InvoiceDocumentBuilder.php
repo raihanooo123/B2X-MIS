@@ -46,8 +46,9 @@ final class InvoiceDocumentBuilder
     public function build(Invoice $invoice): InvoiceDocument
     {
         if ($invoice->shipment_id !== null) {
-            // Per-shipment line derivation needs shipment_lines (02 §14.6).
-            throw new LogicException("Invoice {$invoice->id} is per-shipment; shipment_lines does not exist yet.");
+            // Per-shipment line derivation through shipment_lines (02 §14.6)
+            // lands with the dispatch flow; nothing issues these yet.
+            throw new LogicException("Invoice {$invoice->id} is per-shipment; per-shipment documents are not built yet.");
         }
 
         $invoice->loadMissing(['order.addresses', 'order.user', 'company', 'orderLines']);

@@ -12,10 +12,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
- * Doc 02 §14.5.2 — invoices. `shipment_id` is a deferred foreign key —
- * `shipments` (§14.6) is not yet signed off — so it stays a plain nullable
- * column here rather than a real `REFERENCES`, mirroring the
- * `order_lines.sku_cost_id` precedent (§8.3). `paid_minor` is a
+ * Doc 02 §14.5.2 — invoices. `shipment_id` references `shipments` (§14.6),
+ * a foreign key added after both tables existed
+ * (2026_10_08_090500_add_shipment_fk_to_invoices_table). `paid_minor` is a
  * projection sourced from `payment_allocations`/`payments` (§11.4): written
  * only by the transaction that writes an allocation
  * (PaymentAllocationService), which enforces §11.4's two invariants, or by
@@ -99,6 +98,16 @@ class Invoice extends Model
     }
 
     /**
+     * Set only on a per-shipment invoice (05.5 §7.3).
+     *
+     * @return BelongsTo<Shipment, $this>
+     */
+    public function shipment(): BelongsTo
+    {
+        return $this->belongsTo(Shipment::class);
+    }
+
+    /**
      * @return HasMany<PaymentAllocation, $this>
      */
     public function allocations(): HasMany
@@ -115,8 +124,8 @@ class Invoice extends Model
     /**
      * The lines this document bills, derived from `order_lines` (02
      * §14.5.2 — there is no `invoice_lines`). Whole-order documents only:
-     * a per-shipment invoice joins through `shipment_lines`, which does
-     * not exist yet (§14.6), and InvoiceService issues none.
+     * a per-shipment invoice joins through `shipment_lines` (§14.6), and
+     * InvoiceService issues none yet.
      *
      * @return HasMany<OrderLine, $this>
      */

@@ -10,6 +10,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Doc 02 §7.3 — locations. Present from day one even though launch is
  * single-warehouse (§7.3 rationale).
+ *
+ * @property int $id
+ * @property string $code
+ * @property string $name
+ * @property string $location_type
+ * @property bool $is_sellable
+ * @property bool $is_default
  */
 class Location extends Model
 {

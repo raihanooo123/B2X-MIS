@@ -35,9 +35,23 @@ use LogicException;
  * `available_base_qty` is a STORED generated column and is deliberately
  * not listed as fillable — Postgres rejects writes to it.
  *
+ * `incoming_base_qty` lives on the NULL-batch row, `(sku, location,
+ * NULL)`, for every SKU whatever its tracking_mode (02 §23.5): quantity
+ * due on a PO has no batch until the goods arrive. So **for a
+ * batch-tracked SKU, `incoming_base_qty` and `on_hand_base_qty` sit on
+ * different rows** — incoming on the NULL-batch row, on-hand on each
+ * batch's row — and anything reading a single row sees one without the
+ * other. Sum across the SKU's rows for the location to read either figure.
+ * The projection reconciliation (04 §9) must do the same: `on_hand` per
+ * `(sku, location, batch)` against the ledger, `incoming` per `(sku,
+ * location)` against 05.7 §5.1's open-PO query. A batch-tracked SKU's
+ * NULL-batch row holds incoming only; its on_hand and allocated stay zero
+ * (02 §7.5 invariant 2).
+ *
  * @property int $sku_id
  * @property int $location_id
  * @property int|null $batch_id
+ * @property int $on_hand_base_qty
  * @property int $allocated_base_qty
  * @property int $available_base_qty
  * @property int $incoming_base_qty

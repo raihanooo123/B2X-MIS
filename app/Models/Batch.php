@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §7.5 — batches, batch & expiry tracking. No sentinel row —
@@ -24,8 +25,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *  5. min_remaining_shelf_life_days on the SKU filters candidate batches
  *     at allocation.
  *
- * `purchase_order_id` and `container_id` have no FK in the doc itself —
- * not a gap (purchase_orders/containers are Phase 3).
+ * `purchase_order_id` and `container_id` have no FK — §7.5 declares none,
+ * so none is added now that both tables exist (05.7 §5–6).
+ *
+ * @property int $id
+ * @property int $sku_id
+ * @property string $batch_code
+ * @property int|null $sku_cost_id
+ * @property int|null $unit_cost_e4
+ * @property Carbon|null $expires_on
+ * @property string $status
  */
 class Batch extends Model
 {

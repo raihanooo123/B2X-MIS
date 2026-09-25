@@ -2193,6 +2193,10 @@ With pack structure, location, batch and serial all present from the first migra
 
 **Migrated as of 2026-09-20:** `roles`, `role_user`, `attachments`, `carts`, `cart_lines`, `payments`, `invoices`, `payment_allocations` (§14.1/§14.2/§14.3/§14.5.1/§14.5.2/§14.5.4). Every other table in the list above that isn't in this sentence and isn't part of Steps 1–7's original scope has DDL here but no migration yet — see `docs/ROADMAP.md` for when.
 
+**Goods receipts (§23, full DDL here, added 2026-09-25):** `goods_receipts`, `goods_receipt_lines`. They follow `purchase_order_lines` in the migration order, because they reference it.
+
+**Migrated 2026-09-25:** `shipments`, `shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`, `stocktake_lines` (§14.6–14.7); `suppliers`, `containers`, `purchase_orders`, `purchase_order_lines` (05.7 §4–6); `goods_receipts`, `goods_receipt_lines` (§23).
+
 **Phase 2 (keys fixed here, DDL in module specs):** `quotes`, `quote_lines`, `credit_holds`, `account_credit_movements`, `rep_category_discount_limits`, `rmas`, `rma_lines`, `collection_slots`, `collection_bookings`
 
 **Phase 3 (DDL in module specs):** `suppliers`, `purchase_orders`, `purchase_order_lines`, `containers`, `container_costs`, `container_cost_allocations`, `commodity_duty_rates`, `rep_commission_rules`, `rep_commissions`, `dropship_profiles`, `customer_activities`
@@ -3482,3 +3486,135 @@ ALTER TABLE attachments VALIDATE CONSTRAINT attachments_attachable_type_chk;
 ```
 
 - 05.3 §11 attaches the quote PDF to the quote, and 05.4 §7.5 emails the credit note PDF. Both are archived like invoices (§21.1), and both are what the notifications carrying them attach (05.12 §12).
+
+---
+
+## 23. Schema amendment 2026-09-25 — goods receipts (signed off 2026-09-25)
+
+> **Status: signed off 2026-09-25.** Migrated in `2026_10_10_090100_create_goods_receipts_tables`, which also seeds the `po_number` series. Behaviour is in `05.5-goods-in-picking-dispatch.md` §4 and `04-inventory-ledger.md` §7.1; this section is the authoritative DDL. §23.5 records the decisions taken at sign-off.
+
+**The gap.** 05.5 §10 and 06 §6 make a receipt line idempotent on `(receipt_id, po_line_id, client_token)`. No table in the doc set holds a `receipt_id` or a `client_token`, and `stock_movements` cannot carry the key: it is partitioned, so every unique constraint on it must include `occurred_at` (§7.4). 06 §6 requires a durable constraint behind the `Idempotency-Key` header, not just the header. Without that constraint, a retried receipt can write a second `goods_in` movement.
+
+Two further requirements need a receipt identity:
+
+- 05.5 §4.3 and §12: a duplicate serial is rejected **"with the prior receipt named"**.
+- 05.5 §4.2 step 7: an operative "closes the receipt".
+
+Neither is expressible today.
+
+### 23.1 `goods_receipts` — one receiving session
+
+```sql
+CREATE TABLE goods_receipts (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id          text        NOT NULL,
+  source             text        NOT NULL,
+  purchase_order_id  bigint      REFERENCES purchase_orders (id),
+  container_id       bigint      REFERENCES containers (id),
+  location_id        bigint      NOT NULL REFERENCES locations (id),
+  status             text        NOT NULL DEFAULT 'open',
+  opened_by_user_id  bigint      REFERENCES users (id),
+  closed_by_user_id  bigint      REFERENCES users (id),
+  opened_at          timestamptz NOT NULL DEFAULT now(),
+  closed_at          timestamptz,
+  note               text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT goods_receipts_public_id_uq UNIQUE (public_id),
+  CONSTRAINT goods_receipts_source_chk CHECK (source IN
+    ('purchase_order','container','manual')),
+  CONSTRAINT goods_receipts_source_ref_chk CHECK (
+       (source = 'purchase_order' AND purchase_order_id IS NOT NULL AND container_id IS NULL)
+    OR (source = 'container'      AND container_id IS NOT NULL      AND purchase_order_id IS NULL)
+    OR (source = 'manual'         AND purchase_order_id IS NULL     AND container_id IS NULL)),
+  CONSTRAINT goods_receipts_status_chk CHECK (status IN ('open','closed')),
+  CONSTRAINT goods_receipts_closed_chk CHECK ((status = 'closed') = (closed_at IS NOT NULL))
+);
+
+CREATE INDEX goods_receipts_open_idx ON goods_receipts (location_id, opened_at)
+  WHERE status = 'open';
+CREATE INDEX goods_receipts_po_idx ON goods_receipts (purchase_order_id)
+  WHERE purchase_order_id IS NOT NULL;
+CREATE INDEX goods_receipts_container_idx ON goods_receipts (container_id)
+  WHERE container_id IS NOT NULL;
+CREATE INDEX goods_receipts_manual_idx ON goods_receipts (opened_at)
+  WHERE source = 'manual';
+```
+
+- `source` covers the three goods-in sources that are this module's to receive (05.5 §4.1). Customer returns (`rma_lines`, 05.4 §7.4) and transfers (§16, not yet drafted) have their own inbound flows and are not receipts here.
+- `goods_receipts_manual_idx` is the purchasing review queue: "manual receipt, flagged for purchasing to match" (05.5 §12). The flag is `source = 'manual'` itself, not a separate boolean that could disagree with it.
+- A container receipt's lines reference PO lines of several POs. That each PO line belongs to a PO on this container (`purchase_orders.container_id`) is checked by the receipt transaction; a `CHECK` cannot reach across tables.
+
+### 23.2 `goods_receipt_lines` — one confirmed receipt entry, append-only
+
+```sql
+CREATE TABLE goods_receipt_lines (
+  id                     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  goods_receipt_id       bigint      NOT NULL REFERENCES goods_receipts (id),
+  purchase_order_line_id bigint      REFERENCES purchase_order_lines (id),
+  client_token           text        NOT NULL,
+  sku_id                 bigint      NOT NULL REFERENCES skus (id),
+  pack_id                bigint      NOT NULL REFERENCES packs (id),
+  pack_qty               integer     NOT NULL,
+  pack_base_units        integer     NOT NULL,
+  base_qty               integer     NOT NULL,
+  batch_id               bigint      REFERENCES batches (id),
+  bin_id                 bigint      REFERENCES bins (id),
+  sku_cost_id            bigint      REFERENCES sku_costs (id),
+  received_by_user_id    bigint      REFERENCES users (id),
+  received_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT goods_receipt_lines_idempotency_uq
+    UNIQUE NULLS NOT DISTINCT (goods_receipt_id, purchase_order_line_id, client_token),
+  CONSTRAINT goods_receipt_lines_base_qty_chk CHECK (base_qty = pack_qty * pack_base_units),
+  CONSTRAINT goods_receipt_lines_qty_chk CHECK (pack_qty > 0)
+);
+
+CREATE INDEX goods_receipt_lines_po_line_idx ON goods_receipt_lines (purchase_order_line_id)
+  INCLUDE (base_qty) WHERE purchase_order_line_id IS NOT NULL;
+CREATE INDEX goods_receipt_lines_batch_idx ON goods_receipt_lines (batch_id)
+  WHERE batch_id IS NOT NULL;
+CREATE INDEX goods_receipt_lines_uncosted_idx ON goods_receipt_lines (received_at)
+  WHERE sku_cost_id IS NULL;
+```
+
+- **`goods_receipt_lines_idempotency_uq` is the durable guarantee** 05.5 §10 and 06 §6 name. It is `NULLS NOT DISTINCT` because a manual receipt line has no PO line: without it, two manual lines with the same token would both insert. This is the same pitfall as `stock_allocations_identity_uq` (§7.4).
+- **The line insert precedes every stock write** (`INSERT … ON CONFLICT ON CONSTRAINT goods_receipt_lines_idempotency_uq DO NOTHING RETURNING id`). A concurrent retry blocks on the unique index until the first transaction commits, then conflicts. On conflict, the whole transaction rolls back and the existing line is returned, so the retry writes nothing. A replayed token whose sku, pack, quantity, batch or bin differ from the stored line is 409 `idempotency_key_reuse` (06 §6).
+
+  **Correction at sign-off, 2026-09-25.** The draft said the line insert is the *first* write. It cannot be: the line carries `batch_id` and `sku_cost_id`, so a new `batches` row and the `sku_costs` row are written just before it. Both are discarded by the rollback on conflict, so the guarantee is unchanged. A replayed request is also answered before the transaction opens, by reading the line on its key, so the rollback path is reached only by a genuinely concurrent duplicate.
+- **Append-only, no `updated_at`.** A confirmed line has moved stock. It is corrected by an `adjustment` movement (04 §7.4), never edited, for the same reason as `stock_movements` (§7.2 rule 1).
+- `pack_qty`, `pack_base_units` and `base_qty` follow the keystone pack constraint (§8.3; 05.7 §5). The pack may differ from the PO line's pack: "any sellable pack of the SKU accepted, `base_qty` is what matters" (05.5 §12).
+- `sku_cost_id IS NULL` is "received without cost" (05.5 §4.5), and `goods_receipt_lines_uncosted_idx` is that review queue. No separate flag column.
+- **No serial column.** A serial-tracked line's serials are `stock_serials` rows whose `received_movement_id` is this line's `goods_in` movement, which references this line (§23.3).
+- **No `variance_reason` column.** Variance is per PO line against the PO total, not per receipt entry (05.5 §12: two operatives receiving one PO line both succeed, and "variance computed against the PO total"). It is recorded on `purchase_order_lines.variance_reason` (05.7 §5) when the receipt is closed (§23.3).
+
+### 23.3 How the receipt transaction uses these tables
+
+Amends 04 §7.1 step 6 and the `goods_in` row of 04 §3's catalogue:
+
+- **Movement reference.** A `goods_in` movement carries `reference_type = 'goods_receipt_line'` and `reference_id = goods_receipt_lines.id`, replacing 04 §3's "`purchase_order` / `container` / manual". The PO, container or manual source is one join away, and "which receipt was this serial first seen on" becomes `stock_serials.received_movement_id` → movement → receipt line → receipt. One movement per receipt line, with `serial_id` NULL. Serials point back to it; there is no movement per serial.
+- **Lock order.** Receiving a line: `goods_receipts` (`FOR SHARE`) → `purchase_order_lines` (`FOR UPDATE`) → `stock_levels` (ascending `sku_id`, `location_id`, `batch_id NULLS FIRST`, per §11.1). The `purchase_order_lines` lock is taken before the `batches` insert, so two receipts of one line cannot deadlock on `batches_sku_code_uq`. Closing: `goods_receipts` (`FOR UPDATE`) → `purchase_orders` (`FOR UPDATE`, ascending `id`) → `purchase_order_lines` (ascending `id`) → `stock_levels`. Receiving never locks `purchase_orders`, and allocation locks none of the first three, so this extends the global order (CLAUDE.md invariant 6) without creating a cycle.
+- **Closing a receipt.** For each PO line the receipt touched whose `received_base_qty` differs from `base_qty`:
+  - **Over-received:** the operative must give a reason from 05.5 §4.4's list. It is written to `purchase_order_lines.variance_reason`.
+  - **Under-received:** the operative gives a reason (the line is final), or marks "remainder expected". That leaves `variance_reason` NULL and the PO `part_received`.
+
+  The PO moves to `part_received` or `received` accordingly.
+- **Costs.** A line whose PO line carries `unit_fob_e4` writes a `sku_costs` row with `source = 'purchase_order'` and `valid_from` at the receipt. For a container PO it is `is_provisional = true` until apportionment finalises (05.7 §8.5). A manual line writes one only if a cost was entered (`source = 'manual'`).
+
+### 23.4 `system_configurations` key
+
+| `key_name` | Default | Meaning |
+|---|---|---|
+| `goods_in.expiry_horizon_days` | `3650` | An expiry further than this from the receipt date warns and requires confirmation (05.5 §4.3, open question 4: "10 years assumed") |
+
+### 23.5 Decisions at sign-off
+
+1. **`incoming_base_qty` lives on the NULL-batch `stock_levels` row for every SKU, whatever its `tracking_mode`.** Quantity due on a PO has no batch: the batch is known only when the goods physically arrive, so assigning incoming stock to a batch would be inventing one.
+
+   On receipt against a PO line, `incoming_base_qty` decrements on the `(sku, location, NULL)` row, and `on_hand_base_qty` increments on the row for the batch received. For an untracked SKU those are the same row. The decrement is the fall in the PO line's outstanding quantity, `min(received, base_qty − received_before)`, so an over-receipt never takes incoming below what the §5.1 query would give. When closing a receipt moves a PO to `received`, the PO leaves 05.7 §5.1's open set, and each of its lines' remaining outstanding quantity is decremented the same way.
+
+   **Consequence: for a batch-tracked SKU, `incoming_base_qty` and `on_hand_base_qty` sit on different rows.** Anything that reads a single `stock_levels` row sees one without the other. Every reader of either figure for a SKU must sum across its rows for the location (`StockController::availability()` already sums across all rows). The projection reconciliation (04 §9) must do the same: check `on_hand_base_qty` per `(sku, location, batch)` against the ledger, and `incoming_base_qty` per `(sku, location)` against 05.7 §5.1's open-PO query. It must never compare a batch row's incoming against anything.
+
+   §7.5 invariant 2 ("a batch-tracked SKU may never hold stock against a NULL `batch_id`") is read accordingly: a batch-tracked SKU's NULL-batch row exists to carry `incoming_base_qty`, and its `on_hand_base_qty` and `allocated_base_qty` stay zero.
+2. **Receipts left open.** No reaper or auto-close. An open receipt with no lines is harmless, and the open-receipts list shows its age.
