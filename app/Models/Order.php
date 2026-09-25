@@ -37,6 +37,8 @@ use Illuminate\Support\Carbon;
  * @property int $total_gross_minor
  * @property int $spend_break_discount_minor
  * @property Carbon|null $placed_at
+ * @property string $fulfilment_type
+ * @property Carbon|null $dispatched_at
  */
 class Order extends Model
 {

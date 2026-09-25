@@ -3,7 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Domain\Billing\InvoiceService;
+use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\Shipment;
+use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
@@ -17,7 +20,10 @@ use Throwable;
  *
  *   - a trade BACS or prepay order, which is invoiced at placement;
  *   - a prepaid order with a captured payment, invoiced or receipted at
- *     capture.
+ *     capture;
+ *   - an on-account order at dispatch: each dispatched shipment under
+ *     `invoicing.mode = per_shipment`, or the whole order once dispatched
+ *     under `on_completion`.
  *
  * Reports by default. `--fix` issues each missing document: 02 §11.4 —
  * a person runs the correction once the cause is understood.
@@ -47,37 +53,94 @@ class IssueMissingInvoices extends Command
             ->orderBy('id')
             ->get(['id', 'order_number', 'company_id', 'payment_method']);
 
-        if ($missing->isEmpty()) {
+        /** @var list<array{label: string, kind: string, method: string, issue: Closure(): ?Invoice}> $work */
+        $work = [];
+        foreach ($missing as $order) {
+            $work[] = [
+                'label' => $order->order_number,
+                'kind' => $order->company_id === null ? 'receipt' : 'invoice',
+                'method' => $order->payment_method ?? '—',
+                'issue' => fn () => $invoices->issueForOrder($order->id),
+            ];
+        }
+        foreach ($this->onAccountAtDispatch($invoices) as $item) {
+            $work[] = $item;
+        }
+
+        if ($work === []) {
             $this->info('No missing invoices or receipts.');
 
             return self::SUCCESS;
         }
 
-        $this->table(['Order', 'Kind', 'Payment method'], $missing->map(fn (Order $o) => [
-            $o->order_number,
-            $o->company_id === null ? 'receipt' : 'invoice',
-            $o->payment_method ?? '—',
-        ])->all());
+        $this->table(['Order', 'Kind', 'Payment method'], array_map(fn (array $w) => [$w['label'], $w['kind'], $w['method']], $work));
 
         if (! $this->option('fix')) {
-            $this->warn("{$missing->count()} order(s) missing an invoice or receipt. Re-run with --fix to issue them.");
+            $this->warn(count($work).' document(s) missing. Re-run with --fix to issue them.');
 
             return self::FAILURE;
         }
 
         $failed = 0;
-        foreach ($missing as $order) {
+        foreach ($work as $item) {
             try {
-                $invoice = $invoices->issueForOrder($order->id);
-                Log::warning('Reconciliation: missing invoice issued.', ['order' => $order->order_number, 'invoice' => $invoice->invoice_number]);
+                $invoice = ($item['issue'])();
+                Log::warning('Reconciliation: missing invoice issued.', ['for' => $item['label'], 'invoice' => $invoice?->invoice_number]);
             } catch (Throwable $e) {
                 $failed++;
-                $this->error("{$order->order_number}: {$e->getMessage()}");
+                $this->error("{$item['label']}: {$e->getMessage()}");
             }
         }
 
-        $this->info('Issued '.($missing->count() - $failed)." of {$missing->count()}.");
+        $this->info('Issued '.(count($work) - $failed).' of '.count($work).'.');
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * On-account orders invoiced at dispatch (05.5 §7.3) whose invoice
+     * failed to issue: per shipment, or the whole order on completion.
+     *
+     * @return list<array{label: string, kind: string, method: string, issue: Closure(): ?Invoice}>
+     */
+    private function onAccountAtDispatch(InvoiceService $invoices): array
+    {
+        $noWholeOrderDocument = fn ($q) => $q->selectRaw('1')->from('invoices')
+            ->whereColumn('invoices.order_id', 'orders.id')
+            ->whereNull('invoices.shipment_id')
+            ->where('invoices.status', '<>', 'void');
+
+        $shipments = Shipment::query()
+            ->join('orders', 'orders.id', '=', 'shipments.order_id')
+            ->where('shipments.status', 'dispatched')
+            ->where('orders.payment_method', 'on_account')
+            ->whereNotNull('orders.company_id')
+            ->whereNotExists($noWholeOrderDocument)
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('invoices')
+                ->whereColumn('invoices.shipment_id', 'shipments.id')
+                ->where('invoices.status', '<>', 'void'))
+            ->orderBy('shipments.dispatched_at')
+            ->orderBy('shipments.id')
+            ->get(['shipments.id', 'shipments.public_id', 'orders.order_number', 'orders.company_id', 'orders.status as order_status', 'orders.id as order_id']);
+
+        $work = [];
+        $completedOrders = [];
+        foreach ($shipments as $shipment) {
+            $companyId = (int) $shipment->getAttribute('company_id');
+            $orderNumber = (string) $shipment->getAttribute('order_number');
+
+            if ($invoices->invoicingMode($companyId) === InvoiceService::MODE_PER_SHIPMENT) {
+                $shipmentId = $shipment->id;
+                $work[] = ['label' => "{$orderNumber} / shipment {$shipment->public_id}", 'kind' => 'invoice', 'method' => 'on_account', 'issue' => fn () => $invoices->issueForShipment($shipmentId)];
+            } elseif ($shipment->getAttribute('order_status') === 'dispatched') {
+                $completedOrders[(int) $shipment->getAttribute('order_id')] = $orderNumber;
+            }
+        }
+
+        foreach ($completedOrders as $orderId => $orderNumber) {
+            $work[] = ['label' => $orderNumber, 'kind' => 'invoice', 'method' => 'on_account', 'issue' => fn () => $invoices->issueForOrder($orderId)];
+        }
+
+        return $work;
     }
 }

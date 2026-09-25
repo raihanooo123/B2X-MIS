@@ -4,8 +4,9 @@ use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
-use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
+use App\Http\Controllers\Api\V1\Warehouse\ShipmentController;
+use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
 use App\Http\Controllers\Api\V1\Webhooks\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -39,6 +40,16 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/receipts/{id}', [GoodsReceiptController::class, 'show'])->whereUlid('id');
         Route::post('/receipts/{id}/lines', [GoodsReceiptController::class, 'storeLine'])->whereUlid('id');
         Route::post('/receipts/{id}/close', [GoodsReceiptController::class, 'close'])->whereUlid('id');
+
+        // 05.5 §5–7: picking and dispatch. ShipmentPolicy decides who.
+        // Dispatch requires an Idempotency-Key (06 §6, 05.5 §10).
+        Route::post('/shipments', [ShipmentController::class, 'store']);
+        Route::get('/shipments/{id}', [ShipmentController::class, 'show'])->whereUlid('id');
+        Route::post('/shipments/{id}/serial-scans', [ShipmentController::class, 'scanSerial'])->whereUlid('id');
+        Route::post('/shipments/{id}/picks', [ShipmentController::class, 'confirm'])->whereUlid('id');
+        Route::post('/shipments/{id}/short-picks', [ShipmentController::class, 'shortPick'])->whereUlid('id');
+        Route::post('/shipments/{id}/substitutions', [ShipmentController::class, 'substitute'])->whereUlid('id');
+        Route::post('/shipments/{id}/dispatch', [ShipmentController::class, 'dispatch'])->whereUlid('id');
     });
 
     // Stripe → us. Signed, not session-authenticated.

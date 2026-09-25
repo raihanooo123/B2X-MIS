@@ -101,7 +101,7 @@ final class AllocationService
      * @throws InsufficientCreditException
      * @throws InsufficientStockException
      */
-    public function allocateWithinTransaction(?int $companyId, int $requiredCreditMinor, array $lines): array
+    public function allocateWithinTransaction(?int $companyId, int $requiredCreditMinor, array $lines, ?MovementAttribution $attribution = null): array
     {
         if ($lines === []) {
             throw new InvalidArgumentException('At least one allocation line is required.');
@@ -119,7 +119,7 @@ final class AllocationService
             throw new InsufficientStockException($shortfalls);
         }
 
-        return $this->writeAllocations($lines);
+        return $this->writeAllocations($lines, $attribution);
     }
 
     /**
@@ -251,7 +251,7 @@ final class AllocationService
      * @param  list<AllocationLine>  $lines
      * @return list<StockAllocation>
      */
-    private function writeAllocations(array $lines): array
+    private function writeAllocations(array $lines, ?MovementAttribution $attribution = null): array
     {
         $now = now();
         $created = [];
@@ -276,7 +276,7 @@ final class AllocationService
                 'base_qty' => $line->baseQty,
                 'reference_type' => 'allocation',
                 'reference_id' => $allocation->id,
-            ]);
+            ] + MovementAttribution::columnsOf($attribution));
 
             StockLevel::identity($line->skuId, $line->locationId, $line->batchId)->increment(
                 'allocated_base_qty',

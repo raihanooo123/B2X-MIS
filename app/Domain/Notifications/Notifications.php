@@ -9,9 +9,11 @@ use App\Domain\Notifications\Notices\InvoiceIssued;
 use App\Domain\Notifications\Notices\InvoiceOverdue;
 use App\Domain\Notifications\Notices\OrderConfirmed;
 use App\Domain\Notifications\Notices\PaymentReceived;
+use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\Shipment;
 use App\Models\User;
 
 /**
@@ -42,6 +44,16 @@ final class Notifications
         $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id']);
         if ($order !== null) {
             $this->dispatcher->send(new OrderConfirmed($orderId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.12 §5.1 `shipment.dispatched`: every shipment, full or partial (05.5 §7.2). */
+    public function shipmentDispatched(int $shipmentId): void
+    {
+        $shipment = Shipment::query()->find($shipmentId, ['id', 'order_id']);
+        $order = $shipment === null ? null : Order::query()->find($shipment->order_id, ['id', 'user_id', 'company_id']);
+        if ($shipment !== null && $order !== null) {
+            $this->dispatcher->send(new ShipmentDispatched($shipmentId), $this->recipients->orderCustomer($order));
         }
     }
 

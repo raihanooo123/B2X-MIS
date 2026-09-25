@@ -12,6 +12,8 @@ use App\Models\Company;
 use App\Models\CreditHold;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\Shipment;
+use App\Models\SystemConfiguration;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -25,12 +27,10 @@ use Throwable;
  *
  *   - card       — at capture (whenPaid), whole order.
  *   - BACS, prepay (trade) — at placement (whenPlaced), whole order.
- *   - on account — at dispatch. The dispatch flow does not exist yet
- *                  (the `shipments` tables do, 02 §14.6), so nothing
- *                  calls issueForOrder() for these orders today.
- *                  Per-shipment invoicing (`invoicing.mode =
- *                  per_shipment`) derives lines from `shipment_lines`
- *                  and lands with the dispatch flow.
+ *   - on account — at dispatch (whenDispatched), per `invoicing.mode`:
+ *                  `per_shipment` (the default) invoices each shipment
+ *                  (issueForShipment); `on_completion` invoices the whole
+ *                  order once its last shipment leaves.
  *   - public customers — a receipt (no company, no terms, no due date),
  *                  only once paid: card at capture. A public BACS or
  *                  prepay receipt waits for payment recording.
@@ -42,8 +42,16 @@ use Throwable;
  * whole-order document; a second call returns it.
  *
  * On account, the same transaction converts the credit hold (05.2 §8.3):
- * hold → `invoiced`, `credit_held_minor` −= hold, `credit_used_minor` +=
- * invoice total. Prepaid orders took no hold and touch no credit.
+ * `credit_used_minor` += invoice total, and the hold gives up what the
+ * invoice consumes. A whole-order invoice consumes the hold (→ `invoiced`).
+ * A per-shipment invoice reduces it by its total, and the invoice that
+ * completes the order consumes what is left (05.5 §7.3 as amended
+ * 2026-09-25). Prepaid orders took no hold and touch no credit.
+ *
+ * Per-shipment amounts are ShipmentInvoiceShares: pro-rata by base
+ * quantity, remainder to the shipment completing each line, so a fully
+ * dispatched order's invoices sum to its totals exactly. Carriage goes on
+ * the order's first invoice.
  *
  * Payment terms and due date are snapshotted at issue (§14.5.2): a
  * company's terms changing later never moves an issued due date. A
@@ -58,6 +66,13 @@ final class InvoiceService
     public const INVOICE_SEQUENCE = 'invoice_number';
 
     public const RECEIPT_SEQUENCE = 'receipt_number';
+
+    /** 05.5 §7.3: `system_configurations`, company then global. */
+    public const MODE_KEY = 'invoicing.mode';
+
+    public const MODE_PER_SHIPMENT = 'per_shipment';
+
+    public const MODE_ON_COMPLETION = 'on_completion';
 
     /** Days from issue to due, per `payment_terms` (05.2 §9). */
     private const TERM_DAYS = [
@@ -149,19 +164,153 @@ final class InvoiceService
             ]);
 
             if ($onAccount) {
-                $this->convertCreditHold($company->id, $orderId, $invoice);
+                $this->convertCreditHold($company->id, $orderId, $invoice, true);
             }
 
-            $invoiceId = (int) $invoice->id;
-            DB::afterCommit(function () use ($invoiceId, $orderId) {
-                $this->paymentAllocationService->allocateInvoice($invoiceId);
-                ArchiveInvoicePdf::dispatch($invoiceId);
-                // 05.12 §12.2: sent at issue; the PDF is attached once archived.
-                $this->notifications->invoiceIssued($invoiceId);
-                event(new InvoiceIssued($invoiceId, $orderId));
-            });
+            $this->afterIssue((int) $invoice->id, $orderId);
 
             return $invoice;
+        });
+    }
+
+    /**
+     * Issue the invoice for one dispatched shipment of an on-account
+     * order. Idempotent: returns the shipment's live invoice if it has one.
+     * Returns null when the order already carries a whole-order document,
+     * so it is never billed twice.
+     *
+     * One transaction, same lock order as issueForOrder(): companies, the
+     * order, the number series last.
+     *
+     * @throws SellerVatNumberMissingException
+     */
+    public function issueForShipment(int $shipmentId): ?Invoice
+    {
+        $shipment = Shipment::query()->findOrFail($shipmentId);
+        $order = Order::query()->findOrFail($shipment->order_id, ['id', 'company_id', 'payment_method']);
+        $companyId = $order->company_id;
+
+        if ($companyId === null || $order->payment_method !== PaymentMethod::OnAccount->value) {
+            throw new LogicException("Shipment {$shipmentId}: only on-account orders are invoiced per shipment (05.5 §7.3).");
+        }
+
+        return DB::transaction(function () use ($shipment, $companyId) {
+            $company = Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail(['id', 'payment_terms']);
+            $order = Order::query()->whereKey($shipment->order_id)->lockForUpdate()->firstOrFail();
+
+            $existing = Invoice::query()->where('shipment_id', $shipment->id)->where('status', '<>', 'void')->first();
+            if ($existing !== null) {
+                return $existing;
+            }
+            if ($this->liveWholeOrderDocument($order->id) !== null) {
+                return null;
+            }
+            if (in_array($order->status, self::UNBILLABLE_STATUSES, true)) {
+                throw new LogicException("Order {$order->id} is '{$order->status}' and cannot be invoiced.");
+            }
+            if (SellerDetails::fromConfiguration()->vatNumber === null) {
+                throw new SellerVatNumberMissingException;
+            }
+
+            $shares = (new ShipmentInvoiceShares)->forShipment($shipment);
+            $subtotal = array_sum(array_map(fn (ShipmentLineShare $l) => $l->netMinor, $shares));
+            $discount = array_sum(array_map(fn (ShipmentLineShare $l) => $l->discountMinor, $shares));
+            $lineTax = array_sum(array_map(fn (ShipmentLineShare $l) => $l->taxMinor, $shares));
+
+            // Carriage is charged once, on the order's first invoice.
+            $first = ! Invoice::query()->where('order_id', $order->id)->where('status', '<>', 'void')->exists();
+            $shipping = $first ? $order->shipping_net_minor : 0;
+            $tax = $lineTax + ($first ? $order->shipping_tax_minor : 0);
+
+            $issuedAt = now();
+            $paymentTerms = $company->payment_terms;
+
+            $invoice = Invoice::query()->create([
+                'invoice_number' => $this->numberSequenceService->next(self::INVOICE_SEQUENCE),
+                'company_id' => $company->id,
+                'order_id' => $order->id,
+                'shipment_id' => $shipment->id,
+                'status' => 'issued',
+                'currency' => $order->currency,
+                'subtotal_net_minor' => $subtotal,
+                'discount_net_minor' => $discount,
+                'shipping_net_minor' => $shipping,
+                'tax_minor' => $tax,
+                'total_gross_minor' => $subtotal + $shipping + $tax,
+                'paid_minor' => 0,
+                'payment_terms' => $paymentTerms,
+                'due_at' => $issuedAt->copy()->addDays(self::TERM_DAYS[$paymentTerms]),
+                'issued_at' => $issuedAt,
+            ]);
+
+            $this->convertCreditHold($company->id, $order->id, $invoice, $order->status === 'dispatched');
+            $this->afterIssue((int) $invoice->id, $order->id);
+
+            return $invoice;
+        });
+    }
+
+    /**
+     * 05.5 §7.3: an on-account order is invoiced at dispatch. Call from
+     * the dispatch transaction (or after it); issues once it commits. A
+     * failure is logged and left for `billing:issue-missing-invoices`,
+     * as for the other triggers — the dispatch itself stands.
+     */
+    public function whenDispatched(int $shipmentId): void
+    {
+        DB::afterCommit(function () use ($shipmentId) {
+            try {
+                $shipment = Shipment::query()->find($shipmentId, ['id', 'order_id']);
+                $order = $shipment === null ? null : Order::query()->find($shipment->order_id, ['id', 'company_id', 'payment_method', 'status']);
+                if ($shipment === null || $order === null || $order->company_id === null || $order->payment_method !== PaymentMethod::OnAccount->value) {
+                    return;
+                }
+
+                if ($this->invoicingMode($order->company_id) === self::MODE_ON_COMPLETION) {
+                    if ($order->status === 'dispatched') {
+                        $this->issueForOrder($order->id);
+                    }
+
+                    return;
+                }
+
+                $this->issueForShipment($shipmentId);
+            } catch (Throwable $e) {
+                Log::error('Invoice not issued; run billing:issue-missing-invoices once the cause is fixed.', [
+                    'shipment_id' => $shipmentId,
+                    'trigger' => 'dispatched',
+                    'exception' => $e,
+                ]);
+            }
+        });
+    }
+
+    /** `invoicing.mode` for a company: its own setting, else global, else per shipment. */
+    public function invoicingMode(?int $companyId): string
+    {
+        $rows = SystemConfiguration::query()
+            ->where('config_key', self::MODE_KEY)
+            ->where(fn ($q) => $q->where('scope', 'global')->when($companyId !== null, fn ($q) => $q->orWhere(fn ($q) => $q->where('scope', 'company')->where('company_id', $companyId))))
+            ->get(['scope', 'value_text'])
+            ->keyBy('scope');
+
+        $mode = ($rows->get('company') ?? $rows->get('global'))->value_text ?? self::MODE_PER_SHIPMENT;
+
+        return in_array($mode, [self::MODE_PER_SHIPMENT, self::MODE_ON_COMPLETION], true) ? $mode : self::MODE_PER_SHIPMENT;
+    }
+
+    /**
+     * After commit: captured payments applied, the PDF queued, the
+     * customer told, InvoiceIssued raised.
+     */
+    private function afterIssue(int $invoiceId, int $orderId): void
+    {
+        DB::afterCommit(function () use ($invoiceId, $orderId) {
+            $this->paymentAllocationService->allocateInvoice($invoiceId);
+            ArchiveInvoicePdf::dispatch($invoiceId);
+            // 05.12 §12.2: sent at issue; the PDF is attached once archived.
+            $this->notifications->invoiceIssued($invoiceId);
+            event(new InvoiceIssued($invoiceId, $orderId));
         });
     }
 
@@ -224,8 +373,15 @@ final class InvoiceService
      * 05.2 §8.3 "Order invoiced". The company row is already locked by the
      * caller. An order with no live hold (placed before `credit_holds`
      * existed) still moves the invoice total into `credit_used_minor`.
+     *
+     * `$final` — this invoice completes the order's billing — consumes the
+     * whole remaining hold. Otherwise (a per-shipment invoice with more to
+     * come) the hold gives up the invoice's total and stays `held` for the
+     * rest; `credit_holds_amount_chk` keeps a live hold above zero, so a
+     * total that would exhaust it consumes it instead. Either way
+     * `credit_held_minor` = Σ live hold amounts still holds (05.2 §7.2).
      */
-    private function convertCreditHold(int $companyId, int $orderId, Invoice $invoice): void
+    private function convertCreditHold(int $companyId, int $orderId, Invoice $invoice, bool $final): void
     {
         $hold = CreditHold::query()
             ->where('order_id', $orderId)
@@ -238,9 +394,14 @@ final class InvoiceService
         $released = 0;
 
         if ($hold !== null) {
-            $hold->update(['status' => 'invoiced', 'invoice_id' => $invoice->id]);
-            Company::query()->whereKey($companyId)->decrement('credit_held_minor', $hold->amount_minor);
-            $released = $hold->amount_minor;
+            if ($final || $invoice->total_gross_minor >= $hold->amount_minor) {
+                $released = $hold->amount_minor;
+                $hold->update(['status' => 'invoiced', 'invoice_id' => $invoice->id]);
+            } else {
+                $released = $invoice->total_gross_minor;
+                $hold->update(['amount_minor' => $hold->amount_minor - $released, 'invoice_id' => $invoice->id]);
+            }
+            Company::query()->whereKey($companyId)->decrement('credit_held_minor', $released);
         }
 
         Company::query()->whereKey($companyId)->increment('credit_used_minor', $invoice->total_gross_minor);

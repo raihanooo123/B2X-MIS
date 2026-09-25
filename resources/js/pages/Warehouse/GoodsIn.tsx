@@ -25,10 +25,11 @@
  * the workaround 05.5 §4.4 warns loses the variance.
  */
 import { Head } from '@inertiajs/react';
-import { AlertTriangle, Check, CornerDownLeft, PackageCheck, ScanLine, X } from 'lucide-react';
+import { AlertTriangle, Check, PackageCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { FIELD, MONO, Notice, ScanBar, TARGET, describeError as describe, formatTime, useScanFocus } from '@/components/warehouse/scan';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ApiError, type ApiErrorDetail } from '@/lib/api/client';
@@ -78,10 +79,6 @@ interface GoodsInProps {
     can_receive: boolean;
 }
 
-const TARGET = 'min-h-12 h-12 text-base';
-const FIELD = 'h-12 text-lg';
-const MONO = 'font-mono tracking-wide';
-
 const WARNING_TEXT: Record<ExpiryWarning, string> = {
     expiry_in_past: 'This expiry date is in the past.',
     expiry_beyond_horizon: 'This expiry date is unusually far ahead — check the year.',
@@ -89,45 +86,6 @@ const WARNING_TEXT: Record<ExpiryWarning, string> = {
 
 function goodsInUrl(receiptId: Ulid | null): string {
     return receiptId === null ? '/warehouse/goods-in' : `/warehouse/goods-in?receipt=${receiptId}`;
-}
-
-function describe(error: unknown): string {
-    if (error instanceof ApiError) {
-        return error.message;
-    }
-
-    return 'Something went wrong. Check the connection and try again.';
-}
-
-function formatTime(iso: string): string {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
-}
-
-/** A field a typed character may land in: anything editable, or a native select. */
-function isEditable(target: EventTarget | null): boolean {
-    return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
-}
-
-/**
- * Scan-everywhere: a printable key pressed while nothing editable has
- * focus moves focus to the scan bar before the character is typed, so the
- * scanner's first character is not lost.
- */
-function useScanFocus(scanRef: React.RefObject<HTMLInputElement | null>, enabled: boolean) {
-    useEffect(() => {
-        if (!enabled) {
-            return;
-        }
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || isEditable(e.target)) {
-                return;
-            }
-            scanRef.current?.focus();
-        };
-        document.addEventListener('keydown', onKeyDown);
-
-        return () => document.removeEventListener('keydown', onKeyDown);
-    }, [scanRef, enabled]);
 }
 
 export default function GoodsIn(props: GoodsInProps) {
@@ -157,65 +115,6 @@ export default function GoodsIn(props: GoodsInProps) {
                     <ReceiptPanel key={receiptId} receiptId={receiptId} props={props} onLeave={() => go(null)} />
                 )}
             </main>
-        </div>
-    );
-}
-
-// --- Scan bar -----------------------------------------------------------
-
-function ScanBar({ inputRef, label, busy, onScan }: { inputRef: React.RefObject<HTMLInputElement | null>; label: string; busy: boolean; onScan: (code: string) => void }) {
-    const [value, setValue] = useState('');
-
-    const submit = (e: FormEvent) => {
-        e.preventDefault();
-        const code = value.trim();
-        if (code !== '' && !busy) {
-            onScan(code);
-            setValue('');
-        }
-    };
-
-    return (
-        <form onSubmit={submit} className="rounded-xl border-2 border-slate-800 bg-white p-3 shadow-sm">
-            <label htmlFor="goods-in-scan" className="mb-2 flex items-center gap-2 text-base font-semibold">
-                <ScanLine className="size-5" aria-hidden /> {label}
-            </label>
-            <div className="flex gap-3">
-                <Input
-                    id="goods-in-scan"
-                    ref={inputRef}
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    autoComplete="off"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    className={cn('h-14 flex-1 text-xl', MONO)}
-                    aria-describedby="goods-in-scan-hint"
-                    autoFocus
-                />
-                <Button type="submit" className={cn(TARGET, 'h-14 px-6')} disabled={busy}>
-                    <CornerDownLeft aria-hidden /> Go
-                </Button>
-            </div>
-            <p id="goods-in-scan-hint" className="mt-2 text-sm text-slate-600">
-                Scan, or type and press Enter. Start typing anywhere — it lands here.
-            </p>
-        </form>
-    );
-}
-
-function Notice({ tone, children }: { tone: 'error' | 'ok' | 'info'; children: React.ReactNode }) {
-    return (
-        <div
-            role={tone === 'error' ? 'alert' : 'status'}
-            className={cn(
-                'rounded-lg border-2 p-4 text-base',
-                tone === 'error' && 'border-red-600 bg-red-50 text-red-900',
-                tone === 'ok' && 'border-emerald-600 bg-emerald-50 text-emerald-900',
-                tone === 'info' && 'border-slate-400 bg-white text-slate-800',
-            )}
-        >
-            {children}
         </div>
     );
 }
@@ -261,7 +160,7 @@ function StartPanel({ open_receipts: openReceipts, locations, can_receive: canRe
 
     return (
         <>
-            <ScanBar inputRef={scanRef} label="Scan a PO number or container reference" busy={looking || open.isPending} onScan={(c) => void onScan(c)} />
+            <ScanBar id="goods-in-scan" inputRef={scanRef} label="Scan a PO number or container reference" busy={looking || open.isPending} onScan={(c) => void onScan(c)} />
             {message && <Notice tone={message.tone}>{message.text}</Notice>}
 
             {canReceive && (
@@ -474,7 +373,7 @@ function ReceiptPanel({ receiptId, props, onLeave }: { receiptId: Ulid; props: G
                 />
             ) : (
                 <>
-                    {editable && <ScanBar inputRef={scanRef} label="Scan a case, SKU barcode, SKU code or bin" busy={looking} onScan={(c) => void onScan(c)} />}
+                    {editable && <ScanBar id="goods-in-scan" inputRef={scanRef} label="Scan a case, SKU barcode, SKU code or bin" busy={looking} onScan={(c) => void onScan(c)} />}
                     {message && <Notice tone={message.tone}>{message.text}</Notice>}
                     {choices && <Choices choices={choices} onChoose={startEntry} onCancel={() => { setChoices(null); refocusScan(); }} />}
                 </>

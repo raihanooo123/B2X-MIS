@@ -345,6 +345,7 @@ AFTER COMMIT: dispatch email, invoice generation, courier manifest
 ```
 
 - Partial dispatch is supported: `order_lines.dispatched_base_qty < base_qty` with the remainder still allocated. Order status becomes `part_dispatched`.
+- **Lock order, as built 2026-09-25** (`DispatchService`): `orders` → `shipments` → `stock_allocations` (ascending id) → `stock_levels` (02 §11.1 order) → `stock_serials`. The `orders` lock serialises dispatch against cancellation (05.5 §13 W2). Dispatch moves no credit, so it takes no `companies` lock. Invoicing, which does move credit, runs after commit in its own transaction, locking `companies` → `orders`. Picking, short pick and batch substitution lock `stock_allocations` → `stock_levels` → `stock_serials`, the same relative order.
 
 ### 7.3 Returns inbound
 

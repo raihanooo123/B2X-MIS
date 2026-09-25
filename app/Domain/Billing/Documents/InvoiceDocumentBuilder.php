@@ -4,6 +4,7 @@ namespace App\Domain\Billing\Documents;
 
 use App\Domain\Billing\Exceptions\InvoiceTotalsMismatchException;
 use App\Domain\Billing\SellerDetails;
+use App\Domain\Billing\ShipmentInvoiceShares;
 use App\Filament\Support\MoneyFormatter;
 use App\Models\Invoice;
 use App\Models\OrderAddress;
@@ -24,7 +25,9 @@ use LogicException;
  * A receipt (02 §21.2) is the same document titled "Receipt", with no
  * payment terms or due date.
  *
- * Lines are derived from `order_lines`, never re-priced (invariant 4).
+ * Lines are derived from `order_lines`, never re-priced (invariant 4) —
+ * in full for a whole-order document, or as each line's share of the
+ * shipment for a per-shipment invoice (ShipmentInvoiceShares).
  * Carriage is its own line at its own VAT rate (02 §20.2). Every figure
  * is summed from integers already on the order: nothing is recomputed,
  * so the document agrees with the ledger exactly. It is checked before
@@ -45,42 +48,53 @@ final class InvoiceDocumentBuilder
 
     public function build(Invoice $invoice): InvoiceDocument
     {
-        if ($invoice->shipment_id !== null) {
-            // Per-shipment line derivation through shipment_lines (02 §14.6)
-            // lands with the dispatch flow; nothing issues these yet.
-            throw new LogicException("Invoice {$invoice->id} is per-shipment; per-shipment documents are not built yet.");
-        }
-
-        $invoice->loadMissing(['order.addresses', 'order.user', 'company', 'orderLines']);
+        $invoice->loadMissing(['order.addresses', 'order.user', 'company', 'orderLines', 'shipment']);
         $order = $invoice->order ?? throw new LogicException("Invoice {$invoice->id} has no order.");
         $receipt = $invoice->isReceipt();
+
+        // A whole-order document bills every order line in full; a
+        // per-shipment one bills each shipped line's share (05.5 §7.3 as
+        // amended 2026-09-25), recomputed identically from shipment_lines.
+        $billed = [];
+        if ($invoice->shipment !== null) {
+            foreach ((new ShipmentInvoiceShares)->forShipment($invoice->shipment) as $share) {
+                $billed[] = [$share->orderLine, $share->shippedBaseQty, $share->netMinor, $share->taxMinor];
+            }
+        } else {
+            foreach ($invoice->orderLines as $line) {
+                /** @var OrderLine $line */
+                $billed[] = [$line, $line->base_qty, $line->line_net_minor, $line->line_tax_minor];
+            }
+        }
 
         /** @var array<int, array{net: int, vat: int}> $byRate keyed by rate in basis points */
         $byRate = [];
         $lines = [];
-        foreach ($invoice->orderLines as $line) {
-            /** @var OrderLine $line */
+        foreach ($billed as [$line, $baseQty, $netMinor, $taxMinor]) {
             $lines[] = [
                 'line_no' => $line->line_no,
                 'sku_code' => $line->sku_code_snapshot,
                 'description' => $line->name_snapshot,
                 'pack_label' => $line->pack_label_snapshot,
-                'pack_qty' => $line->pack_qty,
+                // Whole packs, or null when a shipment carried a part pack: base_qty is always right.
+                'pack_qty' => $baseQty % $line->pack_base_units === 0 ? intdiv($baseQty, $line->pack_base_units) : null,
                 'pack_base_units' => $line->pack_base_units,
-                'base_qty' => $line->base_qty,
+                'base_qty' => $baseQty,
                 'unit_price_net_e4' => $line->unit_price_net_e4,
                 'unit_price_net' => MoneyFormatter::e4($line->unit_price_net_e4),
-                ...$this->money('line_net', $line->line_net_minor),
+                ...$this->money('line_net', $netMinor),
                 'vat_rate_bp' => $line->tax_rate_bp,
                 'vat_rate' => self::percent($line->tax_rate_bp),
-                ...$this->money('line_vat', $line->line_tax_minor),
+                ...$this->money('line_vat', $taxMinor),
             ];
-            $byRate[$line->tax_rate_bp]['net'] = ($byRate[$line->tax_rate_bp]['net'] ?? 0) + $line->line_net_minor;
-            $byRate[$line->tax_rate_bp]['vat'] = ($byRate[$line->tax_rate_bp]['vat'] ?? 0) + $line->line_tax_minor;
+            $byRate[$line->tax_rate_bp]['net'] = ($byRate[$line->tax_rate_bp]['net'] ?? 0) + $netMinor;
+            $byRate[$line->tax_rate_bp]['vat'] = ($byRate[$line->tax_rate_bp]['vat'] ?? 0) + $taxMinor;
         }
 
         $carriage = null;
-        if ($invoice->shipping_net_minor > 0 || $order->shipping_tax_minor > 0) {
+        // A per-shipment invoice carries carriage only if it is the one that charged it.
+        $carriageCharged = $invoice->shipment_id === null || $invoice->shipping_net_minor > 0;
+        if ($carriageCharged && ($invoice->shipping_net_minor > 0 || $order->shipping_tax_minor > 0)) {
             $rateBp = $order->shipping_tax_rate_bp ?? 0;
             $carriage = [
                 'description' => 'Carriage',

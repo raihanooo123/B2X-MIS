@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $batch_id
  * @property int $base_qty
  * @property string $status
+ * @property int|null $suggested_bin_id
  */
 class StockAllocation extends Model
 {

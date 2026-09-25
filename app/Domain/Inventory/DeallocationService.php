@@ -57,17 +57,36 @@ final class DeallocationService
         }
 
         return (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(function () use ($allocationIds) {
-                $allocations = $this->lockAndValidateAllocations($allocationIds);
-
-                $identities = $this->uniqueSortedIdentities($allocations);
-                $lockedLevels = $this->lockStockLevelsInOrder($identities);
-                $this->assertReversible($identities, $lockedLevels);
-
-                return $this->writeReleases($allocations);
-            }),
+            fn () => DB::transaction(fn () => $this->deallocateWithinTransaction($allocationIds)),
             self::class,
         );
+    }
+
+    /**
+     * The release itself, with no transaction or retry wrapper — for a
+     * caller composing it with other stock writes in one transaction
+     * (BatchSubstitutionService: release one batch and allocate another,
+     * atomically). MUST be called inside an existing transaction, and the
+     * caller owns the lock order across everything it composes.
+     *
+     * @param  list<int>  $allocationIds
+     * @return list<StockAllocation>
+     *
+     * @throws InvalidDeallocationException
+     */
+    public function deallocateWithinTransaction(array $allocationIds, ?MovementAttribution $attribution = null): array
+    {
+        if ($allocationIds === []) {
+            throw new InvalidArgumentException('At least one allocation id is required.');
+        }
+
+        $allocations = $this->lockAndValidateAllocations($allocationIds);
+
+        $identities = $this->uniqueSortedIdentities($allocations);
+        $lockedLevels = $this->lockStockLevelsInOrder($identities);
+        $this->assertReversible($identities, $lockedLevels);
+
+        return $this->writeReleases($allocations, $attribution);
     }
 
     /**
@@ -196,7 +215,7 @@ final class DeallocationService
      * @param  list<StockAllocation>  $allocations
      * @return list<StockAllocation>
      */
-    private function writeReleases(array $allocations): array
+    private function writeReleases(array $allocations, ?MovementAttribution $attribution = null): array
     {
         $now = now();
         $released = [];
@@ -213,7 +232,7 @@ final class DeallocationService
                 'base_qty' => -$allocation->base_qty,
                 'reference_type' => 'allocation',
                 'reference_id' => $allocation->id,
-            ]);
+            ] + MovementAttribution::columnsOf($attribution));
 
             StockLevel::identity($allocation->sku_id, $allocation->location_id, $allocation->batch_id)->decrement(
                 'allocated_base_qty',

@@ -630,22 +630,16 @@ Blocked on §4's `BatchSelector`/`SerialSelector`. **Migrated 2026-09-25:** `shi
       (05.5 §4.6). The event is dispatched after commit; nothing listens yet.
 - [ ] PO confirmation raising `incoming_base_qty` on the NULL-batch row (05.7 §5.1, 02
       §23.5). Until it exists, receiving against a PO takes incoming below zero.
-- [ ] `app/Domain/Inventory/PickListGenerator.php` — 05.5 §5.1's per-shipment (not
-      per-order) generation, sorted by `bins.walk_sequence` then SKU code.
-- [ ] `app/Domain/Inventory/PickConfirmationService.php` — 05.5 §5.2/§5.4: blocks scanning
-      an unallocated serial, short-pick handling (writes an `adjustment` movement with
-      reason, re-plans the line).
-- [ ] `app/Domain/Inventory/BatchSubstitutionService.php` — 05.5 §5.3's explicit
-      reallocation (deallocation + allocation + audit entry), reusing
-      `DeallocationService`/`AllocationService` rather than writing new stock-movement
-      logic.
-- [ ] `app/Domain/Inventory/DispatchService.php` — 04 §7.2 / 05.5 §7's atomic dispatch
-      transaction (decrements `on_hand` and `allocated` together, updates
-      `stock_allocations.status`/`stock_serials.status`, writes `shipment_lines` +
-      `shipment_line_batches`/`_serials`, recomputes `orders.status`). **This is the one
-      remaining core stock-mutation transaction (alongside restock, §8) that doesn't exist
-      yet** — everything else in `app/Domain/Inventory/` handles allocation/deallocation
-      only.
+- [x] `app/Domain/Warehouse/PickListGenerator.php` — done 2026-09-25: per shipment, walk
+      order, batch/expiry/serials per line (05.5 §5.1–5.2).
+- [x] `app/Domain/Warehouse/PickConfirmationService.php` — done 2026-09-25: serial scans
+      blocked unless allocated to the order; confirm; short pick with `adjustment` + re-plan
+      (05.5 §5.4 "as built").
+- [x] `app/Domain/Warehouse/BatchSubstitutionService.php` — done 2026-09-25 via the existing
+      services. **Audit write pending 02 §15**: movements carry actor/reason meanwhile.
+- [x] `app/Domain/Warehouse/DispatchService.php` — done 2026-09-25, with per-shipment
+      invoicing (`InvoiceService::issueForShipment`, `ShipmentInvoiceShares`) and the
+      `shipment.dispatched` notice.
 - [ ] `app/Domain/Inventory/StocktakeService.php` — 05.5 §8: session-based counting,
       variance-at-posting-time (not count-time), nothing written until posting.
 - [ ] Idempotency key handling (05.5 §10) — `app/Http/Middleware/RequireIdempotencyKey.php`,
@@ -653,20 +647,24 @@ Blocked on §4's `BatchSelector`/`SerialSelector`. **Migrated 2026-09-25:** `shi
       `idempotency_keys` cache table or Redis-backed store (not in doc 02 — this is
       infrastructure, not a domain table, so it doesn't need a schema doc amendment; confirm
       that framing before building rather than assuming).
-- [ ] `app/Http/Controllers/Api/Warehouse/ReceiptController.php`,
-      `PickListController.php`, `ShipmentController.php`, `StocktakeController.php` — the
-      full `/warehouse/*` endpoint set from 06 §8.
-- [ ] `app/Policies/WarehouseOperationPolicy.php`
+- [x] Warehouse endpoints — `Api/V1/Warehouse/GoodsReceiptController`, `ShipmentController`
+      (`/api/v1/warehouse/shipments*`) done 2026-09-25. Stocktake endpoints remain.
+- [x] Policies — `GoodsReceiptPolicy`, `ShipmentPolicy` (2026-09-25) instead of one
+      `WarehouseOperationPolicy`.
 - [x] `resources/js/pages/Warehouse/GoodsIn.tsx` — done 2026-09-25 (see GoodsInService above).
-- [ ] `resources/js/pages/Warehouse/PickList.tsx` — bin-ordered, batch/serial shown per line,
-      48px touch targets, scan-everywhere (05.5 §9).
-- [ ] `resources/js/pages/Warehouse/Dispatch.tsx` — partial-dispatch UI, delivery-type
-      differentiation (delivery/collection/dropship per §7.1).
+- [x] `resources/js/pages/Warehouse/PickList.tsx` — done 2026-09-25.
+- [x] `resources/js/pages/Warehouse/Dispatch.tsx` — done 2026-09-25.
 - [ ] `resources/js/pages/Warehouse/Stocktake.tsx` — blind-counting toggle, serial
       reconciliation as an individual-missing-serial list, not a quantity variance.
-- [ ] `tests/Feature/Domain/DispatchServiceTest.php` — the atomicity + idempotent-retry
-      assertion from 05.5 §14 acceptance criterion 6.
-- [ ] `tests/Feature/Concurrency/WarehouseConcurrencyTest.php` — W1–W3 from 05.5 §13.
+- [x] `tests/Feature/Warehouse/PickingAndDispatchTest.php`, `PerShipmentInvoicingTest.php` —
+      2026-09-25, including the idempotent-retry assertion (05.5 AC6).
+- [ ] `tests/Feature/Concurrency/WarehouseConcurrencyTest.php` — W1–W3 from 05.5 §13. Needs
+      parallel connections; the sequential paths are covered, the races are not yet.
+- [ ] Serial reservation at allocation (ROADMAP §4 `SerialSelector`) — until it exists no
+      serial is ever `allocated`, so serial picking, serial substitution and serial re-plan
+      are built and tested on fixtures but unreachable from checkout.
+- [ ] Packing (05.5 §6) — parcels, pallet builds, scan-to-parcel verification. Dispatch
+      currently records parcel count and weight only; `shipments.status = 'packed'` is unused.
 
 ---
 

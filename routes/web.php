@@ -12,7 +12,9 @@ use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CheckoutPageController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderPadController;
+use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
+use App\Http\Controllers\Warehouse\PickListPageController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -80,6 +82,9 @@ Route::middleware('auth')->group(function (): void {
 
     // 05.5 §4 — goods-in. Reads and writes via /api/v1/warehouse/*.
     Route::get('/warehouse/goods-in', [GoodsInPageController::class, 'show'])->name('warehouse.goods-in');
+    // 05.5 §5, §7 — picking and dispatch. Via /api/v1/warehouse/shipments*.
+    Route::get('/warehouse/pick-list', [PickListPageController::class, 'show'])->name('warehouse.pick-list');
+    Route::get('/warehouse/dispatch', [DispatchPageController::class, 'show'])->name('warehouse.dispatch');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');
