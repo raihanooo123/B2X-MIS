@@ -2,6 +2,11 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Delivery\ConsignmentWeigher;
+use App\Domain\Delivery\DeliveryDestination;
+use App\Domain\Delivery\DeliveryQuote;
+use App\Domain\Delivery\DeliveryQuoter;
+use App\Domain\Delivery\ThresholdEvaluator;
 use App\Domain\Pricing\BulkPriceResolver;
 use App\Domain\Pricing\Exceptions\NoBasePriceListException;
 use App\Domain\Pricing\Exceptions\NoTaxRateException;
@@ -17,7 +22,6 @@ use App\Models\CompanyUser;
 use App\Models\Location;
 use App\Models\OrderSpendBreak;
 use App\Models\StockLevel;
-use App\Models\SystemConfiguration;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use RuntimeException;
@@ -60,11 +64,13 @@ use RuntimeException;
  */
 final class CheckoutPreviewService
 {
-    public const MINIMUM_ORDER_CONFIG_KEY = 'orders.minimum_value_net_minor';
+    public const MINIMUM_ORDER_CONFIG_KEY = ThresholdEvaluator::MINIMUM_ORDER_KEY;
 
     public function __construct(
         private readonly OrderPricingPipeline $pricingPipeline = new OrderPricingPipeline,
         private readonly BulkPriceResolver $bulkPriceResolver = new BulkPriceResolver,
+        private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
+        private readonly ThresholdEvaluator $thresholds = new ThresholdEvaluator,
     ) {}
 
     public function preview(
@@ -75,6 +81,7 @@ final class CheckoutPreviewService
         ?CarbonImmutable $at = null,
         ?User $user = null,
         bool $checkIdentity = false,
+        ?DeliveryDestination $destination = null,
     ): CheckoutPreview {
         $at ??= CarbonImmutable::now();
 
@@ -148,13 +155,34 @@ final class CheckoutPreviewService
             $pricedLines[$line->id] = $pricing->lines[$i];
         }
 
-        $minimumNetMinor = $this->minimumOrderNetMinor($companyId);
-        if ($minimumNetMinor !== null && $pricing->subtotalNetMinor < $minimumNetMinor) {
+        // 05.6 §6: both thresholds on the post-spend-break net subtotal.
+        $minimumNetMinor = $this->thresholds->minimumOrderNetMinor($companyId);
+        if ($this->thresholds->belowMinimum($pricing->subtotalNetMinor, $companyId) && $minimumNetMinor !== null) {
             $blockers[] = new CheckoutBlocker(null, 'below_minimum_order', 'The order is below the minimum order value.', [
                 'minimum_net_minor' => $minimumNetMinor,
                 'subtotal_net_minor' => $pricing->subtotalNetMinor,
                 'shortfall_minor' => $minimumNetMinor - $pricing->subtotalNetMinor,
             ]);
+        }
+
+        // 05.6 §8: carriage is known, and shown, before payment. Without a
+        // destination (the cart before an address is chosen) there is
+        // nothing to rate yet and `delivery` is null.
+        $delivery = null;
+        if ($destination !== null) {
+            $delivery = $this->deliveryQuoter->quote(
+                ConsignmentWeigher::linesFromCart(array_values($priceable)),
+                $destination,
+                $companyId,
+                $pricing->subtotalNetMinor,
+                $at,
+            );
+
+            if ($delivery->isChargeable()) {
+                $pricing = $pricing->withShipping($delivery->shippingNetMinor, $delivery->taxRateBp);
+            } else {
+                $blockers[] = $this->deliveryBlocker($delivery);
+            }
         }
 
         return new CheckoutPreview(
@@ -166,6 +194,8 @@ final class CheckoutPreviewService
             shippingNetMinor: $pricing->shippingNetMinor,
             taxMinor: $pricing->taxMinor,
             totalGrossMinor: $pricing->totalGrossMinor,
+            delivery: $delivery,
+            shippingTaxMinor: $pricing->shippingTaxMinor,
             // 05.4 §7.5A's account-balance ledger is not built; nothing
             // can be applied until it is.
             accountCreditAppliedMinor: 0,
@@ -173,6 +203,24 @@ final class CheckoutPreviewService
             minimumOrderNetMinor: $minimumNetMinor,
             blockers: [...$blockers, ...$identityBlockers],
         );
+    }
+
+    /**
+     * The order cannot go ahead until carriage is agreed (05.6 §8, as
+     * amended 2026-09-25): never charged at £0 in the meantime.
+     */
+    private function deliveryBlocker(DeliveryQuote $delivery): CheckoutBlocker
+    {
+        if ($delivery->status === 'unserviceable') {
+            return new CheckoutBlocker('delivery_address', 'delivery_unserviceable', "We don't deliver to this address. Please choose another delivery address.", [
+                'zone' => $delivery->zone?->code,
+            ]);
+        }
+
+        return new CheckoutBlocker('delivery_address', 'carriage_quote_required', "We'll quote you for delivery to this address before you order — please contact us and we'll be in touch with a price.", [
+            'zone' => $delivery->zone?->code,
+            'reason' => $delivery->reason,
+        ]);
     }
 
     /**
@@ -344,30 +392,6 @@ final class CheckoutPreviewService
         ]);
     }
 
-    /**
-     * 02 §2.7 most-specific-wins, company then global (location scope has
-     * no meaning for an order-value threshold). Unconfigured means no
-     * minimum — the go-live value is an open client decision (ROADMAP
-     * §0.4) and is never guessed here.
-     */
-    private function minimumOrderNetMinor(?int $companyId): ?int
-    {
-        $rows = SystemConfiguration::query()
-            ->where('config_key', self::MINIMUM_ORDER_CONFIG_KEY)
-            ->where(function ($q) use ($companyId) {
-                $q->where('scope', 'global');
-                if ($companyId !== null) {
-                    $q->orWhere(fn ($q) => $q->where('scope', 'company')->where('company_id', $companyId));
-                }
-            })
-            ->get(['scope', 'value_int'])
-            ->keyBy('scope');
-
-        $row = $rows->get('company') ?? $rows->get('global');
-
-        return $row?->value_int;
-    }
-
     private function tierId(?int $companyId): ?int
     {
         if ($companyId === null) {
@@ -426,7 +450,7 @@ final class CheckoutPreviewService
             totalGrossMinor: 0,
             accountCreditAppliedMinor: 0,
             creditAvailableMinor: $this->creditAvailableMinor($companyId),
-            minimumOrderNetMinor: $this->minimumOrderNetMinor($companyId),
+            minimumOrderNetMinor: $this->thresholds->minimumOrderNetMinor($companyId),
             blockers: $blockers,
         );
     }

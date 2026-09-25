@@ -414,10 +414,13 @@ POST /api/v1/checkout/preview
     "shortfall_to_next_minor": 15740
   },
   "delivery": {
-    "zone": "GB_MAINLAND", "method": "pallet",
-    "shipping_net_minor": 4800,
+    "status": "rated", "reason": null,
+    "zone": "GB_MAINLAND", "zone_name": "UK Mainland", "method": "pallet",
+    "weight_g": 184000,
+    "shipping_net_minor": 4800, "shipping_tax_minor": 960, "tax_rate_bp": 2000,
     "carriage_paid_threshold_net_minor": 50000,
-    "shortfall_to_free_minor": 0
+    "shortfall_to_free_minor": 0,
+    "postcode_recognised": true
   },
   "tax_minor": 36706,
   "total_gross_minor": 220238,
@@ -427,6 +430,12 @@ POST /api/v1/checkout/preview
   "blockers": []
 }
 ```
+
+`delivery` (05.6 §4–8) is present only when the request carries `delivery_postcode` alongside `delivery_country_code` — the cart estimates from the account's default address, checkout sends the address being typed. Without it `delivery` is `null`, and carriage is not in the totals.
+
+- `status`: `rated` (carriage charged), `free` (at or over the carriage-paid threshold; `shipping_net_minor` 0), `manual_quote` or `unserviceable`. The last two carry `reason` (`no_zone`, `zone_manual_quote`, `missing_weight`, `no_rate_band`, `no_carriage_tax_rate`, `zone_unserviceable`), null amounts, and a blocker — `carriage_quote_required` or `delivery_unserviceable` — so the order cannot be placed or a card authorised until carriage is agreed (05.6 §8 as amended).
+- `shipping_tax_minor` is VAT on carriage at `tax_rate_bp`, carriage's own tax class rate; it is included in `tax_minor`, and `total_gross_minor` includes carriage and its VAT.
+- `postcode_recognised: false` means the postcode fell back to the mainland without matching a known UK area (05.6 §4.4) — shown as a warning, never a blocker.
 
 `blockers` is an array of the same `details` shape as §4, empty when checkout will succeed. The client renders it directly — this is the mechanism by which 05.1 §6 surfaces every rule before the payment step rather than at it.
 
@@ -451,7 +460,7 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 
 - `payment_method` is `card`, `bacs` or `on_account`, and is stored on the order (`orders.payment_method`, 02 §18). `on_account` is refused (422 `payment_method_not_available`) unless the company is on credit terms (05.2 §8.1). BACS and on-account orders are placed `unpaid` and settled later.
 - **Card (07 §6.4, 04 §4.4 — added 2026-09-24).** Card details are entered into Stripe Elements in the browser and go straight to Stripe (PCI DSS SAQ-A); this API never receives them. The sequence:
-  1. `POST /api/v1/checkout/card-intent` `{ "expected_total_gross_minor", "delivery_country_code" }` → `{ "data": { "id", "client_secret", "status", "amount_minor" } }`: a manual-capture PaymentIntent for the previewed total (same blockers and 409 `price_changed` as checkout). One intent per buyer and cart is reused across retries; one for a different total is released and replaced. 503 `card_payments_unavailable` when Stripe is not configured; 502 `payment_gateway_unavailable` when unreachable.
+  1. `POST /api/v1/checkout/card-intent` `{ "expected_total_gross_minor", "delivery_country_code", "delivery_postcode" }` → `{ "data": { "id", "client_secret", "status", "amount_minor" } }`: a manual-capture PaymentIntent for the previewed total (same blockers and 409 `price_changed` as checkout — including carriage, so no card is authorised while carriage is unknown). One intent per buyer and cart is reused across retries; one for a different total is released and replaced. 503 `card_payments_unavailable` when Stripe is not configured; 502 `payment_gateway_unavailable` when unreachable.
   2. The browser confirms the intent with Stripe.js (3-D Secure included). A decline ends there: no order, no allocation, no credit hold.
   3. `POST /api/v1/checkout` with `payment_method: "card"` and `payment_intent_id` (required for card, prohibited otherwise). The intent must be authorised (`requires_capture`), for this buyer's cart and for exactly `expected_total_gross_minor`; otherwise 422 `card_declined` (with a buyer-facing message and `meta.decline_code`), 422 `payment_not_authorised`, or 409 `price_changed`. An intent already used by an order is 409 `payment_already_used`.
   4. The order transaction records a `payments` row (`authorized`, card brand and last four only) — no gateway call inside it. After commit the payment is captured, the row becomes `captured` and the order `paid` (201 `payment_status: "paid"`). If the order is not placed for any reason, the authorisation is released. If capture fails after commit the order stays `unpaid` for follow-up, and a later `payment_intent.succeeded` webhook completes it.

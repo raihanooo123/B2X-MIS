@@ -68,6 +68,33 @@ final class TaxRateResolver
     }
 
     /**
+     * The rate for a tax class directly — carriage, whose `delivery_rates`
+     * row carries its own class (05.6 §5.2), not a SKU's. Same rules as
+     * resolve(): tax-exempt companies pay 0, a missing rate throws.
+     *
+     * @throws NoTaxRateException
+     */
+    public function resolveForClass(int $taxClassId, ?int $companyId, string $countryCode, CarbonImmutable $at): int
+    {
+        if ($companyId !== null && $this->isTaxExempt($companyId)) {
+            return 0;
+        }
+
+        $rateBp = TaxRate::query()
+            ->where('tax_class_id', $taxClassId)
+            ->where('country_code', $countryCode)
+            ->whereNull('region')
+            ->whereRaw('validity @> ?::timestamptz', [$this->timestampForQuery($at)])
+            ->value('rate_bp');
+
+        if ($rateBp === null) {
+            throw new NoTaxRateException($taxClassId, $countryCode, $at);
+        }
+
+        return (int) $rateBp;
+    }
+
+    /**
      * Doc 03 §8's bulk path — one query (or two, counting the tax-exempt
      * check) regardless of row count, matching Q-A/Q-B's own "exactly N
      * queries regardless of row count" contract; the sku_id → tax_class_id

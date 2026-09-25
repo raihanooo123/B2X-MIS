@@ -11,7 +11,7 @@ import { AccountMenu } from '@/components/auth/AccountMenu';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { PaymentMethod } from '@/lib/api/checkout';
-import { lineTotalMinor, packPrice, totalsRows, vatLabel, type DisplayMode } from '@/lib/cart/display';
+import { lineTotalMinor, packPrice, totalsRows, vatLabel, type DeliveryLine, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +46,9 @@ interface ConfirmationProps {
         subtotal_net_minor: number;
         spend_break_discount_minor: number;
         shipping_net_minor: number;
+        shipping_tax_minor: number;
+        /** Null for orders placed before carriage was rated (02 §20). */
+        delivery: DeliveryLine | null;
         tax_minor: number;
         total_gross_minor: number;
         lines: OrderLineView[];
@@ -172,7 +175,7 @@ export default function Confirmation({ display_mode: mode, order }: Confirmation
                             </Table>
                         </div>
                         <dl className="ml-auto mt-3 max-w-xs space-y-1.5 text-sm tabular-nums">
-                            {totalsRows(order, mode).map((row) => (
+                            {totalsRows(order, mode, order.delivery ?? { status: 'rated', zone_name: null, method: null, shipping_net_minor: order.shipping_net_minor, shipping_tax_minor: order.shipping_tax_minor }).map((row) => (
                                 <div key={row.label} className="flex justify-between gap-4">
                                     <dt className={cn(row.tone === 'strong' ? 'font-semibold' : 'text-muted-foreground')}>{row.label}</dt>
                                     <dd className={cn(row.tone === 'strong' && 'text-base font-semibold', row.tone === 'discount' && 'text-emerald-700', row.tone === 'muted' && 'text-muted-foreground')}>{row.value}</dd>

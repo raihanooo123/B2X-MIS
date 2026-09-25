@@ -3,6 +3,11 @@
 namespace App\Domain\Ordering;
 
 use App\Domain\Billing\CardPayments;
+use App\Domain\Delivery\ConsignmentWeigher;
+use App\Domain\Delivery\DeliveryDestination;
+use App\Domain\Delivery\DeliveryQuote;
+use App\Domain\Delivery\DeliveryQuoter;
+use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
 use App\Domain\Inventory\AllocationLine;
 use App\Domain\Inventory\AllocationService;
 use App\Domain\Inventory\DeadlockRetryPolicy;
@@ -90,10 +95,12 @@ final class CheckoutService
         private readonly NumberSequenceService $numberSequenceService = new NumberSequenceService,
         private readonly CheckoutStrategy $tradeCheckout = new TradeCheckout,
         private readonly CheckoutStrategy $consumerCheckout = new ConsumerCheckout,
+        private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
     ) {}
 
     /**
      * @throws PriceChangedException
+     * @throws CarriageQuoteRequiredException
      * @throws BatchTrackedCheckoutNotSupportedException
      * @throws InsufficientCreditException
      * @throws InsufficientStockException
@@ -135,6 +142,26 @@ final class CheckoutService
             shippingNetMinor: $request->shippingNetMinor,
         );
 
+        // Carriage (05.6): rated on the post-spend-break subtotal, exactly as
+        // checkout preview rated it, before any lock. Carriage that cannot be
+        // rated stops the order here — nothing placed, nothing charged,
+        // never £0 by default.
+        $delivery = null;
+        if ($request->deliveryAddress !== null) {
+            $delivery = $this->deliveryQuoter->quote(
+                ConsignmentWeigher::linesFromCart($cart->lines),
+                new DeliveryDestination($request->deliveryAddress->postcode, $request->deliveryAddress->countryCode),
+                $request->companyId,
+                $pricing->subtotalNetMinor,
+            );
+
+            if (! $delivery->isChargeable()) {
+                throw new CarriageQuoteRequiredException($delivery);
+            }
+
+            $pricing = $pricing->withShipping($delivery->shippingNetMinor, $delivery->taxRateBp);
+        }
+
         // Step 0 — before any lock is taken. See class docblock.
         if ($pricing->totalGrossMinor !== $request->expectedTotalGrossMinor) {
             throw new PriceChangedException($request->expectedTotalGrossMinor, $pricing->totalGrossMinor);
@@ -149,8 +176,8 @@ final class CheckoutService
         $defaultLocation = Location::query()->where('is_default', true)->firstOrFail();
 
         return (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation) {
-                $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request));
+            fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation, $delivery) {
+                $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request), $delivery);
 
                 if ($request->deliveryAddress !== null) {
                     OrderAddress::create(['order_id' => $order->id, 'address_type' => 'delivery'] + $request->deliveryAddress->toSnapshot());
@@ -191,7 +218,7 @@ final class CheckoutService
         return $request->companyId !== null ? $this->tradeCheckout : $this->consumerCheckout;
     }
 
-    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus): Order
+    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery): Order
     {
         return Order::create([
             // Placeholder, unique and syntactically valid — overwritten
@@ -211,6 +238,12 @@ final class CheckoutService
             'currency' => 'GBP',
             'subtotal_net_minor' => $pricing->subtotalNetMinor,
             'shipping_net_minor' => $pricing->shippingNetMinor,
+            // 02 §20.2: the carriage snapshot, never re-resolved (05.6 §8).
+            'shipping_tax_minor' => $pricing->shippingTaxMinor,
+            'shipping_tax_rate_bp' => $pricing->shippingTaxRateBp,
+            'delivery_zone_id' => $delivery?->zone?->id,
+            'delivery_rate_id' => $delivery?->rateId,
+            'delivery_method' => $delivery?->method,
             'tax_minor' => $pricing->taxMinor,
             'total_gross_minor' => $pricing->totalGrossMinor,
             'spend_break_id' => $pricing->spendBreakId,

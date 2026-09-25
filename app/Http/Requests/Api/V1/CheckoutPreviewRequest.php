@@ -37,6 +37,9 @@ class CheckoutPreviewRequest extends FormRequest
         return [
             'delivery_address_id' => ['prohibited'],
             'delivery_country_code' => ['sometimes', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
+            // 05.6: with a postcode, preview rates carriage; without one
+            // (the cart before an address is chosen), `delivery` is null.
+            'delivery_postcode' => ['sometimes', 'nullable', 'string', 'max:16'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery,collection,dropship'],
             'apply_account_credit' => ['sometimes', 'boolean'],
         ];
@@ -57,6 +60,13 @@ class CheckoutPreviewRequest extends FormRequest
         $code = $this->validated('delivery_country_code');
 
         return $code === null ? null : (string) $code;
+    }
+
+    public function deliveryPostcode(): ?string
+    {
+        $postcode = $this->validated('delivery_postcode');
+
+        return is_string($postcode) && trim($postcode) !== '' ? strtoupper(trim($postcode)) : null;
     }
 
     public function fulfilmentType(): string

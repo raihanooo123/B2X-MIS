@@ -40,12 +40,15 @@ const IDENTITY_BLOCKERS = new Set(['sign_in_required', 'application_pending', 'e
 interface CartPageProps {
     display_mode: DisplayMode;
     estimate_country: { code: string; name: string };
+    estimate_postcode: string | null;
 }
 
-export default function CartIndex({ display_mode: mode, estimate_country: country }: CartPageProps) {
+export default function CartIndex({ display_mode: mode, estimate_country: country, estimate_postcode: estimatePostcode }: CartPageProps) {
     const cart = useCart();
     const lines = cart.data?.lines ?? [];
-    const preview = useCheckoutPreview(country.code, { enabled: lines.length > 0 });
+    // The account's default delivery postcode, when there is one, lets the
+    // cart show carriage before checkout (05.6 §8).
+    const preview = useCheckoutPreview(country.code, estimatePostcode, { enabled: lines.length > 0 });
     const desktop = useMediaQuery(DESKTOP_QUERY);
 
     const previewByLine = useMemo(() => new Map((preview.data?.lines ?? []).map((l) => [l.cart_line_id, l])), [preview.data]);
@@ -505,7 +508,7 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers }: 
                 ) : null
             ) : (
                 <dl className="divide-y divide-slate-100 py-3 text-xs tabular-nums" aria-live="polite">
-                    {totalsRows({ ...preview, spend_break_discount_minor: preview.spend_break?.discount_minor ?? 0 }, mode).map((row) => (
+                    {totalsRows({ ...preview, spend_break_discount_minor: preview.spend_break?.discount_minor ?? 0 }, mode, preview.delivery).map((row) => (
                         <div key={row.label} className="flex justify-between items-center py-2.5">
                             <dt className={cn(row.tone === 'strong' ? 'text-sm font-bold text-slate-900' : 'text-slate-600 flex items-center gap-1')}>
                                 {row.label}

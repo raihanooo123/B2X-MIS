@@ -402,10 +402,16 @@ class DemoDataSeeder extends Seeder
                 'description' => $description,
             ]);
 
+            // 05.6 §5.1: carriage is rated from pack weights. A stable
+            // 100–900 g per unit from the SKU code; packs add packaging
+            // (inner 50 g, outer 250 g); outers stack 8 per layer, 5 layers.
+            $unitWeightG = 100 + (crc32($skuCode) % 801);
+
             $sku = Sku::factory()->create([
                 'product_id' => $product->id,
                 'sku_code' => $skuCode,
                 'tax_class_id' => $standardTaxClass->id,
+                'unit_weight_g' => $unitWeightG,
             ]);
 
             $each = Pack::factory()->for($sku)->create([
@@ -414,6 +420,7 @@ class DemoDataSeeder extends Seeder
                 'pack_level' => 'each',
                 'base_units' => 1,
                 'is_default_sell' => true,
+                'gross_weight_g' => $unitWeightG,
             ]);
             Pack::factory()->for($sku)->create([
                 'code' => "INNER{$innerQty}",
@@ -421,8 +428,13 @@ class DemoDataSeeder extends Seeder
                 'pack_level' => 'inner',
                 'base_units' => $innerQty,
                 'is_default_sell' => false,
+                'gross_weight_g' => $innerQty * $unitWeightG + 50,
             ]);
-            Pack::factory()->for($sku)->outer($outerQty)->create();
+            Pack::factory()->for($sku)->outer($outerQty)->create([
+                'gross_weight_g' => $outerQty * $unitWeightG + 250,
+                'packs_per_layer' => 8,
+                'layers_per_pallet' => 5,
+            ]);
 
             // Resolves the skus <-> packs circular FK (02 §5.5): the SKU
             // is created first with default_pack_id null, updated once

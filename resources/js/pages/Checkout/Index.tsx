@@ -142,7 +142,13 @@ function CheckoutForm(props: CheckoutProps) {
     }, [addressChoice, addresses, newAddress, props.company_name, props.contact.name, props.contact.phone]);
 
     const cart = useCart();
-    const preview = useCheckoutPreview(address.country_code);
+    // 05.6 §8: carriage is rated from the delivery postcode and shown before
+    // payment. Debounced, and only once the postcode looks complete, so it
+    // is not re-rated on every keystroke.
+    const ratingPostcode = useDebounced(address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null, 400);
+    const preview = useCheckoutPreview(address.country_code, ratingPostcode);
+    const delivery = preview.data?.delivery ?? null;
+    const carriageKnown = delivery !== null && (delivery.status === 'rated' || delivery.status === 'free');
     const placeOrder = usePlaceOrder();
     const idempotency = useRef<{ body: string; key: string } | null>(null);
 
@@ -156,7 +162,8 @@ function CheckoutForm(props: CheckoutProps) {
     const payingByCard = paymentMethod === 'card';
     const cardReady = !payingByCard || (stripe !== null && elements !== null && cardComplete);
 
-    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && cardReady && stage === 'idle';
+    // Carriage must be known before anything is charged (05.6 §8).
+    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && carriageKnown && cardReady && stage === 'idle';
 
     const showFailure = (error: ApiError, shown: CheckoutPreview) => {
         if (error.code === 'price_changed') {
@@ -184,7 +191,7 @@ function CheckoutForm(props: CheckoutProps) {
      * nothing reserved, nothing charged. Returns the authorised intent's id.
      */
     const authoriseCard = async (expectedMinor: number): Promise<string | null> => {
-        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code });
+        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code, delivery_postcode: address.postcode });
         if (intent.status === 'requires_capture') {
             return intent.id;
         }
@@ -393,6 +400,14 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
                         </Button>
                         {!addressComplete && <p className="text-center text-xs text-muted-foreground">Complete the delivery address to place your order.</p>}
+                        {addressComplete && delivery === null && !preview.isFetching && (
+                            <p className="text-center text-xs text-muted-foreground">Enter your full delivery postcode to see the delivery cost.</p>
+                        )}
+                        {delivery?.status === 'rated' && delivery.shortfall_to_free_minor > 0 && (
+                            <p className="text-center text-xs text-muted-foreground">
+                                Spend {formatMinor(delivery.shortfall_to_free_minor)} more (ex. VAT) for free delivery{delivery.zone_name ? ` to ${delivery.zone_name}` : ''}.
+                            </p>
+                        )}
                         {addressComplete && payingByCard && !cardComplete && <p className="text-center text-xs text-muted-foreground">Enter your card details to place your order.</p>}
                         <p className="text-center text-xs text-muted-foreground">Prices {vatLabel(mode)}. Delivery charges, if any, are confirmed with your order.</p>
                     </aside>
@@ -439,6 +454,19 @@ function CardField({ error, disabled, onChange }: { error: string | null; disabl
             )}
         </div>
     );
+}
+
+/** `value`, once it has stopped changing for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+    const [settled, setSettled] = useState(value);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => setSettled(value), ms);
+
+        return () => window.clearTimeout(timer);
+    }, [value, ms]);
+
+    return settled;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -537,7 +565,7 @@ function OrderSummary({ preview, loading, error, cartLines, mode }: { preview: C
                 })}
             </ol>
             <dl className="space-y-1.5 border-t pt-3 text-sm tabular-nums" aria-live="polite">
-                {totalsRows({ ...preview, spend_break_discount_minor: preview.spend_break?.discount_minor ?? 0 }, mode).map((row) => (
+                {totalsRows({ ...preview, spend_break_discount_minor: preview.spend_break?.discount_minor ?? 0 }, mode, preview.delivery).map((row) => (
                     <div key={row.label} className="flex justify-between gap-4">
                         <dt className={cn(row.tone === 'strong' ? 'font-semibold' : 'text-muted-foreground')}>{row.label}</dt>
                         <dd className={cn(row.tone === 'strong' && 'text-base font-semibold', row.tone === 'discount' && 'text-emerald-700', row.tone === 'muted' && 'text-muted-foreground')}>{row.value}</dd>

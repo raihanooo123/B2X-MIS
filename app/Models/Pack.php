@@ -21,6 +21,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $label
  * @property string $code
  * @property bool $is_sellable
+ * @property int|null $gross_weight_g
+ * @property int|null $packs_per_layer
+ * @property int|null $layers_per_pallet
  */
 class Pack extends Model
 {

@@ -17,6 +17,7 @@ use App\Models\StockLevel;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
 use App\Models\User;
+use Database\Seeders\DeliveryZoneSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -36,7 +37,10 @@ beforeEach(function () {
     TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => 2000]);
 
     $this->sku = Sku::factory()->create(['tax_class_id' => $taxClass->id]);
-    Pack::factory()->for($this->sku)->create(['base_units' => 1]);
+    // 05.6: carriage is rated at checkout, so zones, rates and a pack
+    // weight are part of every order. 3 × 500 g → mainland parcel band.
+    $this->seed(DeliveryZoneSeeder::class);
+    Pack::factory()->for($this->sku)->create(['base_units' => 1, 'gross_weight_g' => 500]);
     PriceListItem::factory()->for($this->baseList, 'priceList')->for($this->sku)->create(['min_base_qty' => 1, 'unit_price_e4' => 12345]);
     StockLevel::factory()->for($this->sku)->for($this->location)->create(['on_hand_base_qty' => 100, 'allocated_base_qty' => 0]);
 });
@@ -55,7 +59,7 @@ function checkoutFill(User $user, int $packQty = 3): int
 {
     test()->actingAs($user)->postJson('/api/v1/cart/lines', ['sku_id' => test()->sku->public_id, 'pack_qty' => $packQty])->assertSuccessful();
 
-    return (int) test()->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])->assertOk()->json('total_gross_minor');
+    return (int) test()->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])->assertOk()->json('total_gross_minor');
 }
 
 /** @return array<string, mixed> */
@@ -165,12 +169,12 @@ it('reports applicants, viewers and guests as preview blockers', function () {
     $applicant = User::factory()->create();
     B2bApplication::factory()->create(['applicant_user_id' => $applicant->id, 'contact_email' => $applicant->email, 'status' => 'submitted']);
     checkoutFill($applicant);
-    $this->actingAs($applicant)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])
+    $this->actingAs($applicant)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
         ->assertJsonPath('blockers.0.code', 'application_pending');
 
     $viewer = checkoutTradeBuyer(role: 'viewer');
     checkoutFill($viewer);
-    $this->actingAs($viewer)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])
+    $this->actingAs($viewer)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
         ->assertJsonPath('blockers.0.code', 'not_permitted_to_order');
 });
 

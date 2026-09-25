@@ -34,10 +34,29 @@ export interface PreviewLine {
     line_gross_minor: number | null;
 }
 
+/**
+ * Carriage (05.6), null until a postcode is known. `rated` and `free`
+ * are chargeable; `manual_quote` and `unserviceable` block the order.
+ */
+export interface DeliveryPreview {
+    status: 'rated' | 'free' | 'manual_quote' | 'unserviceable';
+    reason: string | null;
+    zone: string | null;
+    zone_name: string | null;
+    method: 'parcel' | 'pallet' | 'courier_next_day' | 'collection' | null;
+    weight_g: number | null;
+    shipping_net_minor: number | null;
+    shipping_tax_minor: number | null;
+    tax_rate_bp: number | null;
+    carriage_paid_threshold_net_minor: number;
+    shortfall_to_free_minor: number;
+    postcode_recognised: boolean;
+}
+
 export interface CheckoutPreview {
     subtotal_net_minor: number;
     spend_break: { code: string; name: string; discount_minor: number } | null;
-    delivery: null;
+    delivery: DeliveryPreview | null;
     tax_minor: number;
     total_gross_minor: number;
     account_credit_applied_minor: number;
@@ -48,13 +67,14 @@ export interface CheckoutPreview {
     blockers: PreviewBlocker[];
 }
 
-export function useCheckoutPreview(countryCode: string | null, options: { enabled?: boolean } = {}) {
+/** With a postcode, preview rates carriage too (05.6); without one, `delivery` is null. */
+export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean } = {}) {
     return useQuery<CheckoutPreview, ApiError>({
-        queryKey: orderPadKeys.checkoutPreview(countryCode ?? ''),
+        queryKey: orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''),
         queryFn: ({ signal }) =>
             apiRequest<CheckoutPreview>('/checkout/preview', {
                 method: 'POST',
-                body: { delivery_country_code: countryCode, fulfilment_type: 'delivery' },
+                body: { delivery_country_code: countryCode, delivery_postcode: postcode, fulfilment_type: 'delivery' },
                 signal,
             }),
         enabled: (options.enabled ?? true) && countryCode !== null,
@@ -98,7 +118,7 @@ export interface CardIntent {
  * across retries for the same cart and total, so trying again never
  * authorises twice.
  */
-export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string }): Promise<CardIntent> {
+export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string; delivery_postcode: string }): Promise<CardIntent> {
     return apiRequest<{ data: CardIntent }>('/checkout/card-intent', { method: 'POST', body: input }).then((r) => r.data);
 }
 

@@ -20,9 +20,12 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *     `public_id`, and its internal id may not be exposed (06 §2).
  *     `next_threshold_net_minor`/`shortfall_to_next_minor` are null:
  *     SpendBreakResolver only finds the winning break, not the next one.
- *   - `delivery` is null: delivery-rate resolution (05.6) is not built,
- *     and checkout itself charges 0 shipping, so a figure here would
- *     disagree with checkout.
+ *   - `delivery` follows §9.2 (`zone`, `method`, `shipping_net_minor`,
+ *     `carriage_paid_threshold_net_minor`, `shortfall_to_free_minor`),
+ *     plus additive fields: `status` (rated | free | manual_quote |
+ *     unserviceable), `reason`, `zone_name`, `weight_g`,
+ *     `shipping_tax_minor`, `tax_rate_bp`, `postcode_recognised`. Null when
+ *     no `delivery_postcode` was sent — nothing to rate yet (05.6 §8).
  *   - Added `lines` and `minimum_order_net_minor` (additive, 06 §2) so
  *     the pad can show the server's figures and the footer's progress
  *     toward the minimum (05.1 §6).
@@ -54,7 +57,7 @@ class CheckoutPreviewResource extends JsonResource
                 'next_threshold_net_minor' => null,
                 'shortfall_to_next_minor' => null,
             ],
-            'delivery' => null,
+            'delivery' => $this->delivery($preview),
             'tax_minor' => $preview->taxMinor,
             'total_gross_minor' => $preview->totalGrossMinor,
             'account_credit_applied_minor' => $preview->accountCreditAppliedMinor,
@@ -66,6 +69,32 @@ class CheckoutPreviewResource extends JsonResource
             'minimum_order_net_minor' => $preview->minimumOrderNetMinor,
             'lines' => array_map(fn (CartLine $line) => $this->line($preview, $line), $preview->cartLines),
             'blockers' => array_map(fn (CheckoutBlocker $b) => $b->toArray(), $preview->blockers),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function delivery(CheckoutPreview $preview): ?array
+    {
+        $quote = $preview->delivery;
+        if ($quote === null) {
+            return null;
+        }
+
+        return [
+            'status' => $quote->status,
+            'reason' => $quote->reason,
+            'zone' => $quote->zone?->code,
+            'zone_name' => $quote->zone?->name,
+            'method' => $quote->method,
+            'weight_g' => $quote->weightG,
+            'shipping_net_minor' => $quote->isChargeable() ? $quote->shippingNetMinor : null,
+            'shipping_tax_minor' => $quote->isChargeable() ? $preview->shippingTaxMinor : null,
+            'tax_rate_bp' => $quote->taxRateBp,
+            'carriage_paid_threshold_net_minor' => $quote->carriagePaidThresholdNetMinor,
+            'shortfall_to_free_minor' => $quote->shortfallToFreeMinor,
+            'postcode_recognised' => $quote->postcodeRecognised,
         ];
     }
 

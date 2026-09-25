@@ -47,15 +47,44 @@ export interface TotalsRow {
     tone?: 'discount' | 'muted' | 'strong';
 }
 
+/** The carriage line (05.6 §8), when a destination is known. */
+export interface DeliveryLine {
+    status: 'rated' | 'free' | 'manual_quote' | 'unserviceable';
+    zone_name: string | null;
+    method: string | null;
+    shipping_net_minor: number | null;
+    shipping_tax_minor: number | null;
+}
+
+function deliveryLabel(d: DeliveryLine): string {
+    const where = [d.zone_name, d.method].filter(Boolean).join(', ');
+
+    return where ? `Delivery — ${where}` : 'Delivery';
+}
+
+function deliveryValue(d: DeliveryLine, mode: DisplayMode): string {
+    if (d.status === 'free') {
+        return 'Free';
+    }
+    if (d.status !== 'rated' || d.shipping_net_minor === null) {
+        return 'Quoted separately';
+    }
+
+    return formatMinor(mode === 'gross' ? sumInts([d.shipping_net_minor, d.shipping_tax_minor ?? 0]) : d.shipping_net_minor);
+}
+
 /**
- * The totals block, in the order a buyer reads it. Ex-VAT: subtotal, VAT,
- * total. Inc-VAT: total first, with the VAT it includes. Either way the
- * spend discount (already inside the figures) is stated, and delivery is
- * noted as confirmed later — shipping is 0 until 05.6's rating exists.
+ * The totals block, in the order a buyer reads it. Ex-VAT: subtotal,
+ * delivery, VAT, total. Inc-VAT: delivery, total, then the VAT it
+ * includes. The spend discount (already inside the figures) is stated;
+ * carriage is shown before payment, never revealed at the end (05.6 §8).
+ * Without a known destination the delivery line says it is confirmed at
+ * checkout.
  */
 export function totalsRows(
     totals: { subtotal_net_minor: number; tax_minor: number; total_gross_minor: number; spend_break_discount_minor: number },
     mode: DisplayMode,
+    delivery: DeliveryLine | null = null,
 ): TotalsRow[] {
     const rows: TotalsRow[] = [];
 
@@ -63,11 +92,17 @@ export function totalsRows(
         rows.push({ label: 'Spend discount (included)', value: `−${formatMinor(totals.spend_break_discount_minor)}`, tone: 'discount' });
     }
 
+    const deliveryRow: TotalsRow = delivery
+        ? { label: `${deliveryLabel(delivery)} (${vatLabel(mode)})`, value: deliveryValue(delivery, mode), tone: delivery.status === 'free' ? 'discount' : undefined }
+        : { label: 'Delivery', value: 'At checkout', tone: 'muted' };
+
     if (mode === 'net') {
         rows.push({ label: 'Subtotal (ex. VAT)', value: formatMinor(totals.subtotal_net_minor) });
+        rows.push(deliveryRow);
         rows.push({ label: 'VAT', value: formatMinor(totals.tax_minor) });
         rows.push({ label: 'Total', value: formatMinor(totals.total_gross_minor), tone: 'strong' });
     } else {
+        rows.push(deliveryRow);
         rows.push({ label: 'Total (inc. VAT)', value: formatMinor(totals.total_gross_minor), tone: 'strong' });
         rows.push({ label: 'Includes VAT of', value: formatMinor(totals.tax_minor), tone: 'muted' });
     }

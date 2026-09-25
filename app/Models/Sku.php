@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string $status
  * @property string $sku_code
  * @property int $product_id
+ * @property int|null $unit_weight_g
  * @property bool $is_stock_tracked
  * @property string $tracking_mode
  * @property bool $allow_backorder

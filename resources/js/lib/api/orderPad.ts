@@ -136,7 +136,7 @@ export const orderPadKeys = {
     cart: () => [...orderPadKeys.all, 'cart'] as const,
     /** Every checkout preview, whatever its country — invalidated on any cart change. */
     checkoutPreviewAll: () => [...orderPadKeys.all, 'checkout-preview'] as const,
-    checkoutPreview: (countryCode: string) => [...orderPadKeys.all, 'checkout-preview', countryCode] as const,
+    checkoutPreview: (countryCode: string, postcode: string) => [...orderPadKeys.all, 'checkout-preview', countryCode, postcode] as const,
 };
 
 // --- Queries --------------------------------------------------------------------

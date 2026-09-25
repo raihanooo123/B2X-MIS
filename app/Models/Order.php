@@ -23,6 +23,11 @@ use Illuminate\Support\Carbon;
  * @property string $status
  * @property string $payment_status
  * @property string|null $payment_method
+ * @property int|null $delivery_zone_id
+ * @property int|null $delivery_rate_id
+ * @property string|null $delivery_method
+ * @property int|null $shipping_tax_rate_bp
+ * @property int $shipping_tax_minor
  * @property string|null $customer_reference
  * @property int $subtotal_net_minor
  * @property int $shipping_net_minor
@@ -48,6 +53,10 @@ class Order extends Model
         'status',
         'payment_status',
         'payment_method',
+        'delivery_rate_id',
+        'delivery_method',
+        'shipping_tax_rate_bp',
+        'shipping_tax_minor',
         'fulfilment_type',
         'currency',
         'subtotal_net_minor',
@@ -77,6 +86,8 @@ class Order extends Model
             'subtotal_net_minor' => 'integer',
             'discount_net_minor' => 'integer',
             'shipping_net_minor' => 'integer',
+            'shipping_tax_minor' => 'integer',
+            'shipping_tax_rate_bp' => 'integer',
             'tax_minor' => 'integer',
             'total_gross_minor' => 'integer',
             'total_cost_minor' => 'integer',

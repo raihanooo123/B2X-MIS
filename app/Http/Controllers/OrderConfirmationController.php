@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
 use App\Http\Support\PriceDisplay;
+use App\Models\DeliveryZone;
 use App\Models\Order;
 use App\Models\OrderAddress;
 use App\Models\OrderLine;
@@ -44,6 +45,15 @@ class OrderConfirmationController extends Controller
                 'subtotal_net_minor' => $model->subtotal_net_minor,
                 'spend_break_discount_minor' => $model->spend_break_discount_minor,
                 'shipping_net_minor' => $model->shipping_net_minor,
+                'shipping_tax_minor' => $model->shipping_tax_minor,
+                // 02 §20 snapshot: zone and method as rated when the order was placed.
+                'delivery' => $model->delivery_zone_id === null ? null : [
+                    'status' => $model->delivery_rate_id === null ? 'free' : 'rated',
+                    'zone_name' => DeliveryZone::query()->whereKey($model->delivery_zone_id)->value('name'),
+                    'method' => $model->delivery_method,
+                    'shipping_net_minor' => $model->shipping_net_minor,
+                    'shipping_tax_minor' => $model->shipping_tax_minor,
+                ],
                 'tax_minor' => $model->tax_minor,
                 'total_gross_minor' => $model->total_gross_minor,
                 'lines' => array_values($model->lines->map(fn (OrderLine $l) => [

@@ -14,6 +14,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * twice; it does not itself prevent overlapping (not identical) ranges
  * across different zones — a data-quality concern, not a structural
  * invariant, so it is not enforced by the database.
+ *
+ * Both districts NULL = the whole area (02 §20.1). `specificity` is a
+ * stored generated column (never written): the narrowest match wins.
+ *
+ * @property int $delivery_zone_id
+ * @property string $area
+ * @property int|null $district_from
+ * @property int|null $district_to
  */
 class DeliveryZonePostcode extends Model
 {

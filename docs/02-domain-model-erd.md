@@ -3256,3 +3256,59 @@ ALTER TABLE payments VALIDATE CONSTRAINT payments_owner_chk;
 - **Public payments are never allocated to an invoice**, because `invoices.company_id` is `NOT NULL` (§14.5.2): public orders are not invoiced on account. A public card payment settles its order directly and stays unallocated in `payment_allocations`, which is correct — there is nothing on account to settle.
 - `payments_company_idx (company_id, created_at DESC)` is unchanged: B-tree indexes hold NULLs, and "a company's payments" never asks for them.
 - `NOT VALID` then `VALIDATE` adds the check without a long exclusive lock (§2.5, 07 §11.1); every existing row already has a company, so validation cannot fail.
+
+---
+
+## 20. Schema amendment 2026-09-25 — delivery rating: zones per 05.6, carriage snapshot on orders (signed off 2026-09-25)
+
+> **Status: signed off 2026-09-25; migrated** (`2026_10_05_090100_align_delivery_tables_with_05_6_and_snapshot_carriage.php`).
+
+### 20.1 `delivery_zones` and `delivery_zone_postcodes` brought into line with 05.6 §4.2–4.3
+
+§8.5 signed off a minimal shape for both tables on 2026-09-21, before 05.6 existed, and already records that 05.6 "wins outright as the authoritative module spec" for `delivery_rates`. The same is now applied to zones and postcodes, which delivery rating (05.6 §4–6) cannot work without:
+
+```sql
+ALTER TABLE delivery_zones
+  ADD COLUMN country_code                  char(2)  NOT NULL DEFAULT 'GB',
+  ADD COLUMN is_mainland                   boolean  NOT NULL DEFAULT true,
+  ADD COLUMN is_serviceable                boolean  NOT NULL DEFAULT true,
+  ADD COLUMN requires_manual_quote         boolean  NOT NULL DEFAULT false,
+  ADD COLUMN carriage_paid_threshold_minor bigint,   -- NULL: inherit the configured threshold
+  ADD COLUMN transit_days                  smallint,
+  ADD CONSTRAINT delivery_zones_threshold_chk
+    CHECK (carriage_paid_threshold_minor IS NULL OR carriage_paid_threshold_minor >= 0);
+CREATE INDEX delivery_zones_country_idx ON delivery_zones (country_code) WHERE is_serviceable;
+
+ALTER TABLE delivery_zone_postcodes
+  ALTER COLUMN district_from DROP NOT NULL,     -- both NULL = the whole area (BT, IV, IM)
+  ALTER COLUMN district_to   DROP NOT NULL,
+  -- range_chk: both NULL, or both set with to >= from
+  -- uq becomes UNIQUE NULLS NOT DISTINCT (area, district_from, district_to)
+  ADD COLUMN specificity integer GENERATED ALWAYS AS (
+    CASE WHEN district_from IS NULL THEN 9999 ELSE district_to - district_from END
+  ) STORED;
+CREATE INDEX delivery_zone_postcodes_resolve_idx
+  ON delivery_zone_postcodes (area, specificity)
+  INCLUDE (district_from, district_to, delivery_zone_id);
+```
+
+- `delivery_zones.status` (§8.5) is kept alongside `is_serviceable`: `status` retires a zone from configuration; `is_serviceable = false` keeps it resolvable so an address in it is told why delivery is refused (05.6 §10).
+- The postcode column stays `delivery_zone_id` (§8.5's name) rather than 05.6's `zone_id` — renaming a signed-off column buys nothing.
+- `UNIQUE NULLS NOT DISTINCT` (§2.6): with nullable districts, a plain `UNIQUE` would accept the same whole-area rule twice.
+
+### 20.2 `orders` — carriage snapshot
+
+Carriage is snapshotted at placement and never re-resolved (05.6 §8, invariant 4). `shipping_net_minor` (§8.2) held only the amount; an invoice must also show the VAT on carriage at carriage's own rate (05.6 §5.2), and which rate row and method produced it.
+
+```sql
+ALTER TABLE orders
+  ADD COLUMN delivery_rate_id     bigint REFERENCES delivery_rates (id),
+  ADD COLUMN delivery_method      text,     -- CHECK: parcel | pallet | courier_next_day | collection
+  ADD COLUMN shipping_tax_rate_bp integer,  -- CHECK: 0..10000
+  ADD COLUMN shipping_tax_minor   bigint NOT NULL DEFAULT 0;
+```
+
+- **`tax_minor` includes `shipping_tax_minor`.** `total_gross_minor = subtotal_net_minor + shipping_net_minor + tax_minor` still holds (03 §7A.7's property), with `tax_minor = Σ line_tax_minor + shipping_tax_minor`. The carriage VAT is its own column so the invoice can print it on its own line.
+- `shipping_tax_minor = round_half_up(shipping_net_minor × shipping_tax_rate_bp / 10000)` — one rounding, as for a line (03 §6.3).
+- All four are NULL/0 when there is no carriage. Free delivery past the carriage-paid threshold records the zone and method, with `shipping_net_minor = 0` and `delivery_rate_id` NULL: no rate row priced it, and a carriage-paid order needs no weight data to be free (05.6 §6), so there may be no band to point at. `delivery_rate_id IS NULL` with a zone set therefore means "carriage paid".
+- `delivery_zone_id` (§8.2) already existed; it is now written.

@@ -7,6 +7,8 @@ use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\DeclineMessages;
 use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentGateway;
+use App\Domain\Delivery\DeliveryDestination;
+use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
 use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
 use App\Domain\Ordering\CartService;
@@ -134,7 +136,7 @@ class CheckoutController extends Controller
         // The same checks preview reports — the button the buyer pressed was
         // only enabled because there were none, but the cart, the stock or
         // the account may have changed since.
-        $preview = $this->previewService->preview($cart, $companyId, $address->countryCode, 'delivery', user: $user, checkIdentity: true);
+        $preview = $this->previewService->preview($cart, $companyId, $address->countryCode, 'delivery', user: $user, checkIdentity: true, destination: new DeliveryDestination($address->postcode, $address->countryCode));
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => $b->toArray(), $preview->blockers));
         }
@@ -184,6 +186,14 @@ class CheckoutController extends Controller
                 throw new ApiException(409, 'payment_already_used', 'This payment has already been used for an order.');
             }
             throw $e;
+        } catch (CarriageQuoteRequiredException $e) {
+            // Preview reports this as a blocker first; this is the backstop.
+            throw new ApiException(422, 'carriage_quote_required', "We'll quote you for delivery to this address before you order — please contact us and we'll be in touch with a price.", [[
+                'field' => 'delivery_address',
+                'code' => $e->quote->status === 'unserviceable' ? 'delivery_unserviceable' : 'carriage_quote_required',
+                'message' => 'Carriage could not be rated for this order.',
+                'meta' => ['zone' => $e->quote->zone?->code, 'reason' => $e->quote->reason],
+            ]]);
         } catch (BatchTrackedCheckoutNotSupportedException) {
             throw new ApiException(422, 'batch_tracked_not_supported', 'An item in your cart cannot be checked out online yet.');
         }
@@ -219,7 +229,7 @@ class CheckoutController extends Controller
         }
         Gate::authorize('checkout', $cart);
 
-        $preview = $this->previewService->preview($cart, $owner->companyId, $request->deliveryCountryCode(), 'delivery', user: $user, checkIdentity: true);
+        $preview = $this->previewService->preview($cart, $owner->companyId, $request->deliveryCountryCode(), 'delivery', user: $user, checkIdentity: true, destination: $request->destination());
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => $b->toArray(), $preview->blockers));
         }
@@ -434,6 +444,7 @@ class CheckoutController extends Controller
             $request->fulfilmentType(),
             user: $request->user() instanceof User ? $request->user() : null,
             checkIdentity: true,
+            destination: $request->deliveryPostcode() === null ? null : new DeliveryDestination($request->deliveryPostcode(), $countryCode),
         );
 
         return (new CheckoutPreviewResource($preview))->response();

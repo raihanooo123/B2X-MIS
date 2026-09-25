@@ -2,6 +2,7 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Delivery\DeliveryQuote;
 use App\Domain\Pricing\PricedOrderLine;
 use App\Models\CartLine;
 use App\Models\OrderSpendBreak;
@@ -36,6 +37,9 @@ final readonly class CheckoutPreview
         public ?int $creditAvailableMinor,
         public ?int $minimumOrderNetMinor,
         public array $blockers,
+        /** 05.6: null when no destination was given; otherwise the carriage, or why there is none. */
+        public ?DeliveryQuote $delivery = null,
+        public int $shippingTaxMinor = 0,
     ) {}
 
     public function amountDueMinor(): int

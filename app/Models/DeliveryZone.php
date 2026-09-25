@@ -10,7 +10,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Doc 02 §8.5 (amendment, signed off 2026-09-21) — delivery_zones. No
  * public_id — internal operational configuration, like price_tiers and
- * tax_classes, never exposed in a customer-facing URL.
+ * tax_classes, never exposed in a customer-facing URL. Rating flags and
+ * the per-zone carriage-paid threshold per 05.6 §4.2 (02 §20.1).
+ *
+ * @property int $id
+ * @property string $code
+ * @property string $name
+ * @property string $status
+ * @property string $country_code
+ * @property bool $is_mainland
+ * @property bool $is_serviceable
+ * @property bool $requires_manual_quote
+ * @property int|null $carriage_paid_threshold_minor
+ * @property int|null $transit_days
  */
 class DeliveryZone extends Model
 {
@@ -22,12 +34,23 @@ class DeliveryZone extends Model
         'name',
         'status',
         'position',
+        'country_code',
+        'is_mainland',
+        'is_serviceable',
+        'requires_manual_quote',
+        'carriage_paid_threshold_minor',
+        'transit_days',
     ];
 
     protected function casts(): array
     {
         return [
             'position' => 'integer',
+            'is_mainland' => 'boolean',
+            'is_serviceable' => 'boolean',
+            'requires_manual_quote' => 'boolean',
+            'carriage_paid_threshold_minor' => 'integer',
+            'transit_days' => 'integer',
         ];
     }
 

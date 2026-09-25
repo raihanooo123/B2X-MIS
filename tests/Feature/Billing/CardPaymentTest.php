@@ -25,6 +25,7 @@ use App\Models\StockLevel;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
 use App\Models\User;
+use Database\Seeders\DeliveryZoneSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
@@ -121,7 +122,10 @@ beforeEach(function () {
     TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => 2000]);
 
     $this->sku = Sku::factory()->create(['tax_class_id' => $taxClass->id]);
-    Pack::factory()->for($this->sku)->create(['base_units' => 1]);
+    // 05.6: carriage is rated at checkout, so zones, rates and a pack
+    // weight are part of every order. 3 × 500 g → mainland parcel band.
+    $this->seed(DeliveryZoneSeeder::class);
+    Pack::factory()->for($this->sku)->create(['base_units' => 1, 'gross_weight_g' => 500]);
     $this->price = PriceListItem::factory()->for($baseList, 'priceList')->for($this->sku)->create(['min_base_qty' => 1, 'unit_price_e4' => 12345]);
     StockLevel::factory()->for($this->sku)->for($this->location)->create(['on_hand_base_qty' => 100, 'allocated_base_qty' => 0]);
 });
@@ -141,13 +145,13 @@ function cardFillCart(User $user): int
 {
     test()->actingAs($user)->postJson('/api/v1/cart/lines', ['sku_id' => test()->sku->public_id, 'pack_qty' => 3])->assertSuccessful();
 
-    return (int) test()->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])->json('total_gross_minor');
+    return (int) test()->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])->json('total_gross_minor');
 }
 
 function cardIntentFor(User $user, int $total): string
 {
     return (string) test()->actingAs($user)
-        ->postJson('/api/v1/checkout/card-intent', ['expected_total_gross_minor' => $total, 'delivery_country_code' => 'GB'])
+        ->postJson('/api/v1/checkout/card-intent', ['expected_total_gross_minor' => $total, 'delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
         ->assertOk()
         ->json('data.id');
 }
@@ -419,4 +423,40 @@ it('does not offer card when Stripe is not configured', function () {
     $methods = $this->actingAs(cardTradeBuyer())->get('/checkout')->assertOk()->viewData('page')['props']['payment_methods'];
 
     expect(array_column($methods, 'value'))->toBe(['on_account', 'bacs']);
+});
+
+it('never creates a card authorisation while carriage is unknown', function () {
+    // No weight data: the consignment cannot be rated (05.6 §5.1).
+    Pack::query()->update(['gross_weight_g' => null]);
+    $user = cardTradeBuyer();
+    $total = cardFillCart($user);
+
+    test()->actingAs($user)
+        ->postJson('/api/v1/checkout/card-intent', ['expected_total_gross_minor' => $total, 'delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
+        ->assertStatus(422)
+        ->assertJsonPath('error.code', 'checkout_blocked')
+        ->assertJsonPath('error.details.0.code', 'carriage_quote_required');
+
+    // A manual-quote zone is refused the same way, even with weights.
+    Pack::query()->update(['gross_weight_g' => 500]);
+    test()->actingAs($user)
+        ->postJson('/api/v1/checkout/card-intent', ['expected_total_gross_minor' => $total, 'delivery_country_code' => 'GB', 'delivery_postcode' => 'TR22 0AA'])
+        ->assertStatus(422)
+        ->assertJsonPath('error.details.0.code', 'carriage_quote_required');
+
+    expect($this->gateway->created)->toBe(0)
+        ->and(Order::query()->count())->toBe(0)
+        ->and(Payment::query()->count())->toBe(0);
+});
+
+it('authorises the card for goods, carriage and carriage VAT together', function () {
+    $user = cardTradeBuyer();
+    $total = cardFillCart($user);
+
+    // 3 × £1.2345 = £3.70 net + 74p VAT; 1.5 kg mainland parcel £6.50 + £1.30 VAT.
+    expect($total)->toBe(370 + 74 + 650 + 130);
+
+    $intent = cardIntentFor($user, $total);
+
+    expect($this->gateway->intents[$intent]->amountMinor)->toBe($total);
 });
