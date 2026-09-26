@@ -757,6 +757,9 @@ remains draft in 05.7.
       confirm/cancel PO workflow in Filament, with transactional incoming projection;
       `PurchaseOrderService`, resource policies, and feature tests. Confirmation is
       recorded after supplier acceptance outside B2X; no PO delivery is implemented.
+- [x] Outstanding POs (2026-09-26): read-only line-level Filament view for admin and
+      purchasing, scoped to open PO statuses and `base_qty > received_base_qty`;
+      remaining base units and line/PO expected-date fallback, no customer ETA.
 - [ ] `app/Http/Controllers/Api/Admin/SupplierController.php`, `PurchaseOrderController.php`,
       `ContainerController.php` — the `/admin/suppliers`, `/admin/purchase-orders`,
       `/admin/containers`, `/admin/containers/{id}/apportion` (202/job) endpoints (06 §8).
