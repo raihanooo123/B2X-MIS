@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
 use App\Http\Controllers\Api\V1\Warehouse\ShipmentController;
+use App\Http\Controllers\Api\V1\Warehouse\StocktakeController;
 use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
 use App\Http\Controllers\Api\V1\Webhooks\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -50,6 +51,17 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/shipments/{id}/short-picks', [ShipmentController::class, 'shortPick'])->whereUlid('id');
         Route::post('/shipments/{id}/substitutions', [ShipmentController::class, 'substitute'])->whereUlid('id');
         Route::post('/shipments/{id}/dispatch', [ShipmentController::class, 'dispatch'])->whereUlid('id');
+
+        // 05.5 §8, 02 §24: stocktake. StocktakePolicy decides who.
+        Route::post('/stocktakes', [StocktakeController::class, 'store']);
+        Route::get('/stocktakes/{id}', [StocktakeController::class, 'show'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/lines', [StocktakeController::class, 'count'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/serials', [StocktakeController::class, 'scanSerial'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/serials/remove', [StocktakeController::class, 'removeSerial'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/review', [StocktakeController::class, 'review'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/reopen', [StocktakeController::class, 'reopen'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/post', [StocktakeController::class, 'post'])->whereUlid('id');
+        Route::post('/stocktakes/{id}/cancel', [StocktakeController::class, 'cancel'])->whereUlid('id');
     });
 
     // Stripe → us. Signed, not session-authenticated.

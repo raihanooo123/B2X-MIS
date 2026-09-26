@@ -5,8 +5,8 @@ namespace App\Domain\Warehouse\Exceptions;
 use RuntimeException;
 
 /**
- * A picking or dispatch action the warehouse must not take as asked
- * (05.5 §5, §7, §12). Thrown before commit, so a refused action writes
+ * A picking, dispatch or stocktake action the warehouse must not take as
+ * asked (05.5 §5, §7, §8, §12). Thrown before commit, so a refused action writes
  * nothing. Same shape as GoodsInRejectedException: 06 §4's stable
  * `errorCode`, the field at fault, `meta` for the screen, 422 for a
  * business refusal and 409 for a state conflict.

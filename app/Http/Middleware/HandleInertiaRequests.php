@@ -4,8 +4,12 @@ namespace App\Http\Middleware;
 
 use App\Domain\Identity\CompanyMemberships;
 use App\Http\Support\ActingCompany;
+use App\Models\GoodsReceipt;
+use App\Models\Shipment;
+use App\Models\Stocktake;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -70,6 +74,13 @@ class HandleInertiaRequests extends Middleware
             ],
             'company' => $company === null ? null : ['id' => $company->public_id, 'name' => $company->name],
             'can_switch_company' => count(CompanyMemberships::ids($user)) > 1,
+            'staff_navigation' => [
+                'admin' => Gate::allows('accessAdminPanel', User::class),
+                'goods_in' => Gate::allows('viewAny', GoodsReceipt::class),
+                'picking' => Gate::allows('viewAny', Shipment::class),
+                'dispatch' => Gate::allows('viewAny', Shipment::class),
+                'stocktake' => Gate::allows('viewAny', Stocktake::class),
+            ],
         ];
     }
 }

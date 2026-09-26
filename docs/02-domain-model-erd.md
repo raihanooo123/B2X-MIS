@@ -2195,6 +2195,8 @@ With pack structure, location, batch and serial all present from the first migra
 
 **Goods receipts (§23, full DDL here, added 2026-09-25):** `goods_receipts`, `goods_receipt_lines`. They follow `purchase_order_lines` in the migration order, because they reference it.
 
+**Stocktake serials (§24.2, full DDL here, added 2026-09-26):** `stocktake_line_serials`, migrated 2026-09-26.
+
 **Migrated 2026-09-25:** `shipments`, `shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`, `stocktake_lines` (§14.6–14.7); `suppliers`, `containers`, `purchase_orders`, `purchase_order_lines` (05.7 §4–6); `goods_receipts`, `goods_receipt_lines` (§23).
 
 **Phase 2 (keys fixed here, DDL in module specs):** `quotes`, `quote_lines`, `credit_holds`, `account_credit_movements`, `rep_category_discount_limits`, `rmas`, `rma_lines`, `collection_slots`, `collection_bookings`
@@ -2812,7 +2814,7 @@ CREATE INDEX stocktake_lines_pending_idx ON stocktake_lines (stocktake_id)
 
 **Notes**
 
-- `expected_base_qty` is deliberately populated **at posting**, not at count entry — the doc is explicit that "variances are computed against the level at posting time, not at count time" (04 §7.4). Until posting it is `NULL`, and `variance_base_qty` — a **stored generated column** in the same style as `stock_levels.available_base_qty` and `sku_costs.landed_cost_e4` — is therefore also `NULL` until then, which is the correct semantics ("not yet reconciled") rather than a sentinel zero.
+- **Corrected 2026-09-26 (§24.1):** `expected_base_qty` is written at posting, but it holds the level **as it stood at `counted_at`**, reconstructed by replaying movements since then. It is not the level at posting. The original sentence follows, superseded: `expected_base_qty` is deliberately populated **at posting**, not at count entry — the doc is explicit that "variances are computed against the level at posting time, not at count time" (04 §7.4). Until posting it is `NULL`, and `variance_base_qty` — a **stored generated column** in the same style as `stock_levels.available_base_qty` and `sku_costs.landed_cost_e4` — is therefore also `NULL` until then, which is the correct semantics ("not yet reconciled") rather than a sentinel zero.
 - `stocktake_lines_identity_uq` is `UNIQUE NULLS NOT DISTINCT`, matching the hint exactly and the canonical `stock_levels_identity_uq` pattern (§7.3): `batch_id IS NULL` means "not batch-tracked," and without the `NULLS NOT DISTINCT` form two count entries for the same untracked SKU in one session could both be inserted.
 - `posted_movement_id` is a plain `bigint` with **no** `REFERENCES` clause, deliberately mirroring `stock_levels.last_movement_id` (§7.3): `stock_movements` has a composite `(id, occurred_at)` primary key from its partitioning and this document's own established pattern for pointing at it informally, not formally, is followed rather than reinvented.
 - `reason_code` is nullable at the column level because the constraint that matters — "a posted line with nonzero variance must carry a reason" — depends on the *parent* stocktake's status (`posted`) and cannot be expressed as a same-row `CHECK` (Postgres `CHECK` constraints cannot reference other tables). This is enforced by the posting transaction in the application layer, the same class of invariant as "every active SKU has at least one sellable pack" (§5.6) — stated here as a documented limitation, not silently dropped.
@@ -3618,3 +3620,70 @@ Amends 04 §7.1 step 6 and the `goods_in` row of 04 §3's catalogue:
 
    §7.5 invariant 2 ("a batch-tracked SKU may never hold stock against a NULL `batch_id`") is read accordingly: a batch-tracked SKU's NULL-batch row exists to carry `incoming_base_qty`, and its `on_hand_base_qty` and `allocated_base_qty` stay zero.
 2. **Receipts left open.** No reaper or auto-close. An open receipt with no lines is harmless, and the open-receipts list shows its age.
+
+---
+
+## 24. Schema amendment 2026-09-26 — stocktake: variance at count time, serial scans (signed off 2026-09-26)
+
+> **Status: signed off 2026-09-26.** The two decisions below come from the stocktake brief of 2026-09-26. `stocktake_line_serials` (§24.2) was proposed to meet the second of them. Migrated in `2026_10_11_090100_create_stocktake_line_serials_table`. Behaviour is in `05.5-goods-in-picking-dispatch.md` §8 and `04-inventory-ledger.md` §7.4, both corrected to match (§24.1).
+
+### 24.1 Correction to §14.7 — variance is measured at count time, not at posting
+
+**Correction 2026-09-26.** §14.7 said `expected_base_qty` is the level **at posting** (following 04 §7.4 and 05.5 §8's "variances are computed against the level at posting time"). That is wrong for the case the rule exists for. An operative counts 10, 2 are sold, and the count is posted: the level at posting is 8, so the variance is +2, a false variance from ordinary trading, which is exactly what 05.5 §8 says must not happen.
+
+**Variance is counted quantity minus stock as it stood when the line was counted.** No column is added. `stocktake_lines.counted_at` already exists; it is now the basis of the expected figure, and it is reset whenever the line is recounted. At posting, with the `stock_levels` row locked:
+
+```
+expected_at_count = stock_levels.on_hand_base_qty
+                  − Σ stock_movements.base_qty
+                      WHERE (sku_id, location_id, batch_id) = the line's identity
+                        AND occurred_at > stocktake_lines.counted_at
+                        AND movement_type IN (the on-hand types of 04 §2.2)
+```
+
+This replays every on-hand movement since the count, backwards from the locked level. `expected_base_qty` stores that figure, so `variance_base_qty` (the stored generated column) is unchanged and correct.
+
+The posted `stocktake` movement is the variance, applied to the **current** level: `on_hand := on_hand + (counted − expected_at_count)`. In the example, expected is 8 − (−2) = 10, the variance is 0, and nothing is written.
+
+- The replay reads `stock_movements_sku_loc_batch_idx (sku_id, location_id, batch_id, occurred_at)` as a range scan from `counted_at`, pruned to the partitions since then.
+- `occurred_at` is the time of the movement's transaction. A movement whose transaction was in flight while the line was counted is attributed by its timestamp: a timing tie, not a correctness gap, and inside any count's human precision. Both columns are written by the application at second precision, so a movement in the **same second** as the count is treated as before it (`occurred_at > counted_at` is strict).
+- Only counted identities post. A stocktake is a set of counted `(sku, batch)` lines, not an implicit zero for everything uncounted; counting zero is explicit.
+
+### 24.2 `stocktake_line_serials` — serial scans, kept individually
+
+05.5 §8: "serial-tracked SKUs reconcile by scanning; missing serials are listed individually rather than as a quantity variance." §14.7 keeps only a quantity per line, so the serials scanned were lost.
+
+```sql
+CREATE TABLE stocktake_line_serials (
+  id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  stocktake_line_id   bigint      NOT NULL REFERENCES stocktake_lines (id) ON DELETE CASCADE,
+  serial_number       text        NOT NULL,
+  serial_id           bigint      REFERENCES stock_serials (id),
+  scanned_by_user_id  bigint      REFERENCES users (id),
+  scanned_at          timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT stocktake_line_serials_line_number_uq UNIQUE (stocktake_line_id, serial_number)
+);
+
+CREATE INDEX stocktake_line_serials_serial_idx ON stocktake_line_serials (serial_id)
+  WHERE serial_id IS NOT NULL;
+```
+
+- One row per serial scanned into a line. `stocktake_line_serials_line_number_uq` makes a repeated scan a no-op. For a serial-tracked line, `counted_base_qty` is the number of rows, and `counted_at` is the last scan's time.
+- `serial_id` is the matching `stock_serials` row for the line's SKU, or NULL for a serial the system has never seen. The number is kept either way, because that is what the operative read off the unit.
+- Rows can be deleted while the stocktake is `open`, to undo a mis-scan. Once posted, they are the record of what was found.
+- **Reconciliation at posting**, per line:
+  - **Missing** serials are those present at the identity when the line was counted but not scanned. "Present" means `in_stock`, `allocated` or `picked` now, plus any dispatched from the identity since `counted_at`, minus any received since. They are listed by number, and their `stock_serials` rows go to `quarantined` (missing, not written off, as for a short pick).
+  - A missing serial that is `allocated` or `picked` to an order **blocks posting**. A stocktake does not silently break a reservation; the order is short-picked instead.
+  - **Found** serials are scanned but not present at count. They are set `in_stock` at this location and batch, or created when unknown, with `received_movement_id` pointing at the stocktake movement.
+  - The quantity variance and the serial differences are the same fact, so they agree by construction: variance = found − missing.
+
+### 24.3 Reason codes
+
+`stock_movements_reason_chk` requires a `reason_code` on every `stocktake` movement. Every line with a nonzero variance needs one at posting, from this closed list (application-enforced, like 05.5 §4.4's):
+
+`miscount_corrected` · `damaged` · `loss_or_theft` · `unrecorded_receipt` · `unrecorded_dispatch` · `found_stock` · `other`
+
+### 24.4 Lock order at posting
+
+`stocktakes` (FOR UPDATE) → `stock_levels` (02 §11.1 order) → `stock_serials`. Posting moves no credit and reserves nothing, so it extends the global order without a cycle. It serialises against allocation on the level row, as 05.5 §13 W3 requires.

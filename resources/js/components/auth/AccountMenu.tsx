@@ -5,7 +5,7 @@
  * An unconfirmed email is flagged here, since checkout will need it.
  */
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, LogOut, MailWarning, ShieldCheck, ShoppingCart } from 'lucide-react';
+import { Building2, LayoutDashboard, LogOut, MailWarning, ShieldCheck, ShoppingCart } from 'lucide-react';
 
 import type { SharedProps } from '@/types/shared';
 
@@ -46,6 +46,11 @@ export function AccountMenu() {
             <Link href="/cart" className={linkClass}>
                 <ShoppingCart className="size-4" aria-hidden /> Cart
             </Link>
+            {auth.staff_navigation.admin && (
+                <a href="/admin" className={linkClass} title="Staff administration">
+                    <LayoutDashboard className="size-4" aria-hidden /> Admin
+                </a>
+            )}
             {!auth.user.email_verified && (
                 <Link href="/email/verify" className={`${linkClass} text-amber-800`}>
                     <MailWarning className="size-4" aria-hidden /> Confirm email
