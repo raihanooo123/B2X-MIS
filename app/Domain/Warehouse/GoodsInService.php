@@ -70,10 +70,9 @@ use LogicException;
  *
  * **Incoming** (02 §23.5): the NULL-batch row's incoming_base_qty drops
  * by the fall in the PO line's outstanding quantity — never below what
- * 05.7 §5.1's open-PO query would give. PO confirmation does not yet
- * raise incoming (05.7 is not built), so until it does this can take a
- * row's incoming below zero; the nightly incoming reconciliation (04 §9)
- * is what will report it.
+ * 05.7 §5.1's open-PO query would give. PO confirmation raises incoming
+ * for POs created through the purchasing workflow; older imported POs may
+ * need reconciliation if their projection was not initialized (04 §9).
  */
 final class GoodsInService
 {
@@ -213,8 +212,8 @@ final class GoodsInService
             throw new GoodsInRejectedException('sku_not_stock_tracked', "{$sku->sku_code} is not stock-tracked, so it is not received into stock.", 'sku_id');
         }
 
-        // 2. The PO line, exclusively: two operatives on one line serialise here
-        //    and both succeed — receipts are additive (05.5 §12).
+        // 2. The PO, then its line: cancellation and receipt close take the
+        //    same lock order, while two operatives on one line still serialise.
         [$poLine, $po] = $this->lockPurchaseOrderLine($receipt, $line, $sku);
 
         $mode = TrackingMode::from($sku->tracking_mode);
@@ -300,15 +299,20 @@ final class GoodsInService
             throw new GoodsInRejectedException('cost_from_purchase_order', 'Cost comes from the purchase order line; it is not entered at receipt.', 'unit_cost_e4');
         }
 
-        $poLine = PurchaseOrderLine::query()->lockForUpdate()->find($line->purchaseOrderLineId);
-        $po = $poLine === null ? null : PurchaseOrder::query()->find($poLine->purchase_order_id);
+        $poId = PurchaseOrderLine::query()->whereKey($line->purchaseOrderLineId)->value('purchase_order_id');
+        $po = $poId === null ? null : PurchaseOrder::query()->whereKey($poId)->lockForUpdate()->first();
+        $poLine = $po === null ? null : PurchaseOrderLine::query()->lockForUpdate()->find($line->purchaseOrderLineId);
 
         $onThisReceipt = $po !== null && ($receipt->source === ReceiptSource::PurchaseOrder->value
             ? $po->id === $receipt->purchase_order_id
             : $po->container_id !== null && $po->container_id === $receipt->container_id);
 
-        if ($poLine === null || $po === null || ! $onThisReceipt) {
+        if ($poLine === null || ! $onThisReceipt) {
             throw new GoodsInRejectedException('po_line_not_on_receipt', 'That purchase order line is not part of this receipt.', 'purchase_order_line');
+        }
+
+        if (! in_array($po->status, PurchaseOrder::RECEIVABLE_STATUSES, true)) {
+            throw new GoodsInRejectedException('purchase_order_not_receivable', "Purchase order {$po->po_number} is {$po->status} and cannot be received against.", 'purchase_order_line', ['status' => $po->status]);
         }
 
         if ($poLine->sku_id !== $sku->id) {

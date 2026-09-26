@@ -630,8 +630,8 @@ Blocked on §4's `BatchSelector`/`SerialSelector`. **Migrated 2026-09-25:** `shi
       `resources/js/lib/goodsIn/entry.test.ts`.
 - [ ] `StockReceived` listeners — back-in-stock, search reindex, backorder auto-allocation
       (05.5 §4.6). The event is dispatched after commit; nothing listens yet.
-- [ ] PO confirmation raising `incoming_base_qty` on the NULL-batch row (05.7 §5.1, 02
-      §23.5). Until it exists, receiving against a PO takes incoming below zero.
+- [x] GBP PO confirmation raises `incoming_base_qty` on the NULL-batch row (05.7 §5.1,
+      02 §23.5); receiving and cancellation reduce only the outstanding projection.
 - [x] `app/Domain/Warehouse/PickListGenerator.php` — done 2026-09-25: per shipment, walk
       order, batch/expiry/serials per line (05.5 §5.1–5.2).
 - [x] `app/Domain/Warehouse/PickConfirmationService.php` — done 2026-09-25: serial scans
@@ -721,8 +721,8 @@ the domain logic and everything downstream:
 
 ## 11. `05.7` — Purchasing, Containers & Landed Cost
 
-Phase 3. No schema exists yet; all DDL is fully specified in 05.7 itself (no doc-gap issue
-here — safe to migrate directly).
+Phase 3. Supplier, container, PO and PO-line schema exists; later landed-cost DDL
+remains draft in 05.7.
 
 - [x] Done 2026-09-25 as `2026_10_09_090100_create_suppliers_table.php` — 05.7 §4.
 - [x] Done 2026-09-25 as `2026_10_09_090200_create_containers_table.php` — 05.7 §6.
@@ -751,17 +751,22 @@ here — safe to migrate directly).
       calculation from `stock_levels_reorder_idx` and dispatched-order-line sales history.
 - [ ] `app/Domain/Purchasing/SupplierPerformanceReport.php` — 05.7 §11's on-time/
       short-shipment/quality-rate aggregation.
-- [ ] Extend `app/Domain/Warehouse/GoodsInService.php` (§9) to write `container_id`/
-      `purchase_order_id` references and update `purchase_order_lines.received_base_qty` —
-      this is an edit to an existing file once §9 exists, not a new one.
+- [x] `app/Domain/Warehouse/GoodsInService.php` receives against PO lines, records
+      references, and updates `purchase_order_lines.received_base_qty`.
+- [x] First purchasing slice (2026-09-26): GBP supplier administration and draft/edit/
+      confirm/cancel PO workflow in Filament, with transactional incoming projection;
+      `PurchaseOrderService`, resource policies, and feature tests. Confirmation is
+      recorded after supplier acceptance outside B2X; no PO delivery is implemented.
 - [ ] `app/Http/Controllers/Api/Admin/SupplierController.php`, `PurchaseOrderController.php`,
       `ContainerController.php` — the `/admin/suppliers`, `/admin/purchase-orders`,
       `/admin/containers`, `/admin/containers/{id}/apportion` (202/job) endpoints (06 §8).
 - [ ] `app/Jobs/ApportionContainerCostsJob.php` — the queued job behind
       `/admin/containers/{id}/apportion`.
-- [ ] `app/Policies/PurchaseOrderPolicy.php`, `ContainerPolicy.php`
-- [ ] `app/Filament/Resources/SupplierResource.php`, `PurchaseOrderResource.php`,
-      `ContainerResource.php` — including the container-costs apportionment trigger UI.
+- [x] `app/Policies/PurchaseOrderPolicy.php` and `SupplierPolicy.php` for admin and
+      purchasing; no delete ability.
+- [ ] `app/Policies/ContainerPolicy.php`.
+- [x] `app/Filament/Resources/SupplierResource.php` and `PurchaseOrderResource.php`.
+- [ ] `app/Filament/Resources/ContainerResource.php` and container-cost apportionment UI.
 - [ ] `app/Filament/Widgets/ReorderSuggestionsWidget.php` — purchasing dashboard.
 - [ ] `tests/Feature/Domain/LandedCostApportionerTest.php` — L1–L8 fixtures from 05.7 §14
       verbatim, especially L1 reproducing the §8.3 table exactly including the residual.
