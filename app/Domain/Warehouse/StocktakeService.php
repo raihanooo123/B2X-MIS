@@ -480,6 +480,20 @@ final class StocktakeService
 
     private function applyVariance(int $skuId, int $locationId, ?int $batchId, int $variance, int $movementId, CarbonImmutable $now): void
     {
+        // Postgres checks CHECK constraints on the proposed INSERT row before
+        // ON CONFLICT arbitration, so an upsert carrying a negative variance
+        // fails stock_levels_on_hand_chk even when the row exists. Update the
+        // (already locked) row first; insert only when there is none.
+        $updated = StockLevel::identity($skuId, $locationId, $batchId)->toBase()->update([
+            'on_hand_base_qty' => DB::raw('on_hand_base_qty + '.$variance),
+            'version' => DB::raw('version + 1'),
+            'last_movement_id' => $movementId,
+            'updated_at' => $now,
+        ]);
+        if ($updated > 0) {
+            return;
+        }
+
         DB::statement(<<<'SQL'
             INSERT INTO stock_levels (sku_id, location_id, batch_id, on_hand_base_qty, last_movement_id, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)

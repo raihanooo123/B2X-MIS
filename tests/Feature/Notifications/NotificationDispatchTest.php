@@ -180,7 +180,9 @@ it('re-arms the credit warning after usage falls back below 80%', function () {
 
 it('sends no payment.received for a card order (05.12 §5.1.1)', function () {
     Queue::fake();
-    $invoice = Invoice::factory()->create();
+    // A recipient must exist, or the bacs send below logs nothing either way.
+    $company = Company::factory()->create(['accounts_email' => 'ap@customer.example']);
+    $invoice = Invoice::factory()->create(['company_id' => $company->id]);
 
     (new Notifications)->paymentApplied($invoice->id, 1, 500, 'card');
     expect(NotificationLog::query()->count())->toBe(0);
