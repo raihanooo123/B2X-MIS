@@ -599,19 +599,19 @@ function ReviewPanel({ data, reasons, canCount }: { data: StocktakeData; reasons
     const [errors, setErrors] = useState<ApiErrorDetail[]>([]);
     const [error, setError] = useState<string | null>(null);
 
-    const variances = data.lines.filter((l) => (l.review?.variance_base_qty ?? 0) !== 0);
+    const discrepancies = data.lines.filter((l) => (l.review?.variance_base_qty ?? 0) !== 0 || (l.review?.missing_serials.length ?? 0) > 0 || (l.review?.found_serials.length ?? 0) > 0);
     const blocked = data.lines.some((l) => (l.review?.blockers.length ?? 0) > 0);
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
-        const missing = variances.filter((l) => !chosen[l.line_id]);
+        const missing = discrepancies.filter((l) => !chosen[l.line_id]);
         if (missing.length > 0) {
             setError(`Choose a reason for ${missing.map((l) => l.sku_code).join(', ')}.`);
             return;
         }
         setError(null);
         post.mutate(
-            { reasons: variances.map((l) => ({ sku_id: l.sku_id ?? '', batch_code: l.batch_code, reason: chosen[l.line_id] })) },
+            { reasons: discrepancies.map((l) => ({ sku_id: l.sku_id ?? '', batch_code: l.batch_code, reason: chosen[l.line_id] })) },
             {
                 onError: (err) => {
                     setErrors(err instanceof ApiError ? err.details : []);
@@ -665,7 +665,7 @@ function ReviewPanel({ data, reasons, canCount }: { data: StocktakeData; reasons
                                     {b}
                                 </p>
                             ))}
-                            {variance !== 0 && canCount && (
+                            {(variance !== 0 || (r?.missing_serials.length ?? 0) > 0 || (r?.found_serials.length ?? 0) > 0) && canCount && (
                                 <div className="mt-2">
                                     <label htmlFor={`reason-${l.line_id}`} className="block text-base font-medium">
                                         Reason
@@ -698,7 +698,7 @@ function ReviewPanel({ data, reasons, canCount }: { data: StocktakeData; reasons
             {canCount && (
                 <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
                     <Button type="submit" className={cn(TARGET, 'px-8 text-lg')} disabled={post.isPending || blocked}>
-                        {post.isPending ? 'Posting…' : `Post ${variances.length} ${variances.length === 1 ? 'variance' : 'variances'}`}
+                        {post.isPending ? 'Posting…' : 'Post stocktake'}
                     </Button>
                     {blocked && <p className="text-base text-red-800">Resolve the blocked lines first.</p>}
                 </div>

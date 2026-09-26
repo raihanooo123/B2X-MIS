@@ -31,4 +31,9 @@ final class StocktakeLineReview
     {
         return $this->line->counted_base_qty - $this->expectedAtCount;
     }
+
+    public function needsReason(): bool
+    {
+        return $this->variance() !== 0 || $this->missingSerials !== [] || $this->foundSerials !== [];
+    }
 }

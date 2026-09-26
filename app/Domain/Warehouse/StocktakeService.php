@@ -33,7 +33,8 @@ use Illuminate\Support\Facades\DB;
  * replaces it, and resets `counted_at`: the line is a statement about
  * that moment. Serial-tracked SKUs are counted by scanning: each scan is a
  * `stocktake_line_serials` row, the line's quantity is the number of
- * rows, and `counted_at` is the last scan.
+ * rows, and `counted_at` is the last scan. Movement during the scan
+ * window blocks posting until the line is recounted.
  *
  * **Variance is against stock as it stood when the line was counted**
  * (02 §24.1, correcting §14.7): the locked level now, minus every on-hand
@@ -50,9 +51,10 @@ use Illuminate\Support\Facades\DB;
  *
  * **Posting** is one transaction, retried whole on deadlock (04 §4.5):
  * `stocktakes` FOR UPDATE → `stock_levels` in 02 §11.1's order →
- * `stock_serials` (§24.4). Every line with a nonzero variance must carry
- * a reason (§24.3); all missing reasons are reported at once. Posting a
- * posted stocktake is answered with it, and writes nothing.
+ * `stock_serials` (§24.4). Every quantity or serial discrepancy carries
+ * a reason (§24.3), including a zero-quantity serial swap; all missing
+ * reasons are reported at once. Posting a posted stocktake is answered
+ * with it, and writes nothing.
  *
  * **Blind counting** (05.5 §8) is a flag on the session: the API does not
  * show system figures while counting, so the operative counts rather than
@@ -141,19 +143,20 @@ final class StocktakeService
             $this->assertIdentity($sku, $batch);
 
             $line = $this->line($stocktake, $sku, $batch) ?? $this->saveLine($stocktake, $sku, $batch, null, 0, $actorUserId);
+            $scannedAt = CarbonImmutable::now();
 
             $inserted = DB::selectOne(<<<'SQL'
                 INSERT INTO stocktake_line_serials (stocktake_line_id, serial_number, serial_id, scanned_by_user_id, scanned_at)
-                VALUES (?, ?, ?, ?, now())
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT ON CONSTRAINT stocktake_line_serials_line_number_uq DO NOTHING
                 RETURNING id
-            SQL, [$line->id, $serialNumber, StockSerial::query()->where('sku_id', $sku->id)->where('serial_number', $serialNumber)->value('id'), $actorUserId]);
+            SQL, [$line->id, $serialNumber, StockSerial::query()->where('sku_id', $sku->id)->where('serial_number', $serialNumber)->value('id'), $actorUserId, $scannedAt]);
 
             if (! is_object($inserted)) {
                 return ['line' => $line, 'replayed' => true];
             }
 
-            return ['line' => $this->saveLine($stocktake, $sku, $batch, $line, $line->serials()->count(), $actorUserId), 'replayed' => false];
+            return ['line' => $this->saveLine($stocktake, $sku, $batch, $line, $line->serials()->count(), $actorUserId, $scannedAt), 'replayed' => false];
         });
     }
 
@@ -171,7 +174,9 @@ final class StocktakeService
 
             $line->serials()->where('serial_number', trim($serialNumber))->delete();
 
-            return $this->saveLine($stocktake, $sku, $batch, $line, $line->serials()->count(), $actorUserId);
+            $lastScan = $line->serials()->max('scanned_at');
+
+            return $this->saveLine($stocktake, $sku, $batch, $line, $line->serials()->count(), $actorUserId, $lastScan === null ? null : CarbonImmutable::parse($lastScan));
         });
     }
 
@@ -267,8 +272,8 @@ final class StocktakeService
             foreach ($review->blockers as $blocker) {
                 $problems[] = ['field' => $field, 'code' => 'line_blocked', 'message' => $blocker];
             }
-            if ($review->variance() !== 0 && ! isset($reasonsByLineId[$review->line->id])) {
-                $problems[] = ['field' => $field, 'code' => 'variance_reason_required', 'message' => $this->describe($review).': variance '.sprintf('%+d', $review->variance()).'. Give a reason.', 'meta' => ['variance_base_qty' => $review->variance()]];
+            if ($review->needsReason() && ! isset($reasonsByLineId[$review->line->id])) {
+                $problems[] = ['field' => $field, 'code' => 'variance_reason_required', 'message' => $this->describe($review).': variance '.sprintf('%+d', $review->variance()).' or serial discrepancy. Give a reason.', 'meta' => ['variance_base_qty' => $review->variance()]];
             }
         }
         if ($problems !== []) {
@@ -282,7 +287,7 @@ final class StocktakeService
             $reason = $reasonsByLineId[$line->id] ?? null;
             $movementId = null;
 
-            if ($variance !== 0 && $reason !== null) {
+            if ($review->needsReason() && $reason !== null) {
                 $movement = StockMovement::create([
                     'occurred_at' => $now,
                     'sku_id' => $line->sku_id,
@@ -293,7 +298,7 @@ final class StocktakeService
                     'reference_type' => 'stocktake_line',
                     'reference_id' => $line->id,
                     'reason_code' => $reason->value,
-                    'note' => "Stocktake {$stocktake->public_id}: counted {$line->counted_base_qty}, expected {$review->expectedAtCount} at count.",
+                    'note' => "Stocktake {$stocktake->public_id}: counted {$line->counted_base_qty}, expected {$review->expectedAtCount} at count; missing [".implode(', ', $review->missingSerials).']; found ['.implode(', ', $review->foundSerials).'].',
                     'actor_user_id' => $actorUserId,
                 ]);
                 $movementId = $movement->id;
@@ -306,7 +311,7 @@ final class StocktakeService
 
             $line->forceFill([
                 'expected_base_qty' => $review->expectedAtCount,
-                'reason_code' => $variance !== 0 ? $reason?->value : null,
+                'reason_code' => $review->needsReason() ? $reason?->value : null,
                 'posted_movement_id' => $movementId,
             ])->save();
         }
@@ -318,7 +323,9 @@ final class StocktakeService
 
     private function reviewLine(Stocktake $stocktake, StocktakeLine $line): StocktakeLineReview
     {
-        $onHandNow = (int) (StockLevel::identity($line->sku_id, $stocktake->location_id, $line->batch_id)->value('on_hand_base_qty') ?? 0);
+        $level = StockLevel::identity($line->sku_id, $stocktake->location_id, $line->batch_id)->first(['on_hand_base_qty', 'allocated_base_qty']);
+        $onHandNow = $level === null ? 0 : $level->on_hand_base_qty;
+        $allocatedNow = $level === null ? 0 : $level->allocated_base_qty;
         $since = (int) StockMovement::query()
             ->where('sku_id', $line->sku_id)
             ->where('location_id', $stocktake->location_id)
@@ -328,16 +335,22 @@ final class StocktakeService
             ->sum('base_qty');
         $expected = $onHandNow - $since;
 
+        $onHandAfter = $line->counted_base_qty - $expected + $onHandNow;
+        $blockers = [];
+        if ($onHandAfter < 0) {
+            $blockers[] = 'Posting would take stock below zero: more has left since the count than was counted.';
+        }
+        if ($onHandAfter < $allocatedNow) {
+            $blockers[] = 'Posting would leave less stock than is reserved to orders. Resolve the allocations first.';
+        }
+
         $sku = Sku::query()->findOrFail($line->sku_id);
         if (! TrackingMode::from($sku->tracking_mode)->tracksSerial()) {
-            $blockers = $line->counted_base_qty - $expected + $onHandNow < 0
-                ? ['Posting would take stock below zero: more has left since the count than was counted.']
-                : [];
-
             return new StocktakeLineReview($line, $onHandNow, $expected, [], [], $blockers);
         }
 
-        [$missing, $found, $blockers] = $this->serialDifferences($stocktake, $line, $sku);
+        [$missing, $found, $serialBlockers] = $this->serialDifferences($stocktake, $line, $sku);
+        $blockers = array_merge($blockers, $serialBlockers);
         if (count($found) - count($missing) !== $line->counted_base_qty - $expected) {
             $blockers[] = 'Serial records and the stock level disagree for this item (04 §6.3). Report it; a count cannot absorb it.';
         }
@@ -353,6 +366,23 @@ final class StocktakeService
      */
     private function serialDifferences(Stocktake $stocktake, StocktakeLine $line, Sku $sku): array
     {
+        $blockers = [];
+        $scans = $line->serials()->orderBy('scanned_at')->get(['scanned_at']);
+        $firstScan = $scans->first()?->scanned_at;
+        $lastScan = $scans->last()?->scanned_at;
+        if ($firstScan !== null && $lastScan !== null && $firstScan->lessThan($lastScan)) {
+            $tradedDuringScan = StockMovement::query()
+                ->where('sku_id', $sku->id)
+                ->where('location_id', $stocktake->location_id)
+                ->when($line->batch_id === null, fn ($q) => $q->whereNull('batch_id'), fn ($q) => $q->where('batch_id', $line->batch_id))
+                ->whereBetween('occurred_at', [$firstScan, $lastScan])
+                ->whereIn('movement_type', self::ON_HAND_TYPES)
+                ->exists();
+            if ($tradedDuringScan) {
+                $blockers[] = 'Stock moved while these serials were scanned. Remove the scans and count this line again.';
+            }
+        }
+
         $identity = fn () => StockSerial::query()
             ->where('sku_id', $sku->id)
             ->where('location_id', $stocktake->location_id)
@@ -373,15 +403,27 @@ final class StocktakeService
         sort($missing);
         sort($found);
 
-        $blockers = [];
         $reserved = $presentNow->whereIn('serial_number', $missing)->whereIn('status', ['allocated', 'picked'])->pluck('serial_number')->all();
         if ($reserved !== []) {
             $blockers[] = 'Missing serials reserved to an order: '.implode(', ', $reserved).'. Short-pick the order first.';
         }
 
-        $foundReservedElsewhere = StockSerial::query()->where('sku_id', $sku->id)->whereIn('serial_number', $found)->whereIn('status', ['allocated', 'picked'])->pluck('serial_number')->all();
-        if ($foundReservedElsewhere !== []) {
-            $blockers[] = 'Found serials reserved to an order elsewhere: '.implode(', ', $foundReservedElsewhere).'. Resolve the reservation first.';
+        $missingUnavailable = StockSerial::query()->where('sku_id', $sku->id)->whereIn('serial_number', $missing)->get(['serial_number', 'location_id', 'batch_id', 'status'])
+            ->filter(fn (StockSerial $serial) => $serial->location_id !== $stocktake->location_id
+                || $serial->batch_id !== $line->batch_id
+                || $serial->status === 'dispatched')
+            ->pluck('serial_number')->all();
+        if ($missingUnavailable !== []) {
+            $blockers[] = 'Missing serials have since left this location or were dispatched: '.implode(', ', $missingUnavailable).'. Reconcile the movement before posting.';
+        }
+
+        $foundElsewhere = StockSerial::query()->where('sku_id', $sku->id)->whereIn('serial_number', $found)->get(['serial_number', 'location_id', 'batch_id', 'status'])
+            ->filter(fn (StockSerial $serial) => $serial->location_id !== $stocktake->location_id
+                || $serial->batch_id !== $line->batch_id
+                || in_array($serial->status, ['expected', 'quarantined'], true) === false)
+            ->pluck('serial_number')->all();
+        if ($foundElsewhere !== []) {
+            $blockers[] = 'Found serials already recorded elsewhere or in another state: '.implode(', ', $foundElsewhere).'. Resolve their existing records first.';
         }
 
         return [array_map('strval', $missing), array_map('strval', $found), $blockers];
@@ -394,6 +436,8 @@ final class StocktakeService
         if ($review->missingSerials !== []) {
             StockSerial::query()
                 ->where('sku_id', $line->sku_id)
+                ->where('location_id', $stocktake->location_id)
+                ->when($line->batch_id === null, fn ($q) => $q->whereNull('batch_id'), fn ($q) => $q->where('batch_id', $line->batch_id))
                 ->whereIn('serial_number', $review->missingSerials)
                 ->where('status', 'in_stock')
                 ->update(['status' => 'quarantined', 'updated_at' => $now]);
@@ -410,8 +454,17 @@ final class StocktakeService
                 'updated_at' => $now,
             ];
 
-            $updated = StockSerial::query()->where('sku_id', $line->sku_id)->where('serial_number', $serialNumber)->update($found);
+            $updated = StockSerial::query()
+                ->where('sku_id', $line->sku_id)
+                ->where('serial_number', $serialNumber)
+                ->where('location_id', $stocktake->location_id)
+                ->when($line->batch_id === null, fn ($q) => $q->whereNull('batch_id'), fn ($q) => $q->where('batch_id', $line->batch_id))
+                ->whereIn('status', ['expected', 'quarantined'])
+                ->update($found);
             if ($updated === 0) {
+                if (StockSerial::query()->where('sku_id', $line->sku_id)->where('serial_number', $serialNumber)->exists()) {
+                    throw new FulfilmentRejectedException('serial_conflict', "Serial {$serialNumber} changed while this stocktake was posting. Review again.", 'serials', [], 409);
+                }
                 try {
                     $serial = StockSerial::create(['sku_id' => $line->sku_id, 'serial_number' => $serialNumber] + $found);
                 } catch (QueryException $e) {
@@ -471,9 +524,9 @@ final class StocktakeService
             ->first();
     }
 
-    private function saveLine(Stocktake $stocktake, Sku $sku, ?Batch $batch, ?StocktakeLine $line, int $counted, ?int $actorUserId): StocktakeLine
+    private function saveLine(Stocktake $stocktake, Sku $sku, ?Batch $batch, ?StocktakeLine $line, int $counted, ?int $actorUserId, ?CarbonImmutable $countedAt = null): StocktakeLine
     {
-        $attributes = ['counted_base_qty' => $counted, 'counted_by_user_id' => $actorUserId, 'counted_at' => now()];
+        $attributes = ['counted_base_qty' => $counted, 'counted_by_user_id' => $actorUserId, 'counted_at' => $countedAt ?? now()];
 
         if ($line !== null) {
             $line->forceFill($attributes)->save();

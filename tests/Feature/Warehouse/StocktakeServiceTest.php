@@ -218,6 +218,21 @@ it('refuses to post a variance without a reason, naming the line, and writes not
         ->and(stocktakeOnHand($sku))->toBe(10);
 });
 
+it('refuses a count that would reduce on-hand stock below existing allocations', function () {
+    $sku = stocktakeSku(10);
+    $stocktake = $this->service->start($this->location->id, false, null);
+    $line = $this->service->count($stocktake, $sku, null, 5, null);
+    StockLevel::identity($sku->id, $this->location->id, null)->update(['allocated_base_qty' => 8]);
+
+    $review = $this->service->review($stocktake)[0];
+    expect($review->blockers)->not->toBe([]);
+
+    $e = stocktakeRejection(fn () => $this->service->post($stocktake, [$line->id => StocktakeReason::LossOrTheft], null));
+    expect($e->errorCode)->toBe('stocktake_not_postable')
+        ->and(stocktakeOnHand($sku))->toBe(10)
+        ->and(StockMovement::query()->count())->toBe(0);
+});
+
 it('posts counted stock of a batch with no level row yet', function () {
     $sku = Sku::factory()->create(['tracking_mode' => 'batch']);
     $batch = Batch::factory()->for($sku)->create();
@@ -295,11 +310,67 @@ it('lists missing and found serials by number, and reconciles them at posting', 
         ->and($review->variance())->toBe(0)
         ->and($review->blockers)->toBe([]);
 
-    $this->service->post($stocktake, [], null);
+    $line = StocktakeLine::query()->sole();
+    expect(stocktakeRejection(fn () => $this->service->post($stocktake, [], null))->errorCode)->toBe('stocktake_not_postable');
+    $this->service->post($stocktake, [$line->id => StocktakeReason::MiscountCorrected], null);
 
     expect(StockSerial::query()->where('serial_number', 'S3')->value('status'))->toBe('quarantined')
         ->and(StockSerial::query()->where('serial_number', 'NEW-9')->sole()->status)->toBe('in_stock')
-        ->and(StocktakeLineSerial::query()->where('serial_number', 'NEW-9')->value('serial_id'))->not->toBeNull();
+        ->and(StocktakeLineSerial::query()->where('serial_number', 'NEW-9')->value('serial_id'))->not->toBeNull()
+        ->and(StockMovement::query()->where('movement_type', 'stocktake')->sole()->base_qty)->toBe(0)
+        ->and(StockSerial::query()->where('serial_number', 'NEW-9')->value('received_movement_id'))
+        ->toBe(StockMovement::query()->where('movement_type', 'stocktake')->sole()->id);
+});
+
+it('blocks a scanned serial already recorded at another location', function () {
+    $sku = stocktakeSku(0, ['tracking_mode' => 'serial']);
+    $other = Location::factory()->create();
+    StockLevel::factory()->for($sku)->for($other)->create(['on_hand_base_qty' => 1, 'allocated_base_qty' => 0]);
+    $serial = StockSerial::factory()->create(['sku_id' => $sku->id, 'serial_number' => 'ELSEWHERE', 'status' => 'in_stock', 'location_id' => $other->id]);
+    $stocktake = $this->service->start($this->location->id, false, null);
+    $this->service->scanSerial($stocktake, $sku, null, 'ELSEWHERE', null);
+    $line = StocktakeLine::query()->sole();
+
+    expect($this->service->review($stocktake)[0]->blockers)->not->toBe([]);
+    stocktakeRejection(fn () => $this->service->post($stocktake, [$line->id => StocktakeReason::FoundStock], null));
+    expect($serial->fresh()->location_id)->toBe($other->id)
+        ->and(StockLevel::identity($sku->id, $other->id, null)->value('on_hand_base_qty'))->toBe(1)
+        ->and(stocktakeOnHand($sku))->toBe(0);
+});
+
+it('blocks posting when stock moved between scans of a serial line', function () {
+    $sku = stocktakeSerialSku();
+    $stocktake = $this->service->start($this->location->id, false, null);
+    $this->service->scanSerial($stocktake, $sku, null, 'S1', null);
+    stocktakeLater(1);
+    stocktakeTrade($sku, -1);
+    $orderLine = OrderLine::factory()->create(['sku_id' => $sku->id]);
+    StockSerial::query()->where('serial_number', 'S1')->update(['status' => 'dispatched', 'order_line_id' => $orderLine->id, 'dispatched_at' => now()]);
+    stocktakeLater(1);
+    $this->service->scanSerial($stocktake, $sku, null, 'S2', null);
+    $line = StocktakeLine::query()->sole();
+
+    expect($this->service->review($stocktake)[0]->blockers)->toContain('Stock moved while these serials were scanned. Remove the scans and count this line again.');
+    stocktakeRejection(fn () => $this->service->post($stocktake, [$line->id => StocktakeReason::FoundStock], null));
+    expect(StockSerial::query()->where('serial_number', 'S1')->value('status'))->toBe('dispatched')
+        ->and(stocktakeOnHand($sku))->toBe(2);
+});
+
+it('blocks a missing serial that was dispatched after the count', function () {
+    $sku = stocktakeSerialSku();
+    $stocktake = $this->service->start($this->location->id, false, null);
+    $this->service->scanSerial($stocktake, $sku, null, 'S1', null);
+    $this->service->scanSerial($stocktake, $sku, null, 'S2', null);
+    stocktakeLater(1);
+    stocktakeTrade($sku, -1);
+    $orderLine = OrderLine::factory()->create(['sku_id' => $sku->id]);
+    StockSerial::query()->where('serial_number', 'S3')->update(['status' => 'dispatched', 'order_line_id' => $orderLine->id, 'dispatched_at' => now()]);
+    $line = StocktakeLine::query()->sole();
+
+    expect($this->service->review($stocktake)[0]->blockers)->toContain('Missing serials have since left this location or were dispatched: S3. Reconcile the movement before posting.');
+    stocktakeRejection(fn () => $this->service->post($stocktake, [$line->id => StocktakeReason::LossOrTheft], null));
+    expect(StockSerial::query()->where('serial_number', 'S3')->value('status'))->toBe('dispatched')
+        ->and(stocktakeOnHand($sku))->toBe(2);
 });
 
 it('blocks posting while a missing serial is reserved to an order', function () {
