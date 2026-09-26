@@ -82,7 +82,7 @@ use RuntimeException;
  *      DB::afterCommit() only (CLAUDE.md invariant 6 / 04 §4.4).
  *
  * Deliberately NOT built here (see the class's own exceptions and the
- * session report for the full list): batch/serial-tracked SKU checkout,
+ * session report for the full list): serial-tracked SKU checkout,
  * the awaiting_approval fallback for an on-account order that exceeds
  * credit (05.2 §8.1 row 3 — this throws InsufficientCreditException and
  * commits nothing instead), delivery-rate/collection-slot resolution,
@@ -177,7 +177,7 @@ final class CheckoutService
             throw new PriceChangedException($card->amountMinor, $pricing->totalGrossMinor);
         }
 
-        $defaultLocation = Location::query()->where('is_default', true)->firstOrFail();
+        $defaultLocation = Location::query()->where('is_default', true)->where('is_sellable', true)->firstOrFail();
 
         try {
             return $this->place($request, $strategy, $cart, $pricing, $defaultLocation, $delivery);
@@ -276,9 +276,9 @@ final class CheckoutService
     /**
      * Inserts one order_line per cart line, snapshotting price, cost and
      * pack data immutably (CLAUDE.md invariants 2 and 4), and returns the
-     * AllocationLine list for every stock-tracked, untracked-mode line —
-     * see the class docblock for why batch-tracked lines are rejected
-     * rather than silently skipped.
+     * AllocationLine list for every stock-tracked line. Batch-only lines
+     * request selection inside AllocationService's transaction; serial
+     * lines, and batch lines with no allocation strategy, are refused.
      *
      * @return list<AllocationLine>
      */
@@ -327,11 +327,19 @@ final class CheckoutService
                 continue;
             }
 
-            if ($sku->tracking_mode !== 'none') {
+            if ($sku->tracking_mode !== 'none'
+                && ($sku->tracking_mode !== 'batch' || ! in_array($sku->allocation_strategy, ['fefo', 'fifo', 'lifo'], true))) {
                 throw new BatchTrackedCheckoutNotSupportedException($sku->id);
             }
 
-            $allocationLines[] = new AllocationLine($orderLine->id, $sku->id, $defaultLocation->id, null, $cartLine->base_qty);
+            $allocationLines[] = new AllocationLine(
+                $orderLine->id,
+                $sku->id,
+                $defaultLocation->id,
+                null,
+                $cartLine->base_qty,
+                selectBatch: $sku->tracking_mode === 'batch',
+            );
         }
 
         return $allocationLines;

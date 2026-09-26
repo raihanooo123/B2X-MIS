@@ -11,6 +11,7 @@ use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
 use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
+use App\Domain\Inventory\Exceptions\NoEligibleBatchException;
 use App\Domain\Ordering\CartService;
 use App\Domain\Ordering\CheckoutPreviewService;
 use App\Domain\Ordering\CheckoutRequest;
@@ -179,6 +180,15 @@ class CheckoutController extends Controller
                 'message' => "Only {$s->availableBaseQty} units of ".($codes[$s->skuId] ?? 'an item').' are available.',
                 'meta' => ['sku_code' => $codes[$s->skuId] ?? null, 'requested_base_qty' => $s->requestedBaseQty, 'available_base_qty' => $s->availableBaseQty],
             ], $e->shortfalls));
+        } catch (NoEligibleBatchException $e) {
+            $code = Sku::query()->whereKey($e->skuId)->value('sku_code');
+
+            throw new ApiException(409, 'no_eligible_batch', 'Stock exists, but no eligible batch is currently available. Nothing has been placed.', [[
+                'field' => null,
+                'code' => 'no_eligible_batch',
+                'message' => 'No eligible batch is available for '.($code ?? 'this item').'.',
+                'meta' => ['sku_code' => $code],
+            ]]);
         } catch (QueryException $e) {
             // Two orders racing for one authorisation: the second loses on
             // payments_gateway_reference_uq and rolls back (02 §14.5.1).

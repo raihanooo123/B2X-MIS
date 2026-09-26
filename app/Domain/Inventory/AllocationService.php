@@ -4,11 +4,15 @@ namespace App\Domain\Inventory;
 
 use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
+use App\Domain\Inventory\Exceptions\NoEligibleBatchException;
 use App\Models\Company;
+use App\Models\Location;
 use App\Models\OrderLine;
+use App\Models\Sku;
 use App\Models\StockAllocation;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -111,15 +115,147 @@ final class AllocationService
             $this->lockCompanyCredit($companyId, $requiredCreditMinor);
         }
 
+        if (collect($lines)->contains(fn (AllocationLine $line): bool => $line->selectBatch)) {
+            $lines = $this->selectBatches($lines);
+        }
+
         $identities = $this->uniqueSortedIdentities($lines);
         $lockedLevels = $this->lockStockLevelsInOrder($identities);
-
         $shortfalls = $this->findShortfalls($identities, $lockedLevels);
         if ($shortfalls !== []) {
             throw new InsufficientStockException($shortfalls);
         }
 
         return $this->writeAllocations($lines, $attribution);
+    }
+
+    /**
+     * Doc 04 §5: resolves every selectBatch line into concrete per-batch
+     * lines, greedily in strategy order (§5.3). Batch rows are claimed one
+     * at a time with FOR UPDATE SKIP LOCKED, and only as many as the line
+     * needs, so concurrent orders take the next unlocked batch rather than
+     * queueing (§5.2). SKIP LOCKED never waits, so these batch locks add no
+     * edge to the global lock order. Quantities read here are an unlocked
+     * estimate: the caller then locks the chosen stock_levels rows with a
+     * plain FOR UPDATE in global order and findShortfalls() re-verifies —
+     * that level lock, not this pass, is what makes quantity correct.
+     *
+     * @param  list<AllocationLine>  $lines
+     * @return list<AllocationLine>
+     *
+     * @throws InsufficientStockException
+     * @throws NoEligibleBatchException
+     */
+    private function selectBatches(array $lines): array
+    {
+        $automatic = array_values(array_filter($lines, fn (AllocationLine $line): bool => $line->selectBatch));
+        $skuIds = array_values(array_unique(array_map(fn (AllocationLine $line): int => $line->skuId, $automatic)));
+        $locationIds = array_values(array_unique(array_map(fn (AllocationLine $line): int => $line->locationId, $automatic)));
+        $skus = Sku::query()->whereIn('id', $skuIds)->get()->keyBy('id');
+        $sellableLocations = Location::query()->whereIn('id', $locationIds)->where('is_sellable', true)
+            ->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $today = CarbonImmutable::today();
+
+        foreach ($automatic as $line) {
+            $sku = $skus->get($line->skuId);
+            if ($line->batchId !== null || $line->baseQty < 1 || ! in_array($line->locationId, $sellableLocations, true)
+                || $sku === null || $sku->tracking_mode !== 'batch'
+                || ! in_array($sku->allocation_strategy, ['fefo', 'fifo', 'lifo'], true)) {
+                throw new InvalidArgumentException('Automatic batch selection requires a batch-only SKU at a sellable location.');
+            }
+        }
+
+        // Explicit lines may target a batch this pass would also choose.
+        $remaining = [];
+        foreach ($lines as $line) {
+            if (! $line->selectBatch) {
+                $key = $line->identityKey();
+                $remaining[$key] = ($remaining[$key] ?? 0) - $line->baseQty;
+            }
+        }
+
+        /** @var array<string, list<int>> $claimed batch ids per sku:location, in strategy order */
+        $claimed = [];
+        $exhausted = [];
+        $selected = [];
+
+        foreach ($lines as $line) {
+            if (! $line->selectBatch) {
+                $selected[] = $line;
+
+                continue;
+            }
+
+            $sku = $skus->get($line->skuId) ?? throw new InvalidArgumentException('Batch SKU disappeared during allocation.');
+            $pool = $line->skuId.':'.$line->locationId;
+            $claimed[$pool] ??= [];
+            $needed = $line->baseQty;
+
+            for ($i = 0; $needed > 0; $i++) {
+                if ($i === count($claimed[$pool])) {
+                    if (isset($exhausted[$pool])) {
+                        break;
+                    }
+
+                    $batchId = BatchEligibility::candidates($sku, $line->locationId, $today)
+                        ->whereNotIn('id', $claimed[$pool])
+                        ->limit(1)
+                        ->lock('FOR UPDATE SKIP LOCKED')
+                        ->value('id');
+                    if ($batchId === null) {
+                        $exhausted[$pool] = true;
+
+                        break;
+                    }
+
+                    $batchId = (int) $batchId;
+                    $claimed[$pool][] = $batchId;
+                    $key = $this->identityKey($line->skuId, $line->locationId, $batchId);
+                    $remaining[$key] = ($remaining[$key] ?? 0)
+                        + (int) StockLevel::identity($line->skuId, $line->locationId, $batchId)->value('available_base_qty');
+                }
+
+                $batchId = $claimed[$pool][$i];
+                $key = $this->identityKey($line->skuId, $line->locationId, $batchId);
+                $take = min($needed, $remaining[$key] ?? 0);
+                if ($take < 1) {
+                    continue;
+                }
+
+                $selected[] = new AllocationLine($line->orderLineId, $line->skuId, $line->locationId, $batchId, $take);
+                $remaining[$key] -= $take;
+                $needed -= $take;
+            }
+
+            if ($needed > 0) {
+                if ($claimed[$pool] === [] && $this->hasOnlyIneligibleBatchStock($sku, $line->locationId, $today)) {
+                    throw new NoEligibleBatchException($line->skuId);
+                }
+
+                throw new InsufficientStockException([
+                    new AllocationShortfall($line->skuId, $line->locationId, null, $line->baseQty, $line->baseQty - $needed),
+                ]);
+            }
+        }
+
+        return $selected;
+    }
+
+    /**
+     * True when batch stock physically exists at the location but no batch
+     * passes §5.1 — as opposed to eligible batches that are merely all
+     * locked by in-flight orders, which is a plain stock shortfall.
+     */
+    private function hasOnlyIneligibleBatchStock(Sku $sku, int $locationId, CarbonImmutable $today): bool
+    {
+        return StockLevel::query()->where('sku_id', $sku->id)->where('location_id', $locationId)
+            ->whereNotNull('batch_id')->where('on_hand_base_qty', '>', 0)->exists()
+            && ! BatchEligibility::candidates($sku, $locationId, $today)->exists();
+    }
+
+    private function identityKey(int $skuId, int $locationId, ?int $batchId): string
+    {
+        return $skuId.':'.$locationId.':'.($batchId ?? 'null');
     }
 
     /**
