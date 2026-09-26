@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Filament\Resources;
+
+use App\Domain\Purchasing\ReorderSuggestionService;
+use App\Filament\Resources\ReorderSuggestionResource\Pages;
+use App\Models\Location;
+use App\Models\ReorderSuggestion;
+use App\Models\Supplier;
+use Filament\Resources\Resource;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+
+/** 05.7 §10 — advisory; purchasing reviews and edits before raising a PO. */
+class ReorderSuggestionResource extends Resource
+{
+    protected static ?string $model = ReorderSuggestion::class;
+
+    protected static ?string $slug = 'reorder-suggestions';
+
+    protected static ?string $navigationLabel = 'Reorder suggestions';
+
+    protected static ?string $pluralModelLabel = 'Reorder suggestions';
+
+    protected static ?string $navigationIcon = 'heroicon-o-arrow-path';
+
+    protected static ?string $navigationGroup = 'Purchasing';
+
+    /** @return Builder<ReorderSuggestion> */
+    public static function getEloquentQuery(): Builder
+    {
+        return app(ReorderSuggestionService::class)->query()->with(['sku', 'location', 'supplier']);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return $table->columns([
+            TextColumn::make('sku.sku_code')->label('SKU')->searchable(),
+            TextColumn::make('location.code')->label('Location'),
+            TextColumn::make('supplier.name')->label('Supplier')->placeholder('No PO yet'),
+            TextColumn::make('available_base_qty')->label('Available')->alignEnd()->sortable(),
+            TextColumn::make('incoming_base_qty')->label('On order')->alignEnd()->sortable(),
+            TextColumn::make('reorder_point_base_qty')->label('Reorder point')->alignEnd(),
+            TextColumn::make('sold_base_qty')->label('Sold')->alignEnd()->sortable()
+                ->description(fn (ReorderSuggestion $record): string => "last {$record->sales_window_days} days"),
+            TextColumn::make('cover_days')->label('Cover (days)')->alignEnd()->sortable()->placeholder('No sales'),
+            TextColumn::make('lead_time_days')->label('Lead time (days)')->alignEnd(),
+            TextColumn::make('trigger')->label('Why')->badge()
+                ->state(fn (ReorderSuggestion $record): array => array_values(array_filter([
+                    $record->below_reorder_point ? 'Below reorder point' : null,
+                    $record->cover_short ? 'Cover short' : null,
+                ]))),
+            TextColumn::make('suggested_base_qty')->label('Suggested units')->alignEnd()->sortable()->weight('bold')
+                ->description(fn (ReorderSuggestion $record): string => $record->pack_base_units > 1 ? "packs of {$record->pack_base_units}" : ''),
+        ])->filters([
+            SelectFilter::make('location_id')->label('Location')
+                ->options(fn (): array => Location::query()->where('is_sellable', true)->orderBy('name')->pluck('name', 'id')->all()),
+            SelectFilter::make('supplier_id')->label('Supplier')
+                ->options(fn (): array => Supplier::query()->orderBy('name')->pluck('name', 'id')->all()),
+        ])->defaultSort('suggested_base_qty', 'desc');
+    }
+
+    public static function getPages(): array
+    {
+        return ['index' => Pages\ListReorderSuggestions::route('/')];
+    }
+}

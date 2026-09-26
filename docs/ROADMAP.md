@@ -760,8 +760,11 @@ remains draft in 05.7.
       (CIF: don't re-apportion freight; DDP: nothing apportioned).
 - [ ] `app/Domain/Purchasing/DutyRateResolver.php` — 05.7 §9.2's most-specific-wins
       resolution (`hs_code` + `origin_country`, NULL origin = general rate).
-- [ ] `app/Domain/Purchasing/ReorderSuggestionService.php` — 05.7 §10's advisory reorder
-      calculation from `stock_levels_reorder_idx` and dispatched-order-line sales history.
+- [x] `app/Domain/Purchasing/ReorderSuggestionService.php` — 05.7 §10 (amended and signed
+      off 2026-09-26): one set-based query per (SKU, location) opted in by a reorder point,
+      stock on order as cover, last-PO supplier and pack, percentile outlier exclusion,
+      location-then-global config. Done 2026-09-26 with `ReorderSuggestion` read model,
+      policy, Filament view and `tests/Feature/Purchasing/ReorderSuggestionTest.php`.
 - [ ] `app/Domain/Purchasing/SupplierPerformanceReport.php` — 05.7 §11's on-time/
       short-shipment/quality-rate aggregation.
 - [x] `app/Domain/Warehouse/GoodsInService.php` receives against PO lines, records
@@ -783,7 +786,10 @@ remains draft in 05.7.
 - [ ] `app/Policies/ContainerPolicy.php`.
 - [x] `app/Filament/Resources/SupplierResource.php` and `PurchaseOrderResource.php`.
 - [ ] `app/Filament/Resources/ContainerResource.php` and container-cost apportionment UI.
-- [ ] `app/Filament/Widgets/ReorderSuggestionsWidget.php` — purchasing dashboard.
+- [x] Reorder suggestions surface — built as the read-only Filament resource
+      `ReorderSuggestionResource` (Purchasing → Reorder suggestions) rather than a dashboard
+      widget, so it pages, sorts and filters in SQL. The `/admin/reorder-suggestions` API
+      endpoint stays with the admin API controllers above.
 - [ ] `tests/Feature/Domain/LandedCostApportionerTest.php` — L1–L8 fixtures from 05.7 §14
       verbatim, especially L1 reproducing the §8.3 table exactly including the residual.
 
