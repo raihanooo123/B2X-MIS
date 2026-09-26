@@ -260,6 +260,9 @@ it('lets a trade user turn 2FA off with their password, but never staff', functi
     $this->actingAs($trade)->delete('/two-factor', ['password' => RECOVERY_PASSWORD])->assertRedirect();
     expect($trade->fresh()->two_factor_enabled)->toBeFalse();
 
+    // A fresh session, as a real sign-in would give: AuthenticateSession
+    // otherwise sees the trade user's password hash and signs staff out.
+    $this->flushSession();
     $staff = User::factory()->withTwoFactor()->create(['password_hash' => Hash::make(RECOVERY_PASSWORD)]);
     RoleUser::create(['role_id' => Role::factory()->create(['code' => 'accounts'])->id, 'user_id' => $staff->id]);
     $this->actingAs($staff)->delete('/two-factor', ['password' => RECOVERY_PASSWORD])->assertForbidden();
