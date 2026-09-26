@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Inventory\BatchEligibility;
+use App\Domain\Purchasing\ReorderSuggestionService;
 use App\Models\Sku;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
@@ -656,6 +657,14 @@ it('Q11: resolves the reorder report via stock_levels_reorder_idx without a seq 
     $plan = hotPathExplain('select sku_id, available_base_qty from stock_levels where location_id = ? and reorder_point_base_qty > 0', [$locationId]);
 
     hotPathAssertNoSeqScanOn($plan, 'stock_levels');
+    hotPathAssertIndexUsed($plan, 'stock_levels_reorder_idx');
+});
+
+it('Q11: the 05.7 §10 reorder suggestion query is driven by stock_levels_reorder_idx', function () {
+    $query = app(ReorderSuggestionService::class)->query()->toBase();
+
+    $plan = hotPathExplain($query->toSql(), $query->getBindings());
+
     hotPathAssertIndexUsed($plan, 'stock_levels_reorder_idx');
 });
 
