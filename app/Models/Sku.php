@@ -29,6 +29,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $barcode_ean
  * @property bool $requires_expiry
  * @property int|null $shelf_life_days
+ * @property int|null $min_remaining_shelf_life_days
+ * @property string $allocation_strategy
  */
 class Sku extends Model
 {

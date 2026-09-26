@@ -298,6 +298,19 @@ depend on this. Build in this order:
 
 ## 4. `04` — Inventory Ledger hardening
 
+**Batch-only checkout update (2026-09-26):** `AllocationService` now selects
+eligible FEFO/FIFO/LIFO batches inside the order transaction, claiming batch
+rows one at a time with `SKIP LOCKED` in strategy order, then locking the
+chosen `stock_levels` rows with plain `FOR UPDATE` in global order (§5.2), and
+splits a line across batches. Checkout preview uses the same eligibility rule.
+Serial-tracked checkout, and batch SKUs with `allocation_strategy = 'none'`,
+remain blocked as `batch_tracked_not_supported`.
+The configured five-batch soft cap and operator-facing manual-pick warning,
+serial reservation/release, and the concurrency matrix below remain pending.
+The older file-by-file items in this section describe the intended split
+into `BatchSelector`/`BatchSplitter`, not separate code that is required to
+duplicate the behavior now inside `AllocationService`.
+
 `AllocationService`, `DeallocationService`, `DeadlockRetryPolicy` are built and match §4.2–4.5
 closely (verified by reading `app/Domain/Inventory/AllocationService.php` and
 `DeallocationService.php` directly — lock ordering, `NULLS FIRST`, no-external-calls, retry

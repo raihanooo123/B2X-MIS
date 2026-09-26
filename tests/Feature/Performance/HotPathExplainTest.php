@@ -1,5 +1,8 @@
 <?php
 
+use App\Domain\Inventory\BatchEligibility;
+use App\Models\Sku;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -700,6 +703,22 @@ it('Q15: resolves FEFO batch order via an Index Only Scan with no separate sort'
     );
 
     hotPathAssertHeapFetchesZero($plan, 'batches_fefo_idx');
+    hotPathAssertNoSortNode($plan);
+});
+
+it('Q15: the allocation candidate query itself walks batches_fefo_idx with no separate sort', function () {
+    $skuId = (int) DB::table('batches')->where('batch_code', 'like', 'PERF-B-%')->value('sku_id');
+    $sku = (new Sku)->forceFill(['id' => $skuId, 'allocation_strategy' => 'fefo', 'min_remaining_shelf_life_days' => 30]);
+    $locationId = (int) (DB::table('locations')->value('id') ?? 1);
+
+    $query = BatchEligibility::candidates($sku, $locationId, CarbonImmutable::today())
+        ->select('id')->limit(1)->lock('FOR UPDATE SKIP LOCKED');
+
+    // FOR UPDATE must visit the heap to lock, so Heap Fetches: 0 is not
+    // assertable here — only that the FEFO index supplies the order.
+    $plan = hotPathExplain($query->toSql(), $query->getBindings());
+
+    hotPathAssertIndexUsed($plan, 'batches_fefo_idx');
     hotPathAssertNoSortNode($plan);
 });
 

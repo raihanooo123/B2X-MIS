@@ -7,6 +7,7 @@ use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
 use App\Domain\Delivery\DeliveryQuoter;
 use App\Domain\Delivery\ThresholdEvaluator;
+use App\Domain\Inventory\BatchEligibility;
 use App\Domain\Pricing\BulkPriceResolver;
 use App\Domain\Pricing\Exceptions\NoBasePriceListException;
 use App\Domain\Pricing\Exceptions\NoTaxRateException;
@@ -21,6 +22,7 @@ use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Location;
 use App\Models\OrderSpendBreak;
+use App\Models\Sku;
 use App\Models\StockLevel;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -43,12 +45,13 @@ use RuntimeException;
  * Blockers predict what checkout would refuse, and so mirror what
  * checkout *actually* enforces today, not only what 05.1 §6 describes:
  *
- *   - `insufficient_stock` is checked at the default location with
- *     `batch_id IS NULL`, because that is the only stock_levels identity
- *     CheckoutService allocates from. It ignores `allow_backorder`,
+ *   - `insufficient_stock` sums eligible batches for batch-only SKUs
+ *     and reads the NULL-batch identity for untracked SKUs. It ignores `allow_backorder`,
  *     because AllocationService does too — 05.1 §6's "warned, not
  *     blocked" for backorderable SKUs is not built in checkout yet.
- *   - `batch_tracked_not_supported` mirrors
+ *   - `batch_tracked_not_supported` remains the legacy error code for
+ *     serial-tracked lines and batch SKUs with no allocation strategy,
+ *     and mirrors
  *     BatchTrackedCheckoutNotSupportedException.
  *   - `fulfilment_type_unsupported` — checkout only does delivery.
  *
@@ -309,11 +312,21 @@ final class CheckoutPreviewService
             ]);
         }
 
-        if ($sku->is_stock_tracked && $sku->tracking_mode !== 'none') {
+        if ($sku->is_stock_tracked && ! self::checkoutCanAllocate($sku)) {
             $blockers[] = new CheckoutBlocker($field, 'batch_tracked_not_supported', 'This item cannot be checked out online yet.', $meta);
         }
 
         return $blockers;
+    }
+
+    /**
+     * Mirrors CheckoutService: untracked-mode SKUs, and batch-only SKUs
+     * with a doc 04 §5.2 strategy. Serial reservation is not built.
+     */
+    private static function checkoutCanAllocate(Sku $sku): bool
+    {
+        return $sku->tracking_mode === 'none'
+            || ($sku->tracking_mode === 'batch' && in_array($sku->allocation_strategy, ['fefo', 'fifo', 'lifo'], true));
     }
 
     /**
@@ -330,13 +343,15 @@ final class CheckoutPreviewService
         $firstIndexBySku = [];
         $lineIdsBySku = [];
         $publicSkuIdBySku = [];
+        $skusById = [];
 
         foreach ($cartLines as $index => $line) {
             $sku = $line->sku ?? throw new RuntimeException("CartLine {$line->id} has no sku loaded.");
-            if (! $sku->is_stock_tracked || $sku->tracking_mode !== 'none' || $sku->status !== 'active') {
+            if (! $sku->is_stock_tracked || ! self::checkoutCanAllocate($sku) || $sku->status !== 'active') {
                 continue;
             }
 
+            $skusById[$sku->id] = $sku;
             $requiredBySku[$sku->id] = ($requiredBySku[$sku->id] ?? 0) + $line->base_qty;
             $firstIndexBySku[$sku->id] ??= $index;
             $lineIdsBySku[$sku->id][] = (string) $line->public_id;
@@ -347,26 +362,44 @@ final class CheckoutPreviewService
             return [];
         }
 
-        $locationId = Location::query()->where('is_default', true)->value('id');
-
-        $availableBySku = $locationId === null ? [] : StockLevel::query()
-            ->where('location_id', $locationId)
-            ->whereNull('batch_id')
-            ->whereIn('sku_id', array_keys($requiredBySku))
-            ->pluck('available_base_qty', 'sku_id')
-            ->map(fn ($qty) => (int) $qty)
-            ->all();
-
+        $location = Location::query()->where('is_default', true)->first();
+        $availableBySku = [];
+        $physicalBySku = [];
         $blockers = [];
+        if ($location?->is_sellable) {
+            $levels = StockLevel::query()->with('batch')
+                ->where('location_id', $location->id)
+                ->whereIn('sku_id', array_keys($requiredBySku))
+                ->where('available_base_qty', '>', 0)
+                ->get();
+            $today = CarbonImmutable::today();
+            foreach ($levels as $level) {
+                $sku = $skusById[$level->sku_id];
+                if ($sku->tracking_mode === 'batch' && $level->batch_id !== null) {
+                    $physicalBySku[$level->sku_id] = ($physicalBySku[$level->sku_id] ?? 0) + $level->on_hand_base_qty;
+                }
+                if ($sku->tracking_mode === 'none' && $level->batch_id !== null) {
+                    continue;
+                }
+                if ($sku->tracking_mode === 'batch' && ($level->batch_id === null || $level->batch === null
+                    || ! BatchEligibility::accepts($sku, $level->batch, $today))) {
+                    continue;
+                }
+                $availableBySku[$level->sku_id] = ($availableBySku[$level->sku_id] ?? 0) + $level->available_base_qty;
+            }
+        }
+
         foreach ($requiredBySku as $skuId => $required) {
             $available = $availableBySku[$skuId] ?? 0;
             if ($required > $available) {
-                $blockers[] = new CheckoutBlocker("lines.{$firstIndexBySku[$skuId]}.base_qty", 'insufficient_stock', "Only {$available} units available.", [
-                    'sku_id' => $publicSkuIdBySku[$skuId],
-                    'cart_line_ids' => $lineIdsBySku[$skuId],
-                    'requested_base_qty' => $required,
-                    'available_base_qty' => $available,
-                ]);
+                $noEligibleBatch = $skusById[$skuId]->tracking_mode === 'batch' && $available === 0 && ($physicalBySku[$skuId] ?? 0) > 0;
+                $blockers[] = new CheckoutBlocker("lines.{$firstIndexBySku[$skuId]}.base_qty", $noEligibleBatch ? 'no_eligible_batch' : 'insufficient_stock',
+                    $noEligibleBatch ? 'Stock exists, but no batch is eligible for this order.' : "Only {$available} units available.", [
+                        'sku_id' => $publicSkuIdBySku[$skuId],
+                        'cart_line_ids' => $lineIdsBySku[$skuId],
+                        'requested_base_qty' => $required,
+                        'available_base_qty' => $available,
+                    ]);
             }
         }
 
