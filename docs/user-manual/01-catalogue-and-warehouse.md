@@ -4,8 +4,8 @@
 |---|---|
 | Product | B2X Wholesale |
 | Audience | Catalogue administrators, warehouse operators, purchasing and accounts viewers |
-| Scope | New item setup; goods in; picking; dispatch; stocktake and stocktake history |
-| Reviewed against | `feat/stocktake` working tree, 2026-09-26 |
+| Scope | New item setup; GBP purchase orders; goods in; picking; dispatch; stocktake and stocktake history |
+| Reviewed against | `feat/purchase-order-admin` working tree, 2026-09-26 |
 | Status | Working draft for operational review, not a production sign-off |
 
 ## 1. Purpose and process map
@@ -14,32 +14,33 @@ Use this chapter to create an item record and manage physical stock through the 
 
 ```text
 Define item:  Brand/Category -> Product -> SKU -> Pack(s)
-Receive:      Supplier or other inbound stock -> Goods in -> Stock available
+Purchase:     Supplier -> Draft PO -> Supplier accepts externally -> Confirm PO
+Receive:      Confirmed PO or other inbound stock -> Goods in -> Stock available
 Fulfil:       Eligible customer order -> Picking -> Dispatch
 Reconcile:    Physical count -> Stocktake review -> Stocktake posting
 ```
 
 **Goods in means goods physically arriving at your warehouse.** A customer's paid or approved order does not itself pass through Goods in. If stock is already on the shelf, its warehouse journey begins at Picking. Stocktake is a periodic reconciliation, not a mandatory final step for each order. A new item record alone has no stock and no customer selling price.
 
-This chapter describes the screens in the current application. It does not describe a complete purchasing, packing-station, or price-authoring workflow; those interfaces are not available as part of this chapter's reviewed build.
+This chapter describes the screens in the reviewed application. Purchasing here covers GBP supplier records and purchase orders, not PO delivery, containers, foreign currency, or landed costing. A separate packing-station and price-authoring workflow are not covered.
 
 ## 2. Access and prerequisites
 
 Sign in through `/login`. Staff must complete two-factor authentication before using staff screens. Open `/admin` for catalogue administration and the Warehouse menu, or use the links in the warehouse page navigation.
 
-| Role | Catalogue records | Goods in | Picking and dispatch | Stocktake |
-|---|---|---|---|---|
-| Admin | Create, view and edit | Operate | Operate | Count, post, view history |
-| Warehouse | View Product, SKU and Pack | Operate | Operate | Count, post, view history |
-| Purchasing | View catalogue | View receipts | No access | View counts and history |
-| Accounts | View Product, SKU and Pack | No access | No access | View counts and history |
-| Rep, sales manager | Catalogue viewing according to policy | No access | No access | No access |
+| Role | Catalogue records | Suppliers and POs | Goods in | Picking and dispatch | Stocktake |
+|---|---|---|---|---|---|
+| Admin | Create, view and edit | Manage GBP suppliers and POs | Operate | Operate | Count, post, view history |
+| Warehouse | View Product, SKU and Pack | No access | Operate | Operate | Count, post, view history |
+| Purchasing | View catalogue | Manage GBP suppliers and POs | View receipts | No access | View counts and history |
+| Accounts | View Product, SKU and Pack | No access | No access | No access | View counts and history |
+| Rep, sales manager | Catalogue viewing according to policy | No access | No access | No access | No access |
 
 Catalogue deletion is disabled. Admin is the only role permitted to create or edit Brand, Category, Product, SKU, or Pack. Warehouse navigation follows the same policies as the underlying pages; a hidden link does not grant or remove access by itself.
 
 Before receiving stock, confirm that the item has a **Product**, a stock-tracked **SKU**, at least one **Pack**, and a valid **Location**. Product creation requires a primary Category; SKU creation requires a Tax class. Demo data, if installed, includes `MAIN` / Main Warehouse, example categories, brands, and tax classes. Do not assume these exist in a fresh or production database.
 
-For a PO receipt, a receivable purchase order must already exist. The current Filament sidebar does not provide a complete purchase-order authoring workflow. For a controlled practice run, use a manual receipt and an existing location. Do not use fictional receipts in production.
+For a PO receipt, a confirmed and receivable purchase order must already exist. Admin and purchasing staff can create one under **Admin -> Purchasing**. For a controlled practice run without a PO, use a manual receipt and an existing location. Do not use fictional receipts in production.
 
 ## 3. Create a new item
 
@@ -98,6 +99,18 @@ Use these values only in a disposable demo or test environment. Select tax treat
 | Pack 2 | Sellable / default sell | Yes / No |
 
 If a category, brand or tax class is absent, create or select an appropriate real one rather than forcing this example. The current admin UI has no complete price-list item authoring flow; **Active** and an RRP do not guarantee that customers can purchase the new SKU.
+
+### 3.6 Create and confirm a GBP purchase order
+
+Only admin and purchasing staff can use **Admin -> Purchasing -> Suppliers** and **Purchase orders**. A purchase order records what you have agreed to buy; it does not receive physical stock.
+
+1. In **Suppliers**, select an existing active GBP supplier or create one with a unique code, name, two-letter country code, GBP currency, incoterm, and contact details. Put suppliers on hold when they should not receive new orders. Supplier deletion is not offered.
+2. Open **Purchase orders -> New purchase order**. Choose the supplier and receiving location. Add an expected delivery date and supplier reference when known. Add one or more lines by choosing an active stock-tracked SKU, its pack, the number of packs and the supplier cost **per base unit** in GBP. For example, 5 cases of 12 bottles at £1.2345 per bottle means 60 units and a £74.07 goods total. The goods total is not a landed cost.
+3. Save as a draft. Check the PO number, supplier, location, pack conversion, quantities, unit costs and totals. Drafts can be edited or cancelled; they do not increase incoming or on-hand stock.
+4. Send or agree the order with the supplier **outside B2X**. B2X does not email or generate a supplier-facing PO in this slice. Only after the supplier accepts it, open the draft and choose **Confirm**. Confirmation increases **incoming**, not physical on-hand stock, and locks further edits.
+5. When the goods physically arrive, receive them through **Goods in** against that PO number. Receiving reduces outstanding incoming and increases on-hand. Close any open Goods-in receipt before cancelling a PO. Cancellation before or after a partial receipt removes only outstanding incoming; it does not undo goods already received.
+
+This workflow is GBP-only and does not manage containers, foreign exchange, duty, freight or landed cost. Do not treat confirmation as proof of physical delivery.
 
 ## 4. Goods in: receive physical stock
 
@@ -166,6 +179,7 @@ After posting, use **Admin -> Warehouse -> Stocktake history** to view the count
 | Warehouse link absent | Confirm your staff role and 2FA enrolment. Purchasing/accounts have view-only access to some screens; reps do not operate warehouse flows. |
 | `404` on a warehouse URL | Check the exact path above and the deployed route cache. Report the URL and time to the application maintainer; do not change deployment caches as an operator. |
 | Goods-in SKU not found | Confirm SKU code/barcode, Product/SKU creation, and the Pack setup. A manual receipt needs a real location. |
+| PO cannot be confirmed | Check that it is still a draft, the supplier is active and GBP, and every SKU/pack is still active and correctly configured. |
 | Goods-in rejects a line | Check pack belongs to the SKU, Stock tracked is on, and required batch/expiry/serial fields are complete. Read the inline error before retrying. |
 | No orders in Ready to pick | Confirm an order exists, is workable, has allocated stock, and is paid if prepaid. A newly received item does not automatically create an order. |
 | Serial scan rejected while picking | Compare the serial with the exact ones reserved on the pick line; do not bypass the refusal. |
@@ -177,7 +191,7 @@ Do not repeatedly submit a transaction just because a response is slow. First in
 
 ## 9. Current boundaries and glossary
 
-**Current boundaries:** Product/SKU/Pack administration, the four warehouse operator pages and read-only stocktake history are present. Full purchase-order authoring, price-list item authoring and a standalone packing station are not part of these screens. Supplier-return and transfer workflows are also outside this chapter. Technical specifications may describe later capabilities; they are not evidence that a user can perform them today.
+**Current boundaries:** Product/SKU/Pack administration, GBP supplier and PO administration, the four warehouse operator pages and read-only stocktake history are present. PO delivery, non-GBP purchasing, container/landed-cost workflows, price-list item authoring and a standalone packing station are not part of these screens. Supplier-return and transfer workflows are also outside this chapter. Technical specifications may describe later capabilities; they are not evidence that a user can perform them today.
 
 | Term | Meaning |
 |---|---|

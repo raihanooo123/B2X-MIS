@@ -49,6 +49,7 @@ class AdminPanelProvider extends PanelProvider
             ->globalSearch()
             ->navigationGroups([
                 'Catalogue',
+                'Purchasing',
                 'Pricing',
                 'Inventory',
                 'Sales',
