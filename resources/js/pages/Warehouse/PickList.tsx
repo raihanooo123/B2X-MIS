@@ -24,6 +24,7 @@ import { Check, ClipboardList, Package, Replace, TriangleAlert, Truck } from 'lu
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, formatTime, packsText, useScanFocus, type NoticeTone } from '@/components/warehouse/scan';
@@ -78,7 +79,7 @@ export default function PickList(props: PickListProps) {
         <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
             <Head title="Picking" />
             <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <div className="flex items-center gap-3">
                         <ClipboardList className="size-7 text-slate-700" aria-hidden />
                         <h1 className="text-2xl font-bold">Picking</h1>
@@ -86,6 +87,7 @@ export default function PickList(props: PickListProps) {
                     <AccountMenu />
                 </div>
             </header>
+            <WarehouseNavigation />
             <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
                 {shipmentId === null ? (
                     <StartPanel queue={props.queue} onOpened={go} />

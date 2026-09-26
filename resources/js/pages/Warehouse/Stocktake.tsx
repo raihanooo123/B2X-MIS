@@ -24,6 +24,7 @@ import { Check, ClipboardCheck, Eye, EyeOff, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, formatTime, useScanFocus, type NoticeTone } from '@/components/warehouse/scan';
@@ -81,7 +82,7 @@ export default function Stocktake(props: StocktakeProps) {
         <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
             <Head title="Stocktake" />
             <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <div className="flex items-center gap-3">
                         <ClipboardCheck className="size-7 text-slate-700" aria-hidden />
                         <h1 className="text-2xl font-bold">Stocktake</h1>
@@ -89,6 +90,7 @@ export default function Stocktake(props: StocktakeProps) {
                     <AccountMenu />
                 </div>
             </header>
+            <WarehouseNavigation />
             <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
                 {id === null ? <StartPanel {...props} onOpened={go} /> : <SessionPanel key={id} id={id} props={props} onLeave={() => go(null)} />}
             </main>

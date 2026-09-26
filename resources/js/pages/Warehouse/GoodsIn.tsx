@@ -29,6 +29,7 @@ import { AlertTriangle, Check, PackageCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError as describe, formatTime, useScanFocus } from '@/components/warehouse/scan';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,7 +101,7 @@ export default function GoodsIn(props: GoodsInProps) {
         <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
             <Head title="Goods in" />
             <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+                <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <div className="flex items-center gap-3">
                         <PackageCheck className="size-7 text-slate-700" aria-hidden />
                         <h1 className="text-2xl font-bold">Goods in</h1>
@@ -108,6 +109,7 @@ export default function GoodsIn(props: GoodsInProps) {
                     <AccountMenu />
                 </div>
             </header>
+            <WarehouseNavigation />
             <main className="mx-auto max-w-6xl space-y-6 px-4 pt-6">
                 {receiptId === null ? (
                     <StartPanel {...props} onOpened={go} />

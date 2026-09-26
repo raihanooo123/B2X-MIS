@@ -34,6 +34,10 @@ class StocktakeResource extends Resource
 
     protected static ?string $navigationGroup = 'Warehouse';
 
+    protected static ?string $navigationLabel = 'Stocktake history';
+
+    protected static ?int $navigationSort = 50;
+
     protected static ?string $recordTitleAttribute = 'public_id';
 
     public const STATUSES = [
