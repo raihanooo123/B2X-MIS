@@ -363,7 +363,7 @@ Restocking fees and non-refundable exclusions are commercial logic in the RMA mo
 
 - **Adjustment:** single-SKU correction with a mandatory reason code and an actor. Uses optimistic concurrency via `stock_levels.version`, not `FOR UPDATE` — an admin edit colliding with another admin edit should fail loudly and be retried by a human, not silently win.
 - **Stocktake:** a session per location. Counted quantities captured per `(sku, location, batch)`, variances reviewed, then posted as `stocktake` movements in one transaction. Nothing is written until posting, so a half-finished count cannot corrupt live stock.
-- A stocktake in progress does not block trading. Variances are computed against the level **at posting time**, not at count time, with the delta shown for review.
+- A stocktake in progress does not block trading. **Corrected 2026-09-26 (02 §24.1):** variances are computed against the level **as it stood when each line was counted**. It is reconstructed at posting by replaying the identity's on-hand movements since `counted_at` backwards from the locked level. The variance is then applied to the current level. Measuring against the level at posting, as this line said before, turned every sale during the count into a false variance.
 
 ---
 

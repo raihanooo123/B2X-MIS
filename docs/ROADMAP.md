@@ -29,6 +29,8 @@ Conventions used below:
    another tenant's stock/order events. Do not wire any real page to this gateway until
    §14 (Realtime Gateway Hardening) below is done.
 
+   **Checked 2026-09-26: not deployed.** The gateway is not in `docker-compose.yml` (postgres and redis only), and there is no Dockerfile, CI workflow, Procfile or service unit. `composer dev` does not start it, nothing in `app/` publishes to Redis or broadcasts, and nothing in `resources/js` connects. It is reachable only if someone runs `npm run dev`/`start` in `services/realtime-gateway` by hand, and it then binds `0.0.0.0:4001`. Auth stays deferred to §14; keep it out of every deploy target until then.
+
 2. **✅ RESOLVED 2026-09-20 — was: schema authority.** `docs/02-domain-model-erd.md` §14
    (signed off 2026-09-20) now supplies full DDL for `roles`, `role_user`, `attachments`,
    `carts`, `cart_lines`, `payments`, `invoices`, plus `payment_allocations` (found during
@@ -640,22 +642,25 @@ Blocked on §4's `BatchSelector`/`SerialSelector`. **Migrated 2026-09-25:** `shi
 - [x] `app/Domain/Warehouse/DispatchService.php` — done 2026-09-25, with per-shipment
       invoicing (`InvoiceService::issueForShipment`, `ShipmentInvoiceShares`) and the
       `shipment.dispatched` notice.
-- [ ] `app/Domain/Inventory/StocktakeService.php` — 05.5 §8: session-based counting,
-      variance-at-posting-time (not count-time), nothing written until posting.
+- [x] `app/Domain/Warehouse/StocktakeService.php` — done 2026-09-26 per 02 §24 (signed off
+      2026-09-26): session per location, nothing written until posting, blind option,
+      variance against stock **as counted** (replayed from movements since `counted_at`),
+      reason per variance line, serial reconciliation by number (`stocktake_line_serials`).
+      `Api/V1/Warehouse/StocktakeController`, `StocktakePolicy`, read-only
+      `app/Filament/Resources/StocktakeResource.php`.
 - [ ] Idempotency key handling (05.5 §10) — `app/Http/Middleware/RequireIdempotencyKey.php`,
       applied to receipt/dispatch/serial-scan routes, backed by a
       `idempotency_keys` cache table or Redis-backed store (not in doc 02 — this is
       infrastructure, not a domain table, so it doesn't need a schema doc amendment; confirm
       that framing before building rather than assuming).
 - [x] Warehouse endpoints — `Api/V1/Warehouse/GoodsReceiptController`, `ShipmentController`
-      (`/api/v1/warehouse/shipments*`) done 2026-09-25. Stocktake endpoints remain.
+      (`/api/v1/warehouse/shipments*`) done 2026-09-25; `StocktakeController` 2026-09-26.
 - [x] Policies — `GoodsReceiptPolicy`, `ShipmentPolicy` (2026-09-25) instead of one
       `WarehouseOperationPolicy`.
 - [x] `resources/js/pages/Warehouse/GoodsIn.tsx` — done 2026-09-25 (see GoodsInService above).
 - [x] `resources/js/pages/Warehouse/PickList.tsx` — done 2026-09-25.
 - [x] `resources/js/pages/Warehouse/Dispatch.tsx` — done 2026-09-25.
-- [ ] `resources/js/pages/Warehouse/Stocktake.tsx` — blind-counting toggle, serial
-      reconciliation as an individual-missing-serial list, not a quantity variance.
+- [x] `resources/js/pages/Warehouse/Stocktake.tsx` — done 2026-09-26.
 - [x] `tests/Feature/Warehouse/PickingAndDispatchTest.php`, `PerShipmentInvoicingTest.php` —
       2026-09-25, including the idempotent-retry assertion (05.5 AC6).
 - [ ] `tests/Feature/Concurrency/WarehouseConcurrencyTest.php` — W1–W3 from 05.5 §13. Needs

@@ -15,6 +15,7 @@ use App\Http\Controllers\OrderPadController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
 use App\Http\Controllers\Warehouse\PickListPageController;
+use App\Http\Controllers\Warehouse\StocktakePageController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -85,6 +86,8 @@ Route::middleware('auth')->group(function (): void {
     // 05.5 §5, §7 — picking and dispatch. Via /api/v1/warehouse/shipments*.
     Route::get('/warehouse/pick-list', [PickListPageController::class, 'show'])->name('warehouse.pick-list');
     Route::get('/warehouse/dispatch', [DispatchPageController::class, 'show'])->name('warehouse.dispatch');
+    // 05.5 §8 — stocktake. Via /api/v1/warehouse/stocktakes*.
+    Route::get('/warehouse/stocktake', [StocktakePageController::class, 'show'])->name('warehouse.stocktake');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');

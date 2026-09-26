@@ -6,15 +6,18 @@ use Database\Factories\StocktakeLineFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §14.7 — stocktake_lines, one per `(stocktake, sku, batch)`
  * (`UNIQUE NULLS NOT DISTINCT`; `batch_id IS NULL` is untracked stock).
  *
- * `expected_base_qty` is filled at posting, not at count entry — variance
- * is against the level at posting time (04 §7.4). `variance_base_qty` is
- * a stored generated column, NULL until then; never written. A posted line
+ * `expected_base_qty` is filled at posting with the level **as it stood
+ * at `counted_at`** — reconstructed by replaying the identity's movements
+ * since (02 §24.1, correcting §14.7). `variance_base_qty` is a stored
+ * generated column, NULL until then; never written. A serial-tracked
+ * line's scans are `serials` (§24.2). A posted line
  * with a nonzero variance must carry `reason_code` — enforced by the
  * posting transaction, since it depends on the parent's status.
  * `posted_movement_id` has no relation: `stock_movements` has a composite
@@ -90,5 +93,13 @@ class StocktakeLine extends Model
     public function countedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'counted_by_user_id');
+    }
+
+    /**
+     * @return HasMany<StocktakeLineSerial, $this>
+     */
+    public function serials(): HasMany
+    {
+        return $this->hasMany(StocktakeLineSerial::class);
     }
 }
