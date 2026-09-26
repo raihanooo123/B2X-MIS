@@ -5,7 +5,7 @@
 | Product | B2X Wholesale |
 | Audience | Catalogue administrators, warehouse operators, purchasing and accounts viewers |
 | Scope | New item setup; GBP purchase orders; goods in; picking; dispatch; stocktake and stocktake history |
-| Reviewed against | `feat/purchase-order-admin` working tree, 2026-09-26 |
+| Reviewed against | `feat/outstanding-purchase-orders` working tree, 2026-09-26 |
 | Status | Working draft for operational review, not a production sign-off |
 
 ## 1. Purpose and process map
@@ -112,6 +112,12 @@ Only admin and purchasing staff can use **Admin -> Purchasing -> Suppliers** and
 
 This workflow is GBP-only and does not manage containers, foreign exchange, duty, freight or landed cost. Do not treat confirmation as proof of physical delivery.
 
+### 3.7 Monitor outstanding purchase orders
+
+Open **Admin -> Purchasing -> Outstanding POs**. Admin and purchasing staff can search by PO, supplier or SKU, and filter by receiving location, supplier or status. Each row is one PO line with its ordered, received and **units due** figures in base units. A partially received line remains until its outstanding quantity is resolved; a fully received line disappears. Draft, cancelled and received POs do not appear. **View PO** opens the source order for its full details.
+
+The **Expected** date comes from the line when one is set, otherwise from the PO. It is a planning date, not a guaranteed arrival date. A blank date means none was recorded. This page does not change quantities or send information to customers.
+
 ## 4. Goods in: receive physical stock
 
 **Open:** **Admin -> Warehouse -> Goods in**, or `/warehouse/goods-in`.
@@ -191,7 +197,7 @@ Do not repeatedly submit a transaction just because a response is slow. First in
 
 ## 9. Current boundaries and glossary
 
-**Current boundaries:** Product/SKU/Pack administration, GBP supplier and PO administration, the four warehouse operator pages and read-only stocktake history are present. PO delivery, non-GBP purchasing, container/landed-cost workflows, price-list item authoring and a standalone packing station are not part of these screens. Supplier-return and transfer workflows are also outside this chapter. Technical specifications may describe later capabilities; they are not evidence that a user can perform them today.
+**Current boundaries:** Product/SKU/Pack administration, GBP supplier and PO administration, a staff-only outstanding PO list, the four warehouse operator pages and read-only stocktake history are present. PO delivery, customer-facing incoming ETA, non-GBP purchasing, container/landed-cost workflows, price-list item authoring and a standalone packing station are not part of these screens. Supplier-return and transfer workflows are also outside this chapter. Technical specifications may describe later capabilities; they are not evidence that a user can perform them today.
 
 | Term | Meaning |
 |---|---|
