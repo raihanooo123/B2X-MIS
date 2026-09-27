@@ -25,7 +25,8 @@ final class AuditLogger
             AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested,
             AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked,
             AuditAction::StaffSuspended, AuditAction::StaffReinstated,
-            AuditAction::StaffTwoFactorReset => $this->validateStaffEvent($entry),
+            AuditAction::StaffTwoFactorReset,
+            AuditAction::CustomerSuspended, AuditAction::CustomerReinstated => $this->validateUserAdministrationEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -98,7 +99,12 @@ final class AuditLogger
         }
     }
 
-    private function validateStaffEvent(AuditEntry $entry): void
+    /**
+     * An administrator acting on one user account — staff or customer. The
+     * subject is the user, never a company: customer suspension is per user
+     * (05.13 §4.2), so no company is recorded.
+     */
+    private function validateUserAdministrationEvent(AuditEntry $entry): void
     {
         $roles = ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'];
         $valid = match ($entry->action) {
@@ -110,17 +116,17 @@ final class AuditLogger
                 && in_array($entry->before['role'] ?? null, $roles, true)
                 && array_key_exists('granted_by_user_id', $entry->before)
                 && ($entry->before['granted_by_user_id'] === null || is_int($entry->before['granted_by_user_id'])),
-            AuditAction::StaffSuspended => $entry->before === ['status' => 'active'] && $entry->after === ['status' => 'suspended'],
-            AuditAction::StaffReinstated => $entry->before === ['status' => 'suspended'] && $entry->after === ['status' => 'active'],
+            AuditAction::StaffSuspended, AuditAction::CustomerSuspended => $entry->before === ['status' => 'active'] && $entry->after === ['status' => 'suspended'],
+            AuditAction::StaffReinstated, AuditAction::CustomerReinstated => $entry->before === ['status' => 'suspended'] && $entry->after === ['status' => 'active'],
             AuditAction::StaffTwoFactorReset => $entry->before === ['two_factor_enabled' => true] && $entry->after === ['two_factor_enabled' => false],
-            default => throw new InvalidArgumentException('Unsupported staff audit action.'),
+            default => throw new InvalidArgumentException('Unsupported user administration audit action.'),
         };
 
         if (! $valid || $entry->actorType !== 'user' || $entry->actorUserId === null
             || $entry->subjectType !== 'user' || $entry->subjectId === null
             || $entry->reason !== null
             || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
-            throw new InvalidArgumentException('Invalid staff audit entry.');
+            throw new InvalidArgumentException('Invalid user administration audit entry.');
         }
     }
 }

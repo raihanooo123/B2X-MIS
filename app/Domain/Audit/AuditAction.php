@@ -20,11 +20,16 @@ enum AuditAction: string
 
     case StaffTwoFactorReset = 'auth.staff_two_factor_reset';
 
+    case CustomerSuspended = 'auth.customer_suspended';
+
+    case CustomerReinstated = 'auth.customer_reinstated';
+
     public function family(): string
     {
         return match ($this) {
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested,
-            self::StaffSuspended, self::StaffReinstated, self::StaffTwoFactorReset => 'auth',
+            self::StaffSuspended, self::StaffReinstated, self::StaffTwoFactorReset,
+            self::CustomerSuspended, self::CustomerReinstated => 'auth',
             self::StaffRoleGranted, self::StaffRoleRevoked => 'permission',
         };
     }
@@ -35,7 +40,8 @@ enum AuditAction: string
         return match ($this) {
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested, self::StaffRoleGranted => [],
             self::StaffRoleRevoked => ['role', 'granted_by_user_id'],
-            self::StaffSuspended, self::StaffReinstated => ['status'],
+            self::StaffSuspended, self::StaffReinstated,
+            self::CustomerSuspended, self::CustomerReinstated => ['status'],
             self::StaffTwoFactorReset => ['two_factor_enabled'],
         };
     }
@@ -49,7 +55,8 @@ enum AuditAction: string
             self::StaffOnboardingRequested => ['channel'],
             self::StaffRoleGranted => ['role'],
             self::StaffRoleRevoked => [],
-            self::StaffSuspended, self::StaffReinstated => ['status'],
+            self::StaffSuspended, self::StaffReinstated,
+            self::CustomerSuspended, self::CustomerReinstated => ['status'],
             self::StaffTwoFactorReset => ['two_factor_enabled'],
         };
     }
