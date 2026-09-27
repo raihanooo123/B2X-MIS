@@ -4,9 +4,14 @@
  * (§5.2). Either way the next step is the same "check your inbox"
  * confirmation — the form never reveals whether an address already has
  * an account.
+ *
+ * The trade form shows the terms of trade in force and submits their
+ * version (02 §25.1). If they change while the form is open, the server
+ * refuses the submission and sends the new version; the tick is cleared
+ * so the applicant accepts what they have now been shown.
  */
 import { Link, useForm } from '@inertiajs/react';
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 
 import { AuthLayout } from '@/components/auth/AuthLayout';
 import { Checkbox, Field } from '@/components/auth/Field';
@@ -16,12 +21,24 @@ import { cn } from '@/lib/utils';
 
 type AccountType = 'trade' | 'public';
 
+interface TradeTerms {
+    id: number;
+    version: string;
+    /** Rendered server-side from Markdown, raw HTML escaped. */
+    html: string;
+}
+
 interface RegisterProps {
     type: AccountType;
     business_types: { value: string; label: string }[];
+    legal_forms: { value: string; label: string }[];
+    trade_terms: TradeTerms | null;
 }
 
-export default function Register({ type, business_types }: RegisterProps) {
+/** 02 §25.3: Companies House must know these forms. */
+const NEEDS_COMPANY_NUMBER = ['limited_company', 'llp'];
+
+export default function Register({ type, business_types, legal_forms, trade_terms }: RegisterProps) {
     const [active, setActive] = useState<AccountType>(type);
 
     const choose = (next: AccountType) => {
@@ -59,7 +76,7 @@ export default function Register({ type, business_types }: RegisterProps) {
                 ))}
             </div>
 
-            {active === 'trade' ? <TradeForm businessTypes={business_types} /> : <PublicForm />}
+            {active === 'trade' ? <TradeForm businessTypes={business_types} legalForms={legal_forms} terms={trade_terms} /> : <PublicForm />}
         </AuthLayout>
     );
 }
@@ -93,7 +110,19 @@ function PublicForm() {
     );
 }
 
-function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_types'] }) {
+function TradeForm({ businessTypes, legalForms, terms }: { businessTypes: RegisterProps['business_types']; legalForms: RegisterProps['legal_forms']; terms: TradeTerms | null }) {
+    if (terms === null) {
+        return (
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                Trade applications are not open at the moment. Please try again later, or create a customer account to buy at our standard prices.
+            </p>
+        );
+    }
+
+    return <TradeApplicationForm businessTypes={businessTypes} legalForms={legalForms} terms={terms} />;
+}
+
+function TradeApplicationForm({ businessTypes, legalForms, terms }: { businessTypes: RegisterProps['business_types']; legalForms: RegisterProps['legal_forms']; terms: TradeTerms }) {
     const form = useForm({
         first_name: '',
         last_name: '',
@@ -102,13 +131,23 @@ function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_t
         password: '',
         password_confirmation: '',
         company_name: '',
+        legal_form: '',
         business_type: '',
         registration_number: '',
         vat_number: '',
         estimated_monthly_spend: '',
         address: { line1: '', line2: '', city: '', county: '', postcode: '' },
         terms: false,
+        terms_version_id: terms.id,
     });
+
+    // New terms arrived with a refusal: record the version now shown and
+    // make the applicant tick again for it.
+    useEffect(() => {
+        form.setData((data) => (data.terms_version_id === terms.id ? data : { ...data, terms_version_id: terms.id, terms: false }));
+    }, [terms.id]);
+
+    const needsCompanyNumber = NEEDS_COMPANY_NUMBER.includes(form.data.legal_form);
     const errors = form.errors as Record<string, string | undefined>;
     const setAddress = (key: keyof typeof form.data.address, value: string) => form.setData('address', { ...form.data.address, [key]: value });
 
@@ -132,6 +171,7 @@ function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_t
 
             <Section title="Your business">
                 <Field label="Company name" autoComplete="organization" required value={form.data.company_name} onChange={(e) => form.setData('company_name', e.target.value)} error={errors.company_name} />
+                <SelectField label="Legal form" value={form.data.legal_form} onChange={(v) => form.setData('legal_form', v)} options={legalForms} error={errors.legal_form} />
                 <SelectField
                     label="Type of business"
                     value={form.data.business_type}
@@ -142,10 +182,11 @@ function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_t
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                         label="Companies House number"
+                        required={needsCompanyNumber}
                         value={form.data.registration_number}
                         onChange={(e) => form.setData('registration_number', e.target.value)}
                         error={errors.registration_number}
-                        hint="8 digits, or 2 letters and 6 digits."
+                        hint={needsCompanyNumber ? 'Required for a limited company or LLP. 8 digits, or 2 letters and 6 digits.' : '8 digits, or 2 letters and 6 digits.'}
                     />
                     <Field label="VAT number" value={form.data.vat_number} onChange={(e) => form.setData('vat_number', e.target.value)} error={errors.vat_number} hint="e.g. GB123456789" />
                 </div>
@@ -157,7 +198,9 @@ function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_t
                     error={errors.estimated_monthly_spend}
                     hint="Helps us suggest the right terms. Not binding."
                 />
-                <p className="text-xs text-muted-foreground">No VAT or company number? That's fine — plenty of market traders and new businesses don't have one yet.</p>
+                <p className="text-xs text-muted-foreground">
+                    No VAT number? That&apos;s fine — plenty of market traders and new businesses aren&apos;t VAT-registered. Sole traders and ordinary partnerships have no Companies House number.
+                </p>
             </Section>
 
             <Section title="Trading address">
@@ -170,7 +213,20 @@ function TradeForm({ businessTypes }: { businessTypes: RegisterProps['business_t
                 </div>
             </Section>
 
-            <Checkbox label="I accept the terms of trade." checked={form.data.terms} onChange={(v) => form.setData('terms', v)} error={errors.terms} />
+            <Section title={`Terms of trade (version ${terms.version})`}>
+                {errors.terms_version_id && (
+                    <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                        {errors.terms_version_id}
+                    </p>
+                )}
+                <div
+                    tabIndex={0}
+                    aria-label="Terms of trade"
+                    className="max-h-64 space-y-2 overflow-y-auto rounded-md border p-4 text-sm [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+                    dangerouslySetInnerHTML={{ __html: terms.html }}
+                />
+                <Checkbox label={`I have read and accept the terms of trade (version ${terms.version}).`} checked={form.data.terms} onChange={(v) => form.setData('terms', v)} error={errors.terms} />
+            </Section>
 
             <Button type="submit" className="h-11 w-full" disabled={form.processing}>
                 {form.processing ? 'Sending…' : 'Apply for a trade account'}

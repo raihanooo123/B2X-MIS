@@ -5,6 +5,7 @@ namespace App\Domain\Accounts;
 use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditEntry;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Delivery\Postcode;
 use App\Domain\Delivery\ZoneResolver;
 use App\Domain\Notifications\Notices\ApplicationApproved;
 use App\Domain\Notifications\Notices\ApplicationInfoRequested;
@@ -20,6 +21,7 @@ use App\Models\PriceTier;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -55,15 +57,13 @@ use Illuminate\Validation\ValidationException;
  */
 final class ApplicationReviewService
 {
-    /** 05.2 §5.7's default; the configuration key is not yet named. */
-    public const COOLING_PERIOD_DAYS = 90;
-
     public function __construct(
         private readonly AuditLogger $audit = new AuditLogger,
         private readonly Notifications $notifications = new Notifications,
         private readonly NumberSequenceService $numbers = new NumberSequenceService,
         private readonly ZoneResolver $zones = new ZoneResolver,
         private readonly PricingCache $pricingCache = new PricingCache,
+        private readonly ApplicationSettings $settings = new ApplicationSettings,
     ) {}
 
     public function startReview(B2bApplication $application, User $actor): void
@@ -98,29 +98,43 @@ final class ApplicationReviewService
     }
 
     /**
-     * 05.2 §5.7: the internal reason is mandatory and never shown to the
-     * applicant. A remediable rejection may be followed by a new
-     * application at once; otherwise after the cooling period.
+     * 05.2 §5.7, 02 §25.2: the internal reason and category are mandatory;
+     * the internal reason is never shown to the applicant. An optional
+     * message is sent instead of the neutral default. `reapply_after` is a
+     * snapshot of the cooling period now (`applications.reapply_cooling_days`)
+     * — NULL when remediable — so a later change to the setting never moves
+     * an existing applicant's date.
      */
-    public function reject(B2bApplication $application, User $actor, string $internalReason, bool $remediable): void
+    public function reject(B2bApplication $application, User $actor, string $internalReason, RejectionCategory $category, bool $remediable, ?string $applicantMessage = null): void
     {
         $internalReason = trim($internalReason);
         if ($internalReason === '') {
             throw ValidationException::withMessages(['review_note' => 'Record the internal reason for rejecting.']);
         }
+        $applicantMessage = $applicantMessage === null || trim($applicantMessage) === '' ? null : trim($applicantMessage);
+        if ($applicantMessage !== null && mb_strlen($applicantMessage) > 2000) {
+            throw ValidationException::withMessages(['applicant_message' => 'Keep the message to the applicant under 2,000 characters.']);
+        }
 
-        $this->transition($application, $actor, 'reject', function (B2bApplication $locked, User $reviewer, User $applicant) use ($internalReason, $remediable): void {
+        $this->transition($application, $actor, 'reject', function (B2bApplication $locked, User $reviewer, User $applicant) use ($internalReason, $category, $remediable, $applicantMessage): void {
             $reviewedAt = now();
             $locked->forceFill([
                 'status' => 'rejected',
                 'review_note' => $internalReason,
+                'rejection_category' => $category->value,
+                'rejection_remediable' => $remediable,
+                'applicant_message' => $applicantMessage,
+                'reapply_after' => $remediable ? null : $reviewedAt->copy()->addDays($this->settings->reapplyCoolingDays()),
                 'reviewer_user_id' => $reviewer->id,
                 'reviewed_at' => $reviewedAt,
             ])->save();
-            $this->record($reviewer, $locked, AuditAction::ApplicationRejected, 'in_review', ['status' => 'rejected', 'remediable' => $remediable]);
+            $this->record($reviewer, $locked, AuditAction::ApplicationRejected, 'in_review', [
+                'status' => 'rejected',
+                'remediable' => $remediable,
+                'rejection_category' => $category->value,
+            ]);
 
-            $reapplyFrom = $remediable ? null : $reviewedAt->copy()->addDays(self::COOLING_PERIOD_DAYS)->toIso8601String();
-            $this->notifications->toUser(new ApplicationRejected($locked->id, $remediable, $reapplyFrom), $applicant);
+            $this->notifications->toUser(new ApplicationRejected($locked->id), $applicant);
         });
     }
 
@@ -132,6 +146,30 @@ final class ApplicationReviewService
     {
         $company = null;
 
+        try {
+            $this->approveInTransaction($application, $actor, $terms, $company);
+        } catch (UniqueConstraintViolationException $exception) {
+            // Two applications with one VAT number approved at the same
+            // moment: both passed the pre-check, and `companies_vat_uq`
+            // refused the second insert. Its transaction has rolled back
+            // whole — no company, no account number consumed.
+            if (! str_contains($exception->getMessage(), 'companies_vat_uq')) {
+                throw $exception;
+            }
+            $vat = B2bApplication::query()->whereKey($application->id)->value('vat_number');
+
+            throw ValidationException::withMessages(['application' => "VAT number {$vat} was approved for another account a moment ago. Reload the application to see the duplicate, then link or reject it."]);
+        }
+
+        if (! $company instanceof Company) {
+            throw new \LogicException('Approval did not create a company.');
+        }
+
+        return $company;
+    }
+
+    private function approveInTransaction(B2bApplication $application, User $actor, ApprovalTerms $terms, ?Company &$company): void
+    {
         $this->transition($application, $actor, 'approve', function (B2bApplication $locked, User $reviewer, User $applicant) use ($terms, &$company): void {
             if ($terms->creditLimitMinor > 0) {
                 Gate::forUser($reviewer)->authorize('grantCredit', $locked);
@@ -162,6 +200,7 @@ final class ApplicationReviewService
                 'name' => $locked->company_name,
                 'vat_number' => $locked->vat_number,
                 'registration_number' => $locked->registration_number,
+                'legal_form' => $locked->legal_form,
                 'status' => 'approved',
                 'price_tier_id' => $terms->priceTierId,
                 'payment_terms' => $terms->paymentTerms->value,
@@ -227,12 +266,6 @@ final class ApplicationReviewService
             $companyId = $company->id;
             DB::afterCommit(fn () => $this->pricingCache->forgetCompanyLists($companyId));
         });
-
-        if (! $company instanceof Company) {
-            throw new \LogicException('Approval did not create a company.');
-        }
-
-        return $company;
     }
 
     /**
@@ -281,7 +314,7 @@ final class ApplicationReviewService
             'line2' => $text('line2'),
             'city' => $city,
             'county' => $text('county'),
-            'postcode' => strtoupper($postcode),
+            'postcode' => Postcode::format($postcode),
             'country_code' => strtoupper($text('country_code') ?? 'GB'),
         ];
     }

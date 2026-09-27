@@ -3,6 +3,8 @@
 namespace App\Filament\Resources;
 
 use App\Domain\Accounts\ApplicationDuplicates;
+use App\Domain\Accounts\LegalForm;
+use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Delivery\ZoneResolver;
 use App\Domain\Identity\BusinessType;
 use App\Filament\Resources\TradeApplicationResource\Pages;
@@ -56,7 +58,7 @@ class TradeApplicationResource extends Resource
     /** @return Builder<B2bApplication> */
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->with(['applicant', 'reviewer', 'requestedTier', 'grantedTier', 'company']);
+        return parent::getEloquentQuery()->with(['applicant', 'reviewer', 'requestedTier', 'grantedTier', 'company', 'termsAcceptance.termsVersion']);
     }
 
     public static function infolist(Infolist $infolist): Infolist
@@ -66,6 +68,9 @@ class TradeApplicationResource extends Resource
                 TextEntry::make('status')->badge()->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state),
                 TextEntry::make('submitted_at')->label('Submitted')->dateTime(),
                 TextEntry::make('company_name')->label('Company name'),
+                TextEntry::make('legal_form')->label('Legal form')
+                    ->formatStateUsing(fn (?string $state): string => LegalForm::tryFrom((string) $state)?->label() ?? '—')
+                    ->placeholder('Not recorded (applied before legal form was asked)'),
                 TextEntry::make('business_type')->label('Business type')
                     ->formatStateUsing(fn (?string $state): string => BusinessType::tryFrom((string) $state)?->label() ?? '—'),
                 TextEntry::make('registration_number')->label('Companies House number')->placeholder('Not given'),
@@ -80,6 +85,8 @@ class TradeApplicationResource extends Resource
                 TextEntry::make('contact_phone')->label('Phone')->placeholder('Not given'),
                 TextEntry::make('applicant_account')->label('Applicant account')
                     ->state(fn (B2bApplication $record): string => self::applicantSummary($record)),
+                TextEntry::make('terms_accepted')->label('Terms of trade accepted')->columnSpanFull()
+                    ->state(fn (B2bApplication $record): string => self::termsSummary($record)),
             ])->columns(2),
             Section::make('Trading address')->schema([
                 TextEntry::make('address_lines')->hiddenLabel()
@@ -102,6 +109,11 @@ class TradeApplicationResource extends Resource
                 TextEntry::make('reviewed_at')->label('Decided')->dateTime()->placeholder('—'),
                 TextEntry::make('info_request')->label('Information requested')->placeholder('—')->columnSpanFull(),
                 TextEntry::make('review_note')->label('Internal reason')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('rejection_category')->label('Rejection category')->placeholder('—')
+                    ->formatStateUsing(fn (?string $state): string => RejectionCategory::tryFrom((string) $state)?->label() ?? '—'),
+                TextEntry::make('reapply')->label('May apply again')
+                    ->state(fn (B2bApplication $record): ?string => self::reapplySummary($record))->placeholder('—'),
+                TextEntry::make('applicant_message')->label('Message to the applicant')->placeholder('—')->columnSpanFull(),
                 TextEntry::make('grantedTier.name')->label('Granted tier')->placeholder('—'),
                 TextEntry::make('company.account_code')->label('Account code')->placeholder('—'),
             ])->columns(2),
@@ -136,6 +148,31 @@ class TradeApplicationResource extends Resource
         $verified = $applicant->email_verified_at === null ? 'email not confirmed' : 'email confirmed';
 
         return "{$applicant->email} — {$applicant->status}, {$verified}";
+    }
+
+    /** 02 §25.1: "not recorded" for applications filed before terms were versioned. */
+    private static function termsSummary(B2bApplication $application): string
+    {
+        $acceptance = $application->termsAcceptance;
+        if ($acceptance === null) {
+            return 'Accepted before terms were versioned — not recorded.';
+        }
+
+        $version = $acceptance->termsVersion->version ?? '?';
+        $at = $acceptance->accepted_at->timezone('Europe/London')->format('j M Y H:i');
+
+        return "Version {$version}, {$at}".($acceptance->ip === null ? '' : " from {$acceptance->ip}");
+    }
+
+    private static function reapplySummary(B2bApplication $application): ?string
+    {
+        if ($application->status !== 'rejected') {
+            return null;
+        }
+
+        return $application->reapply_after === null
+            ? 'Straight away (remediable)'
+            : 'From '.$application->reapply_after->timezone('Europe/London')->format('j M Y');
     }
 
     /** @return list<string> */

@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Accounts\TermsKind;
 use App\Domain\Identity\EmailVerificationLink;
 use App\Domain\Identity\Totp;
 use App\Domain\Notifications\Notices\PasswordReset;
@@ -8,6 +9,7 @@ use App\Models\B2bApplication;
 use App\Models\NotificationLog;
 use App\Models\Role;
 use App\Models\RoleUser;
+use App\Models\TermsVersion;
 use App\Models\User;
 use App\Models\UserTwoFactorRecoveryCode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -31,6 +33,10 @@ beforeEach(function () {
     $this->breachedDir = storage_path('framework/testing/breached-'.uniqid());
     File::ensureDirectoryExists($this->breachedDir);
     config(['auth.breached_passwords.path' => $this->breachedDir]);
+    // 02 §25.1: trade registration needs terms of trade in force. Their
+    // publisher is excluded from the registrant counts below.
+    $this->termsPublisher = User::factory()->create();
+    TermsVersion::factory()->create(['published_by_user_id' => $this->termsPublisher->id]);
 });
 
 afterEach(function () {
@@ -70,12 +76,14 @@ function tradeForm(array $overrides = []): array
         'password' => RECOVERY_PASSWORD,
         'password_confirmation' => RECOVERY_PASSWORD,
         'company_name' => 'Corner Shop Ltd',
+        'legal_form' => 'limited_company',
         'registration_number' => 'ab123456',
         'vat_number' => 'gb 980 780 684',
         'business_type' => 'convenience',
         'estimated_monthly_spend' => 2500,
         'address' => ['line1' => '1 High Street', 'city' => 'London', 'postcode' => 'e1 6an'],
         'terms' => '1',
+        'terms_version_id' => TermsVersion::current(TermsKind::Trade)?->id,
     ], $overrides);
 }
 
@@ -116,7 +124,7 @@ it('rejects an invalid VAT number and company number', function () {
     $this->post('/register/trade', tradeForm(['vat_number' => 'GB123456789', 'registration_number' => '1234']))
         ->assertSessionHasErrors(['vat_number', 'registration_number']);
 
-    expect(User::query()->count())->toBe(0);
+    expect(User::query()->whereKeyNot($this->termsPublisher->id)->count())->toBe(0);
 });
 
 it('answers an already-registered email exactly like a new one, and emails the owner instead', function () {
@@ -124,7 +132,7 @@ it('answers an already-registered email exactly like a new one, and emails the o
 
     $this->post('/register/trade', tradeForm())->assertRedirect(route('login'))->assertSessionHas('status');
 
-    expect(User::query()->count())->toBe(1)
+    expect(User::query()->whereKeyNot($this->termsPublisher->id)->count())->toBe(1)
         ->and(B2bApplication::query()->count())->toBe(0);
     expect(notifiedKeys($existing))->toBe(['auth.existing_account']);
 });
@@ -137,7 +145,7 @@ it('refuses a password on the offline breached list, and one under 12 characters
     $this->post('/register/trade', tradeForm(['password' => 'short-pass', 'password_confirmation' => 'short-pass']))
         ->assertSessionHasErrors('password');
 
-    expect(User::query()->count())->toBe(0);
+    expect(User::query()->whereKeyNot($this->termsPublisher->id)->count())->toBe(0);
 });
 
 it('refuses an email containing a line break', function () {

@@ -2197,6 +2197,8 @@ With pack structure, location, batch and serial all present from the first migra
 
 **Stocktake serials (§24.2, full DDL here, added 2026-09-26):** `stocktake_line_serials`, migrated 2026-09-26.
 
+**Trade application compliance (§25, full DDL here, signed off 2026-09-28):** `terms_versions`, `terms_acceptances`, `vat_number_checks` and `companies_house_checks` — migrations written 2026-09-28 (`2026_10_14_090100`–`090400`), pending verification. `terms_versions`, `vat_number_checks` and `companies_house_checks` follow step 4 (`b2b_applications`). `terms_acceptances` follows step 13, because it references `orders`. The same amendment adds columns to `b2b_applications` and `companies` (§25.2–§25.3).
+
 **Migrated 2026-09-25:** `shipments`, `shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`, `stocktake_lines` (§14.6–14.7); `suppliers`, `containers`, `purchase_orders`, `purchase_order_lines` (05.7 §4–6); `goods_receipts`, `goods_receipt_lines` (§23).
 
 **Phase 2 (keys fixed here, DDL in module specs):** `quotes`, `quote_lines`, `credit_holds`, `account_credit_movements`, `rep_category_discount_limits`, `rmas`, `rma_lines`, `collection_slots`, `collection_bookings`
@@ -3821,3 +3823,468 @@ CREATE INDEX stocktake_line_serials_serial_idx ON stocktake_line_serials (serial
 ### 24.4 Lock order at posting
 
 `stocktakes` (FOR UPDATE) → `stock_levels` (02 §11.1 order) → `stock_serials`. Posting moves no credit and reserves nothing, so it extends the global order without a cycle. It serialises against allocation on the level row, as 05.5 §13 W3 requires.
+
+---
+
+## 25. Schema amendment 2026-09-28 — trade application compliance (signed off 2026-09-28)
+
+> **Status: signed off 2026-09-28**, with the decisions in §25.8 and two changes made before sign-off the same day: the wider Companies House refusal list (§25.9) and terms publishing with a development seeder (§25.1, §25.10). **Slice B1 built 2026-09-28, pending test verification:** all four migrations (`2026_10_14_090100`–`090400`), terms publishing and acceptance, legal form, rejection outcome and the re-application gate. The external checks (§25.4–§25.5 writers) and the §25.9 approval rule are slice B2; until then the check tables stay empty. Remaining tasks are in ROADMAP §6. Behaviour is in 05.2 §17. The approval rule and audit shapes are in §25.9, and deployment prerequisites in §25.10.
+
+This amendment adds what a UK wholesaler needs to record when an application is made and reviewed:
+
+- which terms of trade the applicant accepted (§25.1);
+- a complete rejection outcome (§25.2);
+- the applicant's legal form, which decides the checks required (§25.3);
+- the evidence from the VAT number check — HMRC for `GB` numbers, the EU's VIES for Northern Ireland `XI` numbers (§25.4) — and from Companies House (§25.5).
+
+Credit vetting — references, a credit reference agency result, guarantees — is **out of scope**. It belongs to the credit module (05.2 Part B).
+
+**Shared rules for §25.4–§25.5.**
+
+- A check is **never** a condition of submitting an application. It runs in a queued job after the registration transaction commits. No external call happens inside a transaction (CLAUDE.md invariant 6).
+- A service that is unreachable, times out, rate-limits or answers unexpectedly is recorded as outcome `unchecked`, with a `failure_reason`. Reviewers see it, and can re-run the check from the review screen.
+- Each attempt is a new row. Rows are never updated, so the history of what was known, and when, is kept.
+- The latest row per application and check type is the current evidence.
+
+### 25.1 Terms of trade — versions and acceptance
+
+Today the registration form requires a "terms of trade" tick (`RegisterTradeRequest` `terms: accepted`), but it records nothing. The text itself lives nowhere in the system. In a B2B dispute, the seller must show which terms were incorporated into the contract, and that the buyer accepted them.
+
+```sql
+CREATE TABLE terms_versions (
+  id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind                  text        NOT NULL,
+  version               text        NOT NULL,
+  body_markdown         text        NOT NULL,
+  body_sha256           text        NOT NULL,
+  effective_from        timestamptz NOT NULL,
+  published_by_user_id  bigint      NOT NULL REFERENCES users (id),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT terms_versions_kind_chk    CHECK (kind IN ('trade','sale')),
+  CONSTRAINT terms_versions_version_chk CHECK (version ~ '^[0-9A-Za-z._-]{1,32}$'),
+  CONSTRAINT terms_versions_sha_chk     CHECK (body_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT terms_versions_kind_version_uq   UNIQUE (kind, version),
+  CONSTRAINT terms_versions_kind_effective_uq UNIQUE (kind, effective_from)
+);
+
+CREATE FUNCTION reject_row_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
+END;
+$$;
+
+CREATE TRIGGER terms_versions_immutable
+  BEFORE UPDATE OR DELETE ON terms_versions
+  FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TABLE terms_acceptances (
+  id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  terms_version_id    bigint      NOT NULL REFERENCES terms_versions (id),
+  user_id             bigint      NOT NULL REFERENCES users (id),
+  b2b_application_id  bigint      REFERENCES b2b_applications (id) ON DELETE CASCADE,
+  order_id            bigint      REFERENCES orders (id),
+  source              text        NOT NULL,
+  ip                  inet,
+  user_agent          text,
+  accepted_at         timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT terms_acceptances_source_chk CHECK (source IN ('trade_application','checkout')),
+  CONSTRAINT terms_acceptances_source_subject_chk CHECK (
+    CASE source
+      WHEN 'trade_application' THEN b2b_application_id IS NOT NULL AND order_id IS NULL
+      WHEN 'checkout'          THEN order_id IS NOT NULL AND b2b_application_id IS NULL
+    END
+  )
+);
+
+CREATE UNIQUE INDEX terms_acceptances_application_uq
+  ON terms_acceptances (b2b_application_id) WHERE b2b_application_id IS NOT NULL;
+CREATE UNIQUE INDEX terms_acceptances_order_uq
+  ON terms_acceptances (order_id) WHERE order_id IS NOT NULL;
+
+CREATE TRIGGER terms_acceptances_immutable
+  BEFORE UPDATE ON terms_acceptances
+  FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+```
+
+- **Where versions live:** here, not in the CMS (05.11, unwritten). A version is a legal record, not editable content. Rows are immutable, enforced by a trigger function like §15's. That function's message names `audit_log`, so a generic `reject_row_mutation()` names the table instead. Changing the terms means publishing a new version. `body_sha256` is the SHA-256 of `body_markdown`, so the exact text accepted can be proven later.
+- **Current version:** the row with the latest `effective_from <= now()` for the kind. A version can be published ahead of its effective date. The query runs when the application form loads and again when it is submitted. `terms_versions_kind_effective_uq` serves it by a backward scan, so no extra index is needed (§9 rule 10).
+- **`kind`:** `trade` (terms of trade, accepted on a trade application) and `sale` (terms of sale for public customers, 05.13 §5.2). A **public customer accepts the terms of sale at checkout**: source `checkout`, one row per order, linked by `order_id`. That write belongs to a later checkout slice (ROADMAP §6, ⚑1); this amendment only makes the schema ready for it. `terms_acceptances_order_uq` enforces one acceptance per order, and serves the order screen's lookup. `order_id` has no cascade: orders are never deleted within 7 years (07 §7.2), and neither is the proof of the terms they were sold on.
+- **Acceptance** is append-only: the trigger rejects UPDATE. DELETE is allowed only through the application's cascade, so acceptance lives exactly as long as the application does under 07 §7.2 — 2 years for a rejection, indefinitely for an approval.
+  - `terms_acceptances_application_uq` enforces one acceptance per application. It also serves the review screen's lookup by application.
+  - No index on `user_id` yet: no query reads acceptances by user. One is added when a "has this user accepted the current version" check exists.
+- **`ip`** is `inet`, and `user_agent` is kept as well, as in `notification_preferences` (§22.1). Both are access-controlled personal data (§15.2 decision 5). `ip` comes from `Request::ip()`, which is correct only behind correctly configured trusted proxies.
+- **Backfill:** none. Existing applications have no acceptance row, and the review screen shows "Accepted before terms were versioned — not recorded". Inventing a version for them would misstate what they saw.
+- **Publishing** (Filament `TermsVersionResource`, Settings → Terms):
+  - **Access:** admin only, through `TermsVersionPolicy`. `viewAny`, `view` and `create` are for an active `admin`. `update` and `delete` are always false, matching the trigger, so the screen offers no edit or delete action at all.
+  - **List:** every version per kind, marking the one currently in force and any scheduled ones.
+  - **Publish a new version** form:
+    - kind;
+    - version label (unique per kind);
+    - effective from (now or later, never in the past, so no acceptance already recorded can be re-attributed);
+    - the text, as Markdown with a preview.
+  - **Confirmation** shows the text's SHA-256 and says the version cannot be changed afterwards.
+  - **On publish,** `App\Domain\Accounts\TermsPublisher` computes `body_sha256`, sets `published_by_user_id`, and inserts the row. A mistake is corrected by publishing a new version, effective now.
+  - **Audit** (07 §6.5 "configuration changes"): `configuration.terms_version_published`, family `configuration`, subject `terms_version`. It records only `kind`, `version`, `effective_from` and `body_sha256` — never the text, which the row itself holds.
+  - **Production terms must be reviewed by a solicitor before they are published.** The screen publishes what it is given, and nothing in the system checks legal content. The placeholder seeder (§25.10) never runs in production.
+- **Written by:**
+  - `RegisterTradeRequest` gains a required `terms_version_id` field. It must equal the current trade version; otherwise the applicant is asked to re-read the terms, which changed while the form was open.
+  - `Registration::tradeApplicant()` / `fileApplication()` insert the acceptance row in the same transaction as the application.
+  - The signed-in application form (05.13 §5.1, not built) will do the same.
+- **Read by:**
+  - `TradeApplicationResource`, as a "Terms accepted" entry: version, time, IP.
+  - The admin panel's terms screen — see **Publishing** below.
+  - The storefront terms page, which renders the current version.
+
+### 25.2 Rejection outcome and cooling period
+
+05.2 §5.7 asks for three things §4.6 cannot hold: whether a rejection is remediable, the message shown to the applicant, and a structured reason. A structured reason is needed to report on rejections without reading free-text internal notes.
+
+```sql
+ALTER TABLE b2b_applications
+  ADD COLUMN rejection_category   text,
+  ADD COLUMN rejection_remediable boolean,
+  ADD COLUMN applicant_message    text,
+  ADD COLUMN reapply_after        timestamptz;
+
+-- after the backfill below
+ALTER TABLE b2b_applications ADD CONSTRAINT b2b_applications_rejection_category_chk
+  CHECK (rejection_category IN ('not_a_trade_business','business_not_verified','identity_not_verified',
+    'duplicate_account','no_response_to_request','outside_trading_area','credit_or_risk_concern','other')) NOT VALID;
+ALTER TABLE b2b_applications ADD CONSTRAINT b2b_applications_rejection_outcome_chk CHECK (
+  CASE WHEN status = 'rejected'
+    THEN rejection_category IS NOT NULL
+     AND rejection_remediable IS NOT NULL
+     AND (rejection_remediable = (reapply_after IS NULL))
+    ELSE rejection_category IS NULL AND rejection_remediable IS NULL
+     AND applicant_message IS NULL AND reapply_after IS NULL
+  END) NOT VALID;
+ALTER TABLE b2b_applications ADD CONSTRAINT b2b_applications_applicant_message_chk
+  CHECK (applicant_message IS NULL OR length(applicant_message) BETWEEN 1 AND 2000) NOT VALID;
+ALTER TABLE b2b_applications VALIDATE CONSTRAINT b2b_applications_rejection_category_chk;
+ALTER TABLE b2b_applications VALIDATE CONSTRAINT b2b_applications_rejection_outcome_chk;
+ALTER TABLE b2b_applications VALIDATE CONSTRAINT b2b_applications_applicant_message_chk;
+
+CREATE INDEX b2b_applications_reapply_idx
+  ON b2b_applications (applicant_user_id, reviewed_at DESC)
+  INCLUDE (reapply_after)
+  WHERE status = 'rejected' AND applicant_user_id IS NOT NULL;
+```
+
+**Column meanings**
+
+- `review_note` stays the mandatory **internal** reason. `applicant_message` is the optional text sent to the applicant, and shown on their status page. When it is NULL, the neutral default wording is used.
+- `rejection_category` is a closed list, mirrored by a PHP backed enum `RejectionCategory` (§2.5), confirmed with `credit_or_risk_concern` added (⚑2). That category records a reviewer's judgement; it does not bring credit vetting into this amendment.
+- **`reapply_after` is a snapshot** (§2.7): `reviewed_at + applications.reapply_cooling_days`, computed at rejection, or NULL when remediable. Changing the setting later does not move an existing applicant's date, and the rejection email and the re-application gate always agree. The outcome CHECK ties it to `rejection_remediable`.
+
+**Configuration key** (§2.7): `applications.reapply_cooling_days` — `value_type 'int'`, `global` scope, value 90, seeded by the same migration. The code default is also 90, per 05.2 §5.7. Company scope is not meaningful, since a rejected applicant has no company.
+
+**Index**
+
+- `b2b_applications_reapply_idx` serves the re-application gate (05.13 §7): "this user's latest rejection and its `reapply_after`" — `WHERE applicant_user_id = ? AND status = 'rejected' ORDER BY reviewed_at DESC LIMIT 1`, index-only.
+- It is partial (§9 rule 1) because rejected rows are a small share, and nothing else queries by `applicant_user_id`.
+- The gate for a visitor who is not signed in keys on `contact_email`, which `b2b_applications_email_idx` already serves. **It never reveals the rejection or its date on screen:** the form gives the normal confirmation, and only that address is emailed the date (`application.reapply_blocked`, 05.12 §5.2; 05.13 §5.1). A signed-in applicant is shown the date directly.
+
+**Backfill, inside the migration before VALIDATE**
+
+- Rows rejected before this amendment carry `remediable` in their `application.rejected` audit row (05.2 §16).
+- `rejection_category = 'other'`, `rejection_remediable` = the audit `after->>'remediable'` (false where no audit row exists), and `reapply_after = COALESCE(reviewed_at, submitted_at) + 90 days` unless remediable. `applicant_message` stays NULL.
+- A rejection with no audit row predates §15 and gets the conservative choice: not remediable.
+
+**Written by**
+
+- `ApplicationReviewService::reject()` gains `RejectionCategory $category` and `?string $applicantMessage`. It reads the cooling period through the configuration resolver and writes all four columns.
+- The `application.rejected` audit shape gains `rejection_category`. It stays an enum value, never the message: free text stays out of audit payloads (§15.2 decision 5).
+- The `ApplicationRejected` notice sends `applicant_message` when set, and the `reapply_after` date.
+- In `ViewTradeApplication`, the Reject form gains a category select and an optional "Message to the applicant" textarea.
+
+**Read by**
+
+- The re-application gate in `Registration` and the signed-in application form (05.13 §7), both not built.
+- The applicant status page (05.13 §7, not built).
+- `TradeApplicationResource`'s Review section.
+
+### 25.3 Legal form
+
+`business_type` (05.2 §5.1) is the trade sector. It says nothing about the legal entity, and the legal entity decides which evidence can exist: a sole trader or ordinary partnership has no Companies House number, while a limited company or LLP must have one.
+
+```sql
+ALTER TABLE b2b_applications ADD COLUMN legal_form text;
+ALTER TABLE companies        ADD COLUMN legal_form text;
+
+-- after the backfill below
+ALTER TABLE b2b_applications ADD CONSTRAINT b2b_applications_legal_form_chk
+  CHECK (legal_form IN ('sole_trader','partnership','limited_company','llp','other')) NOT VALID;
+ALTER TABLE b2b_applications ADD CONSTRAINT b2b_applications_legal_form_number_chk
+  CHECK (legal_form IS NULL OR legal_form NOT IN ('limited_company','llp')
+         OR registration_number IS NOT NULL) NOT VALID;
+ALTER TABLE companies ADD CONSTRAINT companies_legal_form_chk
+  CHECK (legal_form IN ('sole_trader','partnership','limited_company','llp','other')) NOT VALID;
+ALTER TABLE b2b_applications VALIDATE CONSTRAINT b2b_applications_legal_form_chk;
+ALTER TABLE b2b_applications VALIDATE CONSTRAINT b2b_applications_legal_form_number_chk;
+ALTER TABLE companies        VALIDATE CONSTRAINT companies_legal_form_chk;
+```
+
+A PHP backed enum `LegalForm` is the single source (§2.5). It carries `requiredChecks()`:
+
+| Legal form | Companies House | VAT check (HMRC or VIES) |
+|---|---|---|
+| `sole_trader` | Not applicable — no number is asked for | When a VAT number is given |
+| `partnership` | When a number is given — Scottish (`SL`), limited (`LP`) and Northern Ireland limited (`NL`) partnerships are registered; an ordinary partnership is not (⚑3) | When a VAT number is given |
+| `limited_company` | **Required** — the number is mandatory | When a VAT number is given |
+| `llp` | **Required** — the number is mandatory | When a VAT number is given |
+| `other` (charity, CIO, co-operative, public body…) | When a number is given | When a VAT number is given |
+
+VAT stays optional for every form: a business below the VAT threshold is a genuine trade customer (05.2 §5.1). Nothing here blocks submission. At approval (§25.9, ⚑4), a `limited_company` or `llp` that Companies House reports `not_found` or `dissolved` is **refused**; every other shortfall needs a recorded acknowledgement.
+
+**Column notes**
+
+- Both columns are nullable, because existing rows cannot all be classified. New applications must supply `legal_form`: the Form Request enforces it, and the column cannot, without failing every later UPDATE of an unclassified historical row.
+- `b2b_applications_legal_form_number_chk` holds for every classified row. That is safe to validate, because the backfill only classifies rows that have a number.
+- No index on either column: nothing filters by legal form. It is read with the row.
+
+**Backfill**, from `registration_number`, whose prefix identifies the register:
+
+- `OC`, `SO` or `NC` → `llp`;
+- `SL`, `LP` or `NL` → `partnership`;
+- 8 digits, or `SC` or `NI` → `limited_company`;
+- any other prefix (`FC`, `RC`, `IP`, `CE`, `CS`, `SE`, …) → `other`;
+- no number → NULL.
+
+`companies` is backfilled by the same rule, and approval copies the application's value from then on.
+
+**Written by**
+
+- `RegisterTradeRequest` requires `legal_form` (`Rule::enum(LegalForm::class)`), and makes `registration_number` `required_if` the form is `limited_company` or `llp`.
+- `Registration::fileApplication()` stores it. `ApplicationReviewService::approve()` copies it to the company.
+
+**Read by:** the checks job (§25.4–§25.5), and `TradeApplicationResource` (Application section and the approval warnings).
+
+### 25.4 VAT number check evidence — HMRC and VIES
+
+- **`GB` numbers:** HMRC's "Check a UK VAT number" API (v2) confirms the number is registered, and returns the registered name and address. When the request quotes our own VRN (`seller.vat_number`, §21.3), it also returns a **consultation number** — HMRC's reference proving the check was made.
+- **Northern Ireland `XI` numbers** (⚑5): these are checked through the EU's VIES service. It returns validity, and the name and address where the member state discloses them. When the request quotes a requester number (`seller.xi_vat_number`, below), it also returns a **request identifier**, VIES's equivalent of the consultation number. Both are stored in `consultation_number`.
+
+```sql
+CREATE TABLE vat_number_checks (
+  id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  b2b_application_id    bigint      NOT NULL REFERENCES b2b_applications (id) ON DELETE CASCADE,
+  vat_number            text        NOT NULL,
+  authority             text        NOT NULL,
+  outcome               text        NOT NULL,
+  registered_name       text,
+  registered_address    jsonb,
+  consultation_number   text,
+  processed_at          timestamptz,
+  failure_reason        text,
+  requested_by_user_id  bigint      REFERENCES users (id),
+  checked_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT vat_number_checks_number_chk  CHECK (vat_number ~ '^(GB|XI)[0-9]{9}([0-9]{3})?$'),
+  CONSTRAINT vat_number_checks_authority_chk CHECK (authority IN ('hmrc','vies')),
+  CONSTRAINT vat_number_checks_authority_prefix_chk CHECK (
+    (authority = 'hmrc') = (left(vat_number, 2) = 'GB')
+  ),
+  CONSTRAINT vat_number_checks_outcome_chk CHECK (outcome IN ('valid','not_found','unchecked')),
+  CONSTRAINT vat_number_checks_failure_chk CHECK (failure_reason IN
+    ('timeout','unavailable','rate_limited','not_configured','unexpected_response')),
+  CONSTRAINT vat_number_checks_coherence_chk CHECK (
+    CASE outcome
+      WHEN 'valid'     THEN processed_at IS NOT NULL AND failure_reason IS NULL
+                        AND (authority = 'vies' OR registered_name IS NOT NULL)
+      WHEN 'not_found' THEN registered_name IS NULL AND registered_address IS NULL
+                        AND consultation_number IS NULL AND failure_reason IS NULL
+      ELSE registered_name IS NULL AND registered_address IS NULL
+       AND consultation_number IS NULL AND processed_at IS NULL AND failure_reason IS NOT NULL
+    END)
+);
+
+CREATE INDEX vat_number_checks_latest_idx
+  ON vat_number_checks (b2b_application_id, checked_at DESC, id);
+```
+
+**Columns**
+
+- `outcome` (enum `VatCheckOutcome`):
+  - `valid`: the authority returned the registration.
+  - `not_found`: the authority answered that the number is not registered.
+  - `unchecked`: no answer — see `failure_reason`.
+- `not_configured` covers missing API credentials in an environment. Such an environment still accepts applications.
+- `vat_number` is the number as sent, which may differ from the application's if an applicant later corrects it.
+- `authority` (enum `VatCheckAuthority`) follows the prefix, and the constraint makes a mismatch impossible: `GB` goes to HMRC, `XI` to VIES.
+- `registered_address` is stored as returned: HMRC's address object, or `{"text": …}` for VIES's single free-text address. It is shown to the reviewer, never queried.
+- A VIES `valid` result may have no name: some member states withhold it and return `---`, which is stored as NULL. HMRC always returns a name, so the coherence check requires one only for `hmrc`.
+- `consultation_number` is NULL when no requester number is configured.
+- `processed_at` is the authority's own timestamp (HMRC `processingDate`, VIES `requestDate`) — the time it vouches for.
+- `requested_by_user_id` is NULL for the automatic check after submission, and the reviewer for a re-run.
+- The table is append-only by convention, with no update path in code. It is evidence, but not in 07 §6.5's audit scope, so it has no trigger.
+
+**Index:** `vat_number_checks_latest_idx` serves "latest check for this application" on the review screen, and the queue's per-row status badge (a `LATERAL … LIMIT 1` per row). `id` trails for a deterministic tie-break (§9 rule 8).
+
+**Backfill:** none. Existing applications show "Not checked", and a reviewer can run the check.
+
+**When HMRC or VIES is unreachable** (VIES is often down for a single member state; its `MS_UNAVAILABLE` and `SERVICE_UNAVAILABLE` are recorded as `unavailable`, and `MS_MAX_CONCURRENT_REQ` as `rate_limited`)
+
+- The job retries three times with backoff (10 s, 60 s, 300 s), each request with a 5-second timeout. Only the final result is written, so a transient blip leaves one `valid` row, not three failures.
+- The application is untouched and the applicant is never told.
+- The queue shows "VAT unchecked", and the review screen offers **Re-run checks**.
+
+**Written by**
+
+- A queued job, `VerifyApplicationBusiness`, dispatched after commit from `RegisterController::storeTrade()`. It calls `App\Domain\Accounts\BusinessVerification`, which picks `HmrcVatClient` or `ViesVatClient` by prefix. Both are built on Laravel's HTTP client, using VIES's REST endpoint, so no new package is needed.
+- `UkVatNumber` accepts `XI` as well as `GB`. The modulus-97 check is the same for both, since an `XI` number is the trader's UK VRN.
+- A **Re-run checks** header action in `ViewTradeApplication`, gated by a new `B2bApplicationPolicy::rerunChecks` ability (reviewers, open applications only). It dispatches the same job with `requested_by_user_id`.
+
+**Read by:** `TradeApplicationResource` (queue badge and a new "Verification" section with history), and the approval rule (§25.9).
+
+**Duplicate detection** (05.2 §5.2) compares the nine-digit core, not the whole string. A Northern Ireland business's `XI` and `GB` numbers share their digits, and `companies_vat_uq` treats `GB123456789` and `XI123456789` as different values. `ApplicationDuplicates` therefore matches on `substring(vat_number from 3 for 9)`. At current volumes that is a sequential scan over `companies`, and it adds no index until measured.
+
+**Configuration** (§21.3's seller details, `global`, `value_type 'text'`): `seller.xi_vat_number` is the seller's own `XI` number. It is optional: when unset, VIES checks run without a requester and return no request identifier.
+
+### 25.5 Companies House evidence
+
+The Companies House public data API returns a company's status, type, registered name, registered office and incorporation date.
+
+```sql
+CREATE TABLE companies_house_checks (
+  id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  b2b_application_id    bigint      NOT NULL REFERENCES b2b_applications (id) ON DELETE CASCADE,
+  company_number        text        NOT NULL,
+  outcome               text        NOT NULL,
+  company_status        text,
+  company_type          text,
+  registered_name       text,
+  registered_office     jsonb,
+  incorporated_on       date,
+  failure_reason        text,
+  requested_by_user_id  bigint      REFERENCES users (id),
+  checked_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT companies_house_checks_number_chk  CHECK (company_number ~ '^([0-9]{8}|[A-Z]{2}[0-9]{6})$'),
+  CONSTRAINT companies_house_checks_outcome_chk CHECK (outcome IN ('found','not_found','unchecked')),
+  CONSTRAINT companies_house_checks_failure_chk CHECK (failure_reason IN
+    ('timeout','unavailable','rate_limited','not_configured','unexpected_response')),
+  CONSTRAINT companies_house_checks_coherence_chk CHECK (
+    CASE outcome
+      WHEN 'found' THEN company_status IS NOT NULL AND registered_name IS NOT NULL AND failure_reason IS NULL
+      WHEN 'not_found' THEN company_status IS NULL AND registered_name IS NULL AND failure_reason IS NULL
+      ELSE company_status IS NULL AND registered_name IS NULL AND registered_office IS NULL
+       AND failure_reason IS NOT NULL
+    END)
+);
+
+CREATE INDEX companies_house_checks_latest_idx
+  ON companies_house_checks (b2b_application_id, checked_at DESC, id);
+```
+
+**`company_status` and `company_type` have no CHECK — a deliberate exception to §2.5.** They are Companies House's vocabulary (`active`, `dissolved`, `liquidation`, `administration`, … / `ltd`, `llp`, `plc`, …), not ours. Companies House can add a value at any time. A CHECK would turn that into a failed insert, and so lose the evidence. The values are stored verbatim.
+
+**Interpretation** lives in `BusinessVerification`:
+
+- only `active` counts as a pass; the statuses that refuse approval are listed in §25.9;
+- `company_type` is compared with the declared `legal_form`:
+  - `llp` against `llp`;
+  - `ltd`, `plc` and `private-*` against `limited_company`;
+  - `limited-partnership` and `scottish-partnership` against `partnership`;
+- a mismatch is a review-screen warning, never an automatic decision.
+
+`registered_office` is stored as returned and shown only. `incorporated_on` lets a reviewer see a company formed last week.
+
+**Index:** same as §25.4, and for the same queries.
+
+**Backfill:** none. Existing applications show "Not checked".
+
+**When Companies House is unreachable:** handled as in §25.4. Companies House rate-limits per API key, which is recorded as `rate_limited`, and the re-run is left to the reviewer rather than looping.
+
+**Written by:** the same job and service, through a `CompaniesHouseClient` built on Laravel's HTTP client. It runs only when the application has a `registration_number`.
+
+**Read by:** as §25.4.
+
+### 25.6 Lock order and transactions
+
+- None of these tables takes part in allocation, so CLAUDE.md invariant 6 is unaffected.
+- The acceptance row is written inside the registration transaction.
+- Check rows are written by the job, each in its own short transaction, with no lock beyond the insert.
+- `reject()` keeps ApplicationReviewService's existing order: `roles` → `b2b_applications` → `users`.
+
+### 25.7 Migration notes (07 §11.1)
+
+- Every `ADD COLUMN` is nullable with no default, so it is catalogue-only.
+- Every constraint on an existing table is added `NOT VALID` and validated after its backfill, taking only `SHARE UPDATE EXCLUSIVE`.
+- The four new tables are created empty.
+- One migration per subsection keeps each backfill reviewable: terms, rejection outcome with the configuration key, legal form, and the two check tables.
+- The PHP enums (`TermsKind`, `TermsAcceptanceSource`, `RejectionCategory`, `LegalForm`, `VatCheckAuthority`, `VatCheckOutcome`, `CompaniesHouseCheckOutcome`, `VerificationFailureReason`) each get the §2.5 test that the CHECK and the enum agree.
+- `terms_acceptances` references `orders`, so it follows step 13 of Appendix A's migration order. The other three tables follow step 4.
+- The migrations seed two `system_configurations` rows: `applications.reapply_cooling_days = 90` and `applications.verification_max_age_days = 30`. `seller.xi_vat_number` is not seeded (§25.10).
+- The four tables are listed in Appendix A.
+
+### 25.8 Decisions (2026-09-28)
+
+| ⚑ | Question | Decision |
+|---|---|---|
+| 1 | Record acceptance of the public **terms of sale**? | **Yes.** The schema supports it now (`kind = 'sale'`, source `checkout`, `order_id`, §25.1). Recording it at checkout is a later slice (ROADMAP §6) |
+| 2 | The `rejection_category` list | **Confirmed**, with `credit_or_risk_concern` added (§25.2) |
+| 3 | Scottish, limited and NI limited partnerships (`SL`/`LP`/`NL`) | **`partnership`**, with a Companies House check when a number is given (§25.3) |
+| 4 | Approval with a failed or missing check | **Refused outright** when a `limited_company` or `llp` is `not_found` at Companies House, or has an ended or insolvent status (`dissolved`, `removed`, `closed`, `converted-closed`, `liquidation`, `administration`, `receivership`, `insolvency-proceedings`; widened before sign-off). **Everything else** — including `voluntary-arrangement` and any status not on that list, a VAT number `not_found`, any check `unchecked` or missing, stale evidence, a type mismatch — is allowed **only with a reviewer acknowledgement**, recorded in the approval audit (§25.9) |
+| 5 | Northern Ireland `XI` VAT numbers | **Supported, through VIES**, with the same `unchecked` handling as HMRC (§25.4) |
+| 6 | Stale-check threshold | **30 days**, as the system setting `applications.verification_max_age_days` (§25.9) |
+| 7 | Periodic re-checks of approved companies | **Yes, monthly, in the credit module** (05.2 Part B; ROADMAP §6). Not part of this amendment |
+
+### 25.9 Approval rule and audit shapes
+
+`ApplicationReviewService::approve()` evaluates the **latest** check of each type for the application, under the application lock. Evidence is **stale** when `checked_at` is older than `applications.verification_max_age_days` (global, `int`, default 30; the code default is also 30).
+
+**Refused** (a `ValidationException`; no acknowledgement can override it). Both conditions apply only to a `legal_form` of `limited_company` or `llp` — the forms Companies House must know:
+
+- the latest Companies House check is `not_found`; or
+- it is `found` with a `company_status` on the refusal list:
+
+| `company_status` | Why it refuses |
+|---|---|
+| `dissolved`, `removed`, `closed`, `converted-closed` | The company has ended or no longer exists in that form; nobody can contract as it |
+| `liquidation`, `administration`, `receivership`, `insolvency-proceedings` | Insolvent, or under an office-holder's control; a new trade account would be an unsecured exposure to the office-holder |
+
+The list is a PHP constant, `CompaniesHouseStatus::REFUSES_APPROVAL`, compared with the stored status verbatim. It is not a database CHECK (§25.5).
+
+- **`voluntary-arrangement`** is a company trading under a CVA. It needs acknowledgement only: it can be a legitimate, if higher-risk, customer.
+- **Any status not on the list** needs acknowledgement only — `active` apart. That covers statuses Companies House adds later, which must not refuse approval before we have assessed them.
+
+The reviewer can re-run the check, since a stale refusing result is still a refusal until a newer check says otherwise.
+
+**Needs acknowledgement.** Each condition below adds a warning code. Approval with one or more warnings requires the reviewer to tick "I have reviewed the verification warnings".
+
+| Code | When |
+|---|---|
+| `vat_not_checked` | A VAT number is given, and there is no check or the latest is `unchecked` |
+| `vat_not_found` | The latest VAT check is `not_found` |
+| `vat_stale` | The latest VAT check is `valid` but stale |
+| `companies_house_not_checked` | A Companies House check applies (§25.3), and there is none or the latest is `unchecked` |
+| `companies_house_not_found` | The latest check is `not_found` (forms other than `limited_company` or `llp`) |
+| `companies_house_not_active` | Found, with a status other than `active` that does not refuse — `voluntary-arrangement`, any unknown status, or, for forms other than `limited_company` and `llp`, a status on the refusal list |
+| `companies_house_type_mismatch` | `company_type` does not match `legal_form` (§25.5) |
+| `companies_house_stale` | The latest check is `found` but stale |
+
+The codes are a PHP backed enum, `VerificationWarning`. They are computed at approval, not stored on the application.
+
+**Audit shapes** (§15; `AuditLogger` validates each):
+
+- `application.approved` `after` gains `verification_warnings` (a string: the codes sorted and comma-separated, or `''` when none) and `verification_acknowledged` (a boolean: true exactly when there are warnings). The logger checks each code against `VerificationWarning`, and checks that the two fields agree. No free text is added.
+- `application.rejected` `after` gains `rejection_category` (a `RejectionCategory` value). `applicant_message` and `review_note` stay out of the audit log.
+- Both actions keep their family (`permission`) and their other fields unchanged.
+- New: `configuration.terms_version_published` (family `configuration`, subject `terms_version`, actor the publishing admin). `before` is empty. `after` is exactly `kind`, `version`, `effective_from` (ISO 8601) and `body_sha256`, with no text (§25.1).
+
+### 25.10 Deployment prerequisites
+
+- **HMRC:** a production application on the HMRC Developer Hub, subscribed to "Check a UK VAT number" (application-restricted OAuth: client id and secret in the environment). HMRC's production approval takes weeks, so apply early. Sandbox credentials suffice for testing.
+- **Companies House:** a live API key from the Companies House developer portal, in the environment, used with HTTP basic auth.
+- **VIES:** no credentials. The EU service's availability varies by member state; `XI` numbers are answered for Northern Ireland.
+- **Seller details:** set `seller.vat_number` (already required for invoices, §21.3) so HMRC returns consultation numbers. Optionally set `seller.xi_vat_number` for VIES request identifiers.
+- **Trusted proxies:** set `TRUSTED_PROXIES` to the production proxy / load balancer addresses or CIDR ranges. It is read by `config/trustedproxy.php`, which Laravel's `TrustProxies` middleware uses. The default is an empty list — nothing trusted — and never `*`, which would let any client choose its own recorded IP. It is an empty array rather than null, because the middleware trusts every caller when given null on Laravel Cloud, Forge and Vapor hosts. Without the real addresses listed, `terms_acceptances.ip` records the proxy's address instead of the applicant's.
+- **Terms:** publish the first `trade` terms version **before** trade registration is opened, through the admin terms screen (§25.1). `RegisterTradeRequest` requires a current version, so without one every trade application is refused. Publish the first `sale` version before the checkout slice ships. **Production terms must be reviewed by a solicitor before publication** — the system does not check them.
+- **Local development:** `Database\Seeders\PlaceholderTermsSeeder` publishes one `trade` version, so registration works on a fresh `migrate:fresh --seed`.
+  - **Version and text:** labelled `placeholder-1`. Its text opens with "PLACEHOLDER — NOT TERMS OF TRADE. Do not use in production." It is published by the demo administrator (`admin@example.com`, from `DemoDataSeeder`), effective now.
+  - **Guards:** `DatabaseSeeder` calls it only when `app()->environment('local')`, and the seeder throws if it is run in any other environment. The `placeholder-` prefix is reserved: the terms screen refuses a label starting with it, so a placeholder can never be published by hand.
+  - **Tests** do not use the seeder. They create a version through a `TermsVersionFactory`.
+- **Missing credentials** in any environment do not stop applications. Checks record `unchecked` / `not_configured`, and approval then needs acknowledgement.

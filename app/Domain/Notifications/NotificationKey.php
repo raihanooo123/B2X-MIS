@@ -24,6 +24,8 @@ enum NotificationKey: string
     case ApplicationInfoRequested = 'application.info_requested';
     case ApplicationApproved = 'application.approved';
     case ApplicationRejected = 'application.rejected';
+    case ApplicationReapplyBlocked = 'application.reapply_blocked';
+    case ApplicationAlreadyOpen = 'application.already_open';
     case EmailVerification = 'auth.email_verification';
     case ExistingAccount = 'auth.existing_account';
     case PasswordReset = 'auth.password_reset';
@@ -34,6 +36,8 @@ enum NotificationKey: string
     {
         return match ($this) {
             self::ExistingAccount,
+            self::ApplicationReapplyBlocked,
+            self::ApplicationAlreadyOpen,
             self::PasswordReset,
             self::PasswordChanged,
             self::TwoFactorChanged => NotificationCategory::Security,
@@ -43,7 +47,11 @@ enum NotificationKey: string
 
     public function templateVersion(): string
     {
-        return '1';
+        return match ($this) {
+            // 02 §25.2: the reviewer's message and the stored re-application date.
+            self::ApplicationRejected => '2',
+            default => '1',
+        };
     }
 
     /**

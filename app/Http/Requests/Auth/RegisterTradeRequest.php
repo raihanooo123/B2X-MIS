@@ -2,11 +2,18 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Domain\Accounts\AcceptedTerms;
+use App\Domain\Accounts\LegalForm;
+use App\Domain\Accounts\TermsKind;
+use App\Domain\Delivery\Postcode;
 use App\Domain\Identity\BusinessType;
+use App\Domain\Identity\Registration;
 use App\Http\Requests\Concerns\AuthFields;
+use App\Models\TermsVersion;
 use App\Rules\UkVatNumber;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * 05.13 §5.1 — apply for a trade account and create the login in one
@@ -14,6 +21,10 @@ use Illuminate\Validation\Rule;
  * trading name and requested tier have no column on `b2b_applications`,
  * and supporting documents (attachments) are a follow-up, so none of the
  * three is asked for yet.
+ *
+ * 02 §25.1, §25.3: the legal form, and the terms version the applicant
+ * read. If the terms changed while the form was open, the submission is
+ * refused and the page shows the new version (05.13 §5.1).
  */
 class RegisterTradeRequest extends FormRequest
 {
@@ -32,7 +43,7 @@ class RegisterTradeRequest extends FormRequest
                 : null,
             'registration_number' => ($reg = $upper('registration_number')) === '' ? null : $reg,
             'address' => array_merge((array) $this->input('address', []), [
-                'postcode' => is_string($this->input('address.postcode')) ? strtoupper(trim((string) $this->input('address.postcode'))) : null,
+                'postcode' => is_string($this->input('address.postcode')) ? Postcode::format((string) $this->input('address.postcode')) : null,
             ]),
         ]);
     }
@@ -47,8 +58,13 @@ class RegisterTradeRequest extends FormRequest
             'phone' => ['required', 'string', 'max:32', 'regex:/^\+?[0-9 ()\-]{7,}$/'],
             'password' => AuthFields::newPassword(),
             'company_name' => ['required', 'string', 'min:2', 'max:191'],
-            // Companies House: 8 digits, or 2 letters + 6 digits (05.2 §5.1).
-            'registration_number' => ['nullable', 'string', 'regex:/^(\d{8}|[A-Z]{2}\d{6})$/'],
+            'legal_form' => ['required', Rule::enum(LegalForm::class)],
+            // Companies House: 8 digits, or 2 letters + 6 digits (05.2 §5.1),
+            // required for a limited company or LLP (02 §25.3).
+            'registration_number' => [
+                Rule::requiredIf(fn (): bool => LegalForm::tryFrom((string) $this->input('legal_form'))?->requiresCompaniesHouseNumber() === true),
+                'nullable', 'string', 'regex:/^(\d{8}|[A-Z]{2}\d{6})$/',
+            ],
             'vat_number' => ['nullable', 'string', new UkVatNumber],
             'business_type' => ['required', Rule::enum(BusinessType::class)],
             // Whole pounds; stored as minor units (CLAUDE.md invariant 1).
@@ -60,6 +76,26 @@ class RegisterTradeRequest extends FormRequest
             'address.county' => ['nullable', 'string', 'max:100'],
             'address.postcode' => ['required', 'string', 'regex:/^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$/'],
             'terms' => ['accepted'],
+            'terms_version_id' => ['required', 'integer'],
+        ];
+    }
+
+    /**
+     * 02 §25.1: the version read must still be the one in force.
+     *
+     * @return list<callable(Validator): void>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($validator->errors()->has('terms_version_id')) {
+                    return;
+                }
+                if (TermsVersion::current(TermsKind::Trade)?->id !== (int) $this->input('terms_version_id')) {
+                    $validator->errors()->add('terms_version_id', Registration::TERMS_CHANGED);
+                }
+            },
         ];
     }
 
@@ -68,6 +104,8 @@ class RegisterTradeRequest extends FormRequest
     {
         return [
             'registration_number.regex' => 'Enter a Companies House number: 8 digits, or 2 letters and 6 digits.',
+            'registration_number.required' => 'Enter the Companies House number. Limited companies and LLPs always have one.',
+            'legal_form.required' => 'Choose the legal form of your business.',
             'address.postcode.regex' => 'Enter a valid UK postcode.',
             'phone.regex' => 'Enter a valid phone number.',
         ];
@@ -85,7 +123,13 @@ class RegisterTradeRequest extends FormRequest
         ];
     }
 
-    /** @return array{company_name: string, registration_number: ?string, vat_number: ?string, business_type: BusinessType, estimated_monthly_spend_minor: ?int, address: array<string, string|null>} */
+    /** 02 §25.1: the version accepted, with the client address and browser. */
+    public function acceptedTerms(): AcceptedTerms
+    {
+        return new AcceptedTerms((int) $this->validated('terms_version_id'), $this->ip(), $this->userAgent());
+    }
+
+    /** @return array{company_name: string, legal_form: LegalForm, registration_number: ?string, vat_number: ?string, business_type: BusinessType, estimated_monthly_spend_minor: ?int, address: array<string, string|null>} */
     public function application(): array
     {
         $spend = $this->validated('estimated_monthly_spend');
@@ -94,6 +138,7 @@ class RegisterTradeRequest extends FormRequest
 
         return [
             'company_name' => trim((string) $this->validated('company_name')),
+            'legal_form' => LegalForm::from((string) $this->validated('legal_form')),
             'registration_number' => $this->validated('registration_number'),
             'vat_number' => $this->validated('vat_number'),
             'business_type' => BusinessType::from((string) $this->validated('business_type')),

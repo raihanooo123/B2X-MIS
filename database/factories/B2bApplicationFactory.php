@@ -37,6 +37,23 @@ class B2bApplicationFactory extends Factory
         ]);
     }
 
+    /**
+     * 02 §25.2: a rejection always carries its outcome
+     * (`b2b_applications_rejection_outcome_chk`). Remediable by default;
+     * pass a date for one still in its cooling period.
+     */
+    public function rejected(?\DateTimeInterface $reapplyAfter = null): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => 'rejected',
+            'reviewed_at' => now(),
+            'review_note' => 'Rejected in a test.',
+            'rejection_category' => 'other',
+            'rejection_remediable' => $reapplyAfter === null,
+            'reapply_after' => $reapplyAfter,
+        ]);
+    }
+
     public function approved(): static
     {
         return $this->state(fn (array $attributes) => [

@@ -459,9 +459,55 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
       notified after commit. 2026-09-27, pending verification — see 05.2 §16. Migration
       `2026_10_13_090100_seed_account_code_sequence.php`.
 - [ ] Follow-ups from 05.2 §16: reassignment; linking an approval to an existing company
-      (additional site); staff-entered applications (`applicant_user_id` NULL); the 02 §4.6
-      amendment for `remediable`, the applicant-facing rejection message and the cooling
-      period key; document download on the review page.
+      (additional site); staff-entered applications (`applicant_user_id` NULL); document
+      download on the review page. (The `remediable` / applicant message / cooling-period
+      amendment is 02 §25.2, signed off 2026-09-28 — built by the tasks below.)
+- **Application compliance — 02 §25 / 05.2 §17 (signed off 2026-09-28).**
+  - **Slice B1 — built 2026-09-28, pending test verification:**
+    - [x] Migrations `2026_10_14_090100`–`090400`, with the §25.2 and §25.3 backfills and the
+          two settings. The check tables are created empty. Enums `TermsKind`,
+          `TermsAcceptanceSource`, `RejectionCategory` and `LegalForm`, each with the §2.5
+          CHECK/enum test.
+    - [x] Terms: `TermsVersion` and `TermsAcceptance` models; `TermsPublisher` (SHA-256,
+          `configuration.terms_version_published` audit, never in the past, reserved
+          `placeholder-` prefix); admin-only Settings → Terms (`TermsVersionResource`,
+          `TermsVersionPolicy`; publish and view only); `TermsVersionFactory`;
+          `PlaceholderTermsSeeder` (`local` only).
+    - [x] Registration: `legal_form`, the Companies House number required for a limited
+          company or LLP, `terms_version_id` with a re-prompt when the terms change, and the
+          acceptance row (IP through `config/trustedproxy.php`, user agent) in the
+          application's transaction. React registration page updated.
+    - [x] Review: rejection category, remediable choice, optional applicant message and
+          `reapply_after` from `applications.reapply_cooling_days`; `rejection_category` in
+          the audit; the rejection email carries the message (template version 2); legal
+          form and terms acceptance on the review screen; legal form copied at approval.
+    - [x] Re-application gate, by user (locked) and by email.
+    - [x] PR #20 fixes: a friendly error when two applications with one VAT number are
+          approved at the same moment (`companies_vat_uq` caught); postcodes stored as
+          `SW1A 1AA`, including the approval address copy.
+  - **Slice B2 — external checks and the approval rule:**
+    - [ ] `App\Domain\Accounts\BusinessVerification` + `HmrcVatClient`, `ViesVatClient` and
+          `CompaniesHouseClient` (Laravel HTTP client, 5 s timeout); the
+          `VerifyApplicationBusiness` job (3 retries: 10/60/300 s), dispatched after commit;
+          `unchecked` on every failure, never blocking. Enums `VatCheckAuthority`,
+          `VatCheckOutcome`, `CompaniesHouseCheckOutcome` and `VerificationFailureReason`.
+    - [ ] `UkVatNumber` accepts `XI`; `ApplicationDuplicates` matches the VAT number's
+          nine-digit core.
+    - [ ] Review screen: Verification section and queue badge; **Re-run checks**
+          (`B2bApplicationPolicy::rerunChecks`). Approval enforces 02 §25.9 (the
+          `CompaniesHouseStatus::REFUSES_APPROVAL` list, `VerificationWarning` codes,
+          acknowledgement), with the approval audit shape per §25.9.
+    - [ ] Tests: each check outcome and failure reason, the refusal and every warning code,
+          the stale threshold, audit shapes, and the job never failing a registration.
+    - [ ] Storefront terms page (the current version outside the registration form).
+  - [ ] **Later slice — public terms of sale at checkout** (02 §25.1, ⚑1): the terms of sale
+        version on the checkout page; a `terms_acceptances` row (`kind = 'sale'`, source
+        `checkout`, `order_id`) in the order transaction.
+- [ ] **Credit module — monthly re-checks of approved companies** (02 §25.8 ⚑7): re-run
+      the VAT and Companies House checks for every `approved`/`suspended` company monthly, and
+      alert `accounts` on a change (deregistered, dissolved, in liquidation). This needs
+      its own schema amendment when specified: evidence per company, not per application.
+      Build it with credit-limit management (`CompanyResource`, `CreditCheckService`).
 - [ ] `app/Domain/Accounts/CreditCheckService.php` — 05.2 §8: `available = limit − used −
       held`, the decision table (proceed / prepay-required / awaiting_approval / suspended /
       overdue-blocked). **This must extend, not duplicate, `AllocationService`'s existing
@@ -1038,6 +1084,17 @@ completely empty except for the bare `AdminPanelProvider` with no resources regi
       `php artisan auth:refresh-breached-passwords` once on the production host (hours;
       tens of GB under `storage/app/breached-passwords`) and confirm the quarterly schedule
       runs. Until it exists the check fails open with a `critical` log (05.13 §5.4).
+- [ ] **Pre-go-live — application compliance prerequisites (02 §25.10).**
+      - Register for production HMRC Developer Hub access to "Check a UK VAT number". It
+        takes weeks, so apply early.
+      - Obtain a Companies House live API key.
+      - Put both in the production environment.
+      - Set `seller.vat_number`, and optionally `seller.xi_vat_number`.
+      - Configure trusted proxies for the load balancer, so terms acceptance records the
+        applicant's IP.
+      - Have the production terms of trade (and, before checkout, terms of sale) reviewed by
+        a solicitor.
+      - Publish the first `trade` terms version before opening trade registration.
 - [ ] **Pre-go-live — upgrade Laravel 11 → 12 (≥ 12.61.1).** Clears the CRLF `email`-rule
       and signed-URL path-confusion advisories (§0.8, 07 §16 Q11). Amend CLAUDE.md's stack
       table first, in its own commit. After the upgrade, `composer audit` is clean and the
@@ -1276,6 +1333,9 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       verification.
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
+- [x] 05.13 §5.1 additions: legal form and terms of trade acceptance (slice B1,
+      2026-09-28, pending verification). Verification after commit is slice B2 — ROADMAP §6,
+      "Application compliance".
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
       reset for trade users (staff reset done; blocked on ⚑9), remaining §15 audit events.

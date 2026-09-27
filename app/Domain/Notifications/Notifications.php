@@ -39,6 +39,12 @@ final class Notifications
         $this->dispatcher->send($notice, [Recipient::user($user)]);
     }
 
+    /** An address with no account behind it (05.13 §5.1's no-enumeration replies). */
+    public function toRecipient(Notice $notice, Recipient $recipient): void
+    {
+        $this->dispatcher->send($notice, [$recipient]);
+    }
+
     public function orderConfirmed(int $orderId): void
     {
         $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id']);
