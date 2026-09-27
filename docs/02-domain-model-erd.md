@@ -3066,6 +3066,140 @@ None of these are resolved by the schema above; each is a judgment call flagged 
 
 ---
 
+## 15. Schema amendment 2026-09-27 — `audit_log` (pending separate sign-off commit)
+
+> **Status: draft reviewed 2026-09-27; not yet committed or migrated.** Addresses ROADMAP §0.6 / §18: `07-nfr.md` §6.5 mandates an
+> immutable, append-only audit log retained 7 years (07 §7.2), and signed-off constraints
+> (`rmas_waiver_chk`, `role_user.granted_by_user_id`) and 05.13 §15's event list already assume
+> one exists. No code writes to it until it is migrated.
+
+### 15.1 Table
+
+```sql
+CREATE TABLE audit_log (
+  id               bigint GENERATED ALWAYS AS IDENTITY,
+  occurred_at      timestamptz NOT NULL DEFAULT now(),
+  event_family     text        NOT NULL,
+  action           text        NOT NULL,
+  actor_type       text        NOT NULL,
+  actor_user_id    bigint,
+  acting_for_company_id bigint,
+  company_id       bigint,
+  subject_type     text,
+  subject_id       bigint,
+  before           jsonb,
+  after            jsonb,
+  reason           text,
+  ip               inet,
+  user_agent       text,
+
+  PRIMARY KEY (id, occurred_at),
+  CONSTRAINT audit_log_family_chk CHECK (event_family IN
+    ('auth','permission','credit_limit','price','price_override','discount_authority',
+     'fee_waiver','stock_adjustment','configuration','rep_session','rma_disposition')),
+  CONSTRAINT audit_log_actor_chk CHECK (
+       (actor_type = 'user'      AND actor_user_id IS NOT NULL)
+    OR (actor_type IN ('system','anonymous') AND actor_user_id IS NULL)),
+  CONSTRAINT audit_log_subject_chk CHECK ((subject_type IS NULL) = (subject_id IS NULL))
+) PARTITION BY RANGE (occurred_at);
+
+CREATE TABLE audit_log_2026 PARTITION OF audit_log
+  FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
+CREATE TABLE audit_log_2027 PARTITION OF audit_log
+  FOR VALUES FROM ('2027-01-01') TO ('2028-01-01');
+CREATE TABLE audit_log_default PARTITION OF audit_log DEFAULT;
+
+CREATE INDEX audit_log_occurred_brin ON audit_log USING brin (occurred_at)
+  WITH (pages_per_range = 32);
+CREATE INDEX audit_log_subject_idx ON audit_log (subject_type, subject_id, occurred_at)
+  WHERE subject_type IS NOT NULL;
+CREATE INDEX audit_log_actor_idx   ON audit_log (actor_user_id, occurred_at)
+  WHERE actor_user_id IS NOT NULL;
+CREATE INDEX audit_log_company_idx ON audit_log (company_id, occurred_at)
+  WHERE company_id IS NOT NULL;
+CREATE INDEX audit_log_family_idx  ON audit_log (event_family, occurred_at);
+
+CREATE FUNCTION audit_log_reject_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_log is append-only';
+END;
+$$;
+
+CREATE TRIGGER audit_log_no_update_delete
+  BEFORE UPDATE OR DELETE ON audit_log
+  FOR EACH ROW EXECUTE FUNCTION audit_log_reject_mutation();
+CREATE TRIGGER audit_log_no_truncate
+  BEFORE TRUNCATE ON audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_log_reject_mutation();
+CREATE TRIGGER audit_log_2026_no_truncate
+  BEFORE TRUNCATE ON audit_log_2026
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_log_reject_mutation();
+CREATE TRIGGER audit_log_2027_no_truncate
+  BEFORE TRUNCATE ON audit_log_2027
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_log_reject_mutation();
+CREATE TRIGGER audit_log_default_no_truncate
+  BEFORE TRUNCATE ON audit_log_default
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_log_reject_mutation();
+```
+
+Columns against 07 §6.5's required fields: **actor** → `actor_type` + `actor_user_id`
+(+ `acting_for_company_id` for a rep order-on-behalf session); **action** → `event_family` +
+`action`; **subject** → `subject_type` + `subject_id`, with `company_id` for "everything that
+happened to this account"; **before/after** → `before`, `after`; **IP**, **user agent**,
+**timestamp** → `ip`, `user_agent`, `occurred_at`. `reason` carries the free-text justification
+that fee waivers, overrides and RMA dispositions require.
+
+### 15.2 Decisions
+
+1. **Same shape as `stock_movements` (§7.4).** Yearly range partitions plus a `DEFAULT`
+   partition, composite `(id, occurred_at)` key, BRIN on `occurred_at`, **no foreign keys** —
+   the same write-cost reasoning, and a row must outlive what it describes (a deleted cart, an
+   anonymised user). The 7-year retention (07 §7.2) is met by detaching a whole partition, never
+   by `DELETE`. Create the next yearly partition ahead of time and alert if rows land in
+   `audit_log_default`; move those rows into their proper year before any retention detach.
+   Detaching a partition is not itself deletion: the retention job must securely archive or
+   drop the detached table according to the approved retention schedule.
+2. **Append-only at the database boundary.** The parent row trigger is cloned onto existing
+   and future partitions, blocking `UPDATE` and `DELETE`. `TRUNCATE` has only statement-level
+   triggers: install one on the parent **and each partition**, including `DEFAULT`; every new
+   partition must receive its own truncate trigger in the same migration that creates it.
+   Otherwise `TRUNCATE audit_log_2026` bypasses the parent trigger. The production application
+   role must not own these tables or have `UPDATE`, `DELETE`, or `TRUNCATE` privileges; a
+   separate migration/retention role owns DDL. Table owners and superusers can still alter
+   triggers, so this is protection against application mistakes, not tamper-proof storage.
+   `DETACH PARTITION` remains available to the privileged retention process.
+3. **Written in the same transaction as the change it records**, through one
+   `App\Domain\Audit\AuditLogger` — never ad hoc inserts. A change and its audit row commit or
+   roll back together. Events with no business transaction (a failed sign-in, a lockout) are
+   written on their own. Inserting an audit row takes no lock on any other table, so it adds
+   nothing to the §11.1 lock order.
+4. **`event_family` is `CHECK`-constrained; `action` is not.** Families are 07 §6.5's fixed
+   eleven. Actions (`auth.sign_in_failed`, `credit_limit.changed`, `rma.disposition_recorded`, …)
+   grow with every feature, so they are a PHP backed enum validated by `AuditLogger`, not a
+   column constraint that needs a migration per new event.
+5. **`before`/`after` hold only approved fields, never secrets.** `AuditLogger` uses an
+   action-specific allowlist, including nested keys, rather than serialising models or request
+   payloads. Passwords, 2FA secrets, recovery codes, tokens, session ids and raw login
+   identifiers are never accepted. Money stays integer `_minor`/`_e4`, as everywhere
+   (CLAUDE.md invariant 1). Free-text `reason` is limited to actions that require it and
+   reviewed for personal data; `ip` and `user_agent` are access-controlled personal data.
+6. **Erasure (07 §7.3).** Rows are never rewritten. `actor_user_id` can resolve to an
+   anonymised `users` row; do not assume this anonymises every field in a historical audit
+   event. Minimise `before`, `after` and `reason` at write time, restrict reads to admins,
+   and include audit data in the erasure/retention review. The 7-year security/financial
+   retention basis must be documented before launch.
+
+### 15.3 Decisions for sign-off (2026-09-27)
+
+| ⚑ | Question | Decision |
+|---|---|---|
+| 1 | Who may read the audit log? | `admin` only, read-only, through a Filament viewer with filters by family, actor, company, subject and date |
+| 2 | A failed sign-in has no user id. How is its typed identifier correlated without retaining raw email? | Store only a versioned HMAC-SHA-256 fingerprint in `after`, computed from a consistently normalised identifier with a dedicated audit key; never store raw email. Protect the key separately from `APP_KEY`, retain a key version for the 7-year query window, and treat keyed fingerprints as personal data. Approved correction 2026-09-27. |
+| 3 | Rep order-on-behalf: one `rep_session` row at start and end, or every action inside the session? | Start and end only; actions inside it already carry `acting_for_company_id` wherever they are audited |
+
+---
+
 ## 17. Schema amendment 2026-09-24 — authentication and onboarding (signed off 2026-09-24)
 
 > **Status: signed off 2026-09-24.** §17.1–§17.2 are migrated (`2026_10_02_090100_create_company_invitations_table.php`, `2026_10_02_090200_create_user_two_factor_recovery_codes_table.php`). §17.3–§17.4 document two tables that **already existed** (migration `0001_01_01_000000_create_auth_support_tables.php`, Laravel's defaults) but were never recorded here; they are unchanged. Sections 15 and 16 are reserved by ROADMAP for `audit_log` and `transfers`.
