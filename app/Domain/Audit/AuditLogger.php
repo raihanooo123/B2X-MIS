@@ -24,7 +24,8 @@ final class AuditLogger
             AuditAction::SignInFailed => $this->validateFailedSignIn($entry),
             AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested,
             AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked,
-            AuditAction::StaffSuspended, AuditAction::StaffReinstated => $this->validateStaffEvent($entry),
+            AuditAction::StaffSuspended, AuditAction::StaffReinstated,
+            AuditAction::StaffTwoFactorReset => $this->validateStaffEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -111,6 +112,7 @@ final class AuditLogger
                 && ($entry->before['granted_by_user_id'] === null || is_int($entry->before['granted_by_user_id'])),
             AuditAction::StaffSuspended => $entry->before === ['status' => 'active'] && $entry->after === ['status' => 'suspended'],
             AuditAction::StaffReinstated => $entry->before === ['status' => 'suspended'] && $entry->after === ['status' => 'active'],
+            AuditAction::StaffTwoFactorReset => $entry->before === ['two_factor_enabled' => true] && $entry->after === ['two_factor_enabled' => false],
             default => throw new InvalidArgumentException('Unsupported staff audit action.'),
         };
 

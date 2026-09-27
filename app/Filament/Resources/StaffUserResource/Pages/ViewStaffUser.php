@@ -5,6 +5,7 @@ namespace App\Filament\Resources\StaffUserResource\Pages;
 use App\Domain\Identity\StaffOnboardingService;
 use App\Domain\Identity\StaffRoleService;
 use App\Domain\Identity\StaffSuspensionService;
+use App\Domain\Identity\StaffTwoFactorResetService;
 use App\Filament\Resources\StaffUserResource;
 use App\Models\Role;
 use App\Models\User;
@@ -69,7 +70,31 @@ class ViewStaffUser extends ViewRecord
                 ->requiresConfirmation()
                 ->visible(fn (): bool => Gate::allows('reinstateStaff', $this->staff()))
                 ->action(fn () => $this->changeStatus('reinstate')),
+            Action::make('resetTwoFactor')
+                ->label('Reset 2FA')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalDescription('Their authenticator key and recovery codes stop working and every open session ends. They must set up 2FA again on their next sign-in. Confirm who is asking before you do this.')
+                ->visible(fn (): bool => Gate::allows('resetStaffTwoFactor', $this->staff()))
+                ->action(fn () => $this->resetTwoFactor()),
         ];
+    }
+
+    private function resetTwoFactor(): void
+    {
+        $actor = auth()->user();
+        if (! $actor instanceof User) {
+            abort(403);
+        }
+
+        try {
+            app(StaffTwoFactorResetService::class)->reset($this->staff(), $actor);
+            Notification::make()->title('Two-factor authentication reset')->success()->send();
+        } catch (ValidationException $exception) {
+            Notification::make()->title(collect($exception->errors())->flatten()->first() ?? 'Unable to reset two-factor authentication')->danger()->send();
+        }
+
+        $this->staff()->refresh();
     }
 
     private function changeStatus(string $operation): void

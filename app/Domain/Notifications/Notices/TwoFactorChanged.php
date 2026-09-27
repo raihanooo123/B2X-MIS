@@ -12,8 +12,8 @@ use InvalidArgumentException;
 
 /**
  * 05.12 §5.7 `auth.two_factor_changed` — 05.13 §12, §15: two-factor
- * enabled or disabled, or a recovery code used to sign in. (An
- * administrator reset has no code path yet.)
+ * enabled or disabled, reset by an administrator (§12.3), or a recovery
+ * code used to sign in.
  */
 final class TwoFactorChanged extends Notice
 {
@@ -23,13 +23,15 @@ final class TwoFactorChanged extends Notice
 
     public const RECOVERY_CODE_USED = 'recovery_code_used';
 
+    public const RESET_BY_ADMIN = 'reset_by_admin';
+
     public readonly string $eventId;
 
     public function __construct(
         public readonly int $userId,
         public readonly string $change,
     ) {
-        if (! in_array($change, [self::ENABLED, self::DISABLED, self::RECOVERY_CODE_USED], true)) {
+        if (! in_array($change, [self::ENABLED, self::DISABLED, self::RECOVERY_CODE_USED, self::RESET_BY_ADMIN], true)) {
             throw new InvalidArgumentException("Unknown two-factor change '{$change}'.");
         }
         $this->eventId = (string) Str::ulid();
@@ -57,6 +59,7 @@ final class TwoFactorChanged extends Notice
         [$subject, $what] = match ($this->change) {
             self::ENABLED => ['Two-factor authentication is on', 'Two-factor authentication was turned on for your account.'],
             self::DISABLED => ['Two-factor authentication is off', 'Two-factor authentication was turned off for your account. Signing in now needs only your password.'],
+            self::RESET_BY_ADMIN => ['Two-factor authentication was reset', 'An administrator reset two-factor authentication for your account and signed you out everywhere. You will be asked to set it up again the next time you sign in.'],
             default => ['A recovery code was used to sign in', 'A recovery code was used to sign in to your account. That code cannot be used again.'],
         };
 

@@ -1249,14 +1249,19 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       (`StaffSuspensionService`, `UserPolicy::suspendStaff`/`reinstateStaff`): sessions and
       reset tokens removed on suspension, roles kept, audited (`auth.staff_suspended` /
       `auth.staff_reinstated`), no self-suspension, last active admin protected, same
-      lock order as role changes. No migration needed. 2026-09-27, pending verification.
-- [ ] Staff 2FA reset and recovery controls (05.13 §12.3). Needs its own policy, audit
-      event and reviewable tests.
+      lock order as role changes. No migration needed. 2026-09-27, verified (PR #17).
+- [x] Admin-only staff 2FA reset from the Staff detail page (05.13 §12.3,
+      `StaffTwoFactorResetService`, `UserPolicy::resetStaffTwoFactor`): active staff with 2FA
+      enabled only, never self; secret cleared, 2FA disabled, recovery codes and sessions
+      deleted so the next sign-in re-enrols; audited (`auth.staff_two_factor_reset`, before/after
+      `two_factor_enabled` only) and the `auth.two_factor_changed` notice sent after commit;
+      same lock order as role changes. No migration needed. 2026-09-27, pending verification.
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
-      reset and customer suspension in Filament, remaining §15 audit events.
+      reset for trade users (staff reset done) and customer suspension in Filament, remaining
+      §15 audit events.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.
