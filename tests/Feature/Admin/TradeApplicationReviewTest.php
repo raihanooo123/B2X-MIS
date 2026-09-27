@@ -350,7 +350,7 @@ it('denies review to other staff roles, customers and inactive reviewers', funct
         expect($actor->can('approve', $application))->toBeFalse()
             ->and($actor->can('grantCredit', $application))->toBeFalse();
         expect(fn () => $service->approve($application, $actor, netThirtyTerms($this->gold)))->toThrow(AuthorizationException::class);
-        expect(fn () => $service->reject($application, $actor, 'No.', true))->toThrow(AuthorizationException::class);
+        expect(fn () => $service->reject($application, $actor, 'No.', RejectionCategory::Other, true))->toThrow(AuthorizationException::class);
         expect(fn () => $service->requestInfo($application, $actor, 'More please.'))->toThrow(AuthorizationException::class);
     }
 
@@ -410,7 +410,7 @@ it('lets only one of two administrators decide, re-reading the application and a
 
     expect($stale->status)->toBe('in_review');
     expect(fn () => $service->approve($stale, $second, netThirtyTerms($this->bronze)))->toThrow(AuthorizationException::class);
-    expect(fn () => $service->reject($stale, $second, 'Too late.', false))->toThrow(AuthorizationException::class);
+    expect(fn () => $service->reject($stale, $second, 'Too late.', RejectionCategory::Other, false))->toThrow(AuthorizationException::class);
 
     app(StaffSuspensionService::class)->suspend($second, $first);
     $submitted = applicationFor(User::factory()->create());
