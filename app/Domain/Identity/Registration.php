@@ -32,7 +32,7 @@ final class Registration
     {
         return B2bApplication::query()
             ->where('contact_email', $email)
-            ->whereIn('status', ['submitted', 'in_review', 'info_requested'])
+            ->whereIn('status', B2bApplication::OPEN_STATUSES)
             ->exists();
     }
 
