@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    # Pinned: GitHub moves ubuntu-latest to Ubuntu 26 from 2026-10-19. Move
+    # deliberately, in its own PR, once the suite is known to pass there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     services:
@@ -42,7 +44,13 @@ jobs:
       SESSION_DRIVER: array
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # Settings come from `env:` above. An empty .env only stops phpdotenv's
+      # suppressed "file not found" read, which PHPUnit still counts as a
+      # warning on every test (599 of them before this step existed).
+      - name: Create empty .env
+        run: touch .env
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -51,7 +59,7 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -82,5 +90,7 @@ jobs:
       - name: Migrate isolated test database
         run: php artisan migrate --force
 
+      # --display-warnings lists each warning's cause in the log instead of
+      # only counting them in the summary.
       - name: Test PHP
-        run: php artisan test
+        run: php artisan test --display-warnings
