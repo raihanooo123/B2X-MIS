@@ -171,7 +171,7 @@ it('approves: creates the company, links the applicant as owner, copies the addr
     $this->actingAs($admin);
 
     Livewire::test(ViewTradeApplication::class, ['record' => $application->id])
-        ->callAction('approve', data: ['price_tier_id' => $this->gold->id, 'payment_terms' => 'net30', 'credit_limit' => '2500.50'])
+        ->callAction('approve', data: ['price_tier_id' => $this->gold->id, 'payment_terms' => 'net30', 'credit_limit' => '2500.50', 'acknowledge_warnings' => true])
         ->assertHasNoActionErrors();
 
     $company = Company::query()->sole();
@@ -216,6 +216,7 @@ it('approves: creates the company, links the applicant as owner, copies the addr
         ->and($approved->after)->toEqual([
             'status' => 'approved', 'company_id' => $company->id, 'owner_user_id' => $applicant->id,
             'price_tier_id' => $this->gold->id, 'payment_terms' => 'net30', 'credit_limit_minor' => 250050,
+            'verification_warnings' => 'companies_house_not_checked,vat_not_checked', 'verification_acknowledged' => true,
         ]);
 
     $credit = AuditLog::query()->where('action', 'credit_limit.changed')->sole();
@@ -233,7 +234,7 @@ it('approves on prepay with no credit and writes no credit limit audit', functio
     $admin = reviewStaff();
     $application = applicationFor(User::factory()->create(), 'in_review');
 
-    $company = app(ApplicationReviewService::class)->approve($application, $admin, new ApprovalTerms($this->bronze->id, PaymentTerms::Prepay, 0));
+    $company = app(ApplicationReviewService::class)->approve($application, $admin, new ApprovalTerms($this->bronze->id, PaymentTerms::Prepay, 0), true);
 
     expect($company->payment_terms)->toBe('prepay')
         ->and($company->credit_limit_minor)->toBe(0)
@@ -253,7 +254,7 @@ it('lets an accounts reviewer take an application through to approval with credi
     expect($accounts->can('grantCredit', $application->fresh()))->toBeTrue();
 
     Livewire::test(ViewTradeApplication::class, ['record' => $application->id])
-        ->callAction('approve', data: ['price_tier_id' => $this->gold->id, 'payment_terms' => 'net30', 'credit_limit' => '1000'])
+        ->callAction('approve', data: ['price_tier_id' => $this->gold->id, 'payment_terms' => 'net30', 'credit_limit' => '1000', 'acknowledge_warnings' => true])
         ->assertHasNoActionErrors();
 
     $company = Company::query()->sole();
@@ -279,7 +280,7 @@ it('refuses a credit limit above zero to a reviewer without grantCredit, even un
         ->and(Company::query()->exists())->toBeFalse()
         ->and(accountCodeNext())->toBe(1);
 
-    $company = $service->approve($withoutCredit, $admin, netThirtyTerms($this->gold, 0));
+    $company = $service->approve($withoutCredit, $admin, netThirtyTerms($this->gold, 0), true);
     expect($company->credit_limit_minor)->toBe(0)
         ->and(AuditLog::query()->where('action', 'credit_limit.changed')->exists())->toBeFalse();
 });
@@ -406,7 +407,7 @@ it('lets only one of two administrators decide, re-reading the application and a
     $stale = B2bApplication::query()->findOrFail($application->id);
     $staleSecond = User::query()->findOrFail($second->id);
 
-    $service->approve($application, $first, netThirtyTerms($this->gold));
+    $service->approve($application, $first, netThirtyTerms($this->gold), true);
 
     expect($stale->status)->toBe('in_review');
     expect(fn () => $service->approve($stale, $second, netThirtyTerms($this->bronze)))->toThrow(AuthorizationException::class);
@@ -429,7 +430,7 @@ it('rolls back an approval completely, including the account number', function (
 
     try {
         DB::transaction(function () use ($application, $admin): void {
-            app(ApplicationReviewService::class)->approve($application, $admin, netThirtyTerms($this->gold));
+            app(ApplicationReviewService::class)->approve($application, $admin, netThirtyTerms($this->gold), true);
             throw new RuntimeException('Simulated failure');
         });
     } catch (RuntimeException $exception) {
@@ -456,7 +457,7 @@ it('sends notices and flushes pricing only after the decision commits', function
 
     DB::transaction(function () use ($application, $toReject, $admin, $applicant, $rejectedApplicant): void {
         $service = app(ApplicationReviewService::class);
-        $service->approve($application, $admin, netThirtyTerms($this->gold));
+        $service->approve($application, $admin, netThirtyTerms($this->gold), true);
         $service->reject($toReject, $admin, 'Duplicate of an existing account.', RejectionCategory::DuplicateAccount, true);
 
         expect(applicationNotices($applicant, NotificationKey::ApplicationApproved))->toBeEmpty()
@@ -479,7 +480,7 @@ it('keeps the internal reason out of the rejection email and puts the terms in t
 
     $service->reject($rejected, $admin, 'Director is on the internal watch list.', RejectionCategory::CreditOrRiskConcern, false);
     $service->reject($remediableApplication, $admin, 'Needs a VAT certificate.', RejectionCategory::BusinessNotVerified, true, 'Please reapply with your VAT certificate attached.');
-    $company = $service->approve($approved, $admin, netThirtyTerms($this->gold));
+    $company = $service->approve($approved, $admin, netThirtyTerms($this->gold), true);
 
     $cooling = (new ApplicationRejected($rejected->id))->content(Recipient::user($rejectedApplicant));
     $text = implode(' ', [$cooling->subject, ...$cooling->paragraphs]);
@@ -514,7 +515,7 @@ it('accepts only the approved application and credit limit audit shapes', functi
         after: $after,
         reason: $reason,
     );
-    $approvedAfter = ['status' => 'approved', 'company_id' => 7, 'owner_user_id' => 2, 'price_tier_id' => 3, 'payment_terms' => 'net30', 'credit_limit_minor' => 1000];
+    $approvedAfter = ['status' => 'approved', 'company_id' => 7, 'owner_user_id' => 2, 'price_tier_id' => 3, 'payment_terms' => 'net30', 'credit_limit_minor' => 1000, 'verification_warnings' => '', 'verification_acknowledged' => false];
     $logger = new AuditLogger;
 
     foreach ([

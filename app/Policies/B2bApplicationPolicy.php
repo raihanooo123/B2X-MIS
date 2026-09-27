@@ -77,6 +77,19 @@ final class B2bApplicationPolicy
         return $this->reviews($user, $application, 'in_review');
     }
 
+    /**
+     * 02 §25.4: re-run the VAT and Companies House checks — reviewers, on
+     * an open application that has something to check. Staff-entered
+     * applications qualify too: the checks need numbers, not an applicant.
+     */
+    public function rerunChecks(User $user, B2bApplication $application): bool
+    {
+        return $user->status === 'active'
+            && $this->viewAny($user)
+            && in_array($application->status, B2bApplication::OPEN_STATUSES, true)
+            && ($application->vat_number !== null || $application->registration_number !== null);
+    }
+
     /** 05.2 §5.6 step 2 with `credit_limit_minor` above zero. */
     public function grantCredit(User $user, B2bApplication $application): bool
     {

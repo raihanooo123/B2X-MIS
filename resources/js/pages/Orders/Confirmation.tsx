@@ -4,7 +4,7 @@
  * (CLAUDE.md invariant 4) — never re-priced — shown ex- or inc-VAT per
  * `display_mode`.
  */
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { CheckCircle2 } from 'lucide-react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
@@ -13,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import type { PaymentMethod } from '@/lib/api/checkout';
 import { lineTotalMinor, packPrice, totalsRows, vatLabel, type DeliveryLine, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor } from '@/lib/money';
+import { formatDateTime } from '@/lib/dateTime';
 import { cn } from '@/lib/utils';
+import type { SharedProps } from '@/types/shared';
 
 interface OrderLineView {
     line_no: number;
@@ -65,10 +67,6 @@ interface ConfirmationProps {
     };
 }
 
-function placedAt(iso: string | null): string {
-    return iso === null ? '' : new Date(iso).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' });
-}
-
 const BRANDS: Record<string, string> = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', maestro: 'Maestro', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay' };
 
 /** "Visa ending 4242" — never more of the card than that (07 §6.4). */
@@ -114,6 +112,8 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
 }
 
 export default function Confirmation({ display_mode: mode, order }: ConfirmationProps) {
+    const { display_timezone: timeZone } = usePage<SharedProps>().props;
+
     const address = order.delivery_address;
 
     return (
@@ -130,7 +130,7 @@ export default function Confirmation({ display_mode: mode, order }: Confirmation
                         <h1 className="text-xl font-semibold tracking-tight">Thank you — your order is placed</h1>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Order number <strong className="font-mono text-foreground">{order.order_number}</strong>
-                            {order.placed_at && <> · {placedAt(order.placed_at)}</>}
+                            {order.placed_at && <> · {formatDateTime(order.placed_at, timeZone)}</>}
                             {order.customer_reference && <> · Your reference {order.customer_reference}</>}
                         </p>
                         {order.payment_status === 'paid' && (

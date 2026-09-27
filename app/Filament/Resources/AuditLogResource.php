@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\AuditLogResource\Pages;
+use App\Filament\Support\AuditSubjectLabel;
 use App\Models\AuditLog;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
@@ -70,6 +71,8 @@ class AuditLogResource extends Resource
                 TextEntry::make('acting_for_company_id')->label('Acting for company ID')->placeholder('—'),
                 TextEntry::make('subject_type')->label('Subject type')->placeholder('—'),
                 TextEntry::make('subject_id')->label('Subject ID')->placeholder('—'),
+                TextEntry::make('subject_label')->label('Subject')->placeholder('—')
+                    ->state(fn (AuditLog $record): ?string => AuditSubjectLabel::for($record->subject_type, $record->subject_id)),
                 TextEntry::make('ip')->label('IP address')->placeholder('—'),
                 TextEntry::make('user_agent')->label('User agent')->placeholder('—')->columnSpanFull(),
                 TextEntry::make('reason')->placeholder('—')->columnSpanFull(),
@@ -97,8 +100,7 @@ class AuditLogResource extends Resource
                     ?? ($record->company_id === null ? null : 'Company #'.$record->company_id))
                 ->placeholder('—'),
             TextColumn::make('subject_display')->label('Subject')
-                ->state(fn (AuditLog $record): ?string => $record->subject_type === null
-                    ? null : $record->subject_type.' #'.$record->subject_id)
+                ->state(fn (AuditLog $record): ?string => AuditSubjectLabel::display($record->subject_type, $record->subject_id))
                 ->placeholder('—'),
         ])->filters([
             SelectFilter::make('event_family')->label('Family')->options(self::FAMILIES),

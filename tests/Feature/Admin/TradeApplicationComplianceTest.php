@@ -136,7 +136,7 @@ it('shows the legal form and terms acceptance on the review screen, "not recorde
 it('copies the legal form to the company and stores the address postcode in standard form', function () {
     $application = complianceApplication('in_review', ['address' => ['line1' => '4 Castle Street', 'city' => 'Cardiff', 'postcode' => 'cf101bh']]);
 
-    $company = app(ApplicationReviewService::class)->approve($application, $this->admin, new ApprovalTerms($this->tier->id, PaymentTerms::Prepay, 0));
+    $company = app(ApplicationReviewService::class)->approve($application, $this->admin, new ApprovalTerms($this->tier->id, PaymentTerms::Prepay, 0), true);
 
     expect($company->fresh()->legal_form)->toBe('limited_company')
         ->and(Address::query()->where('company_id', $company->id)->sole()->postcode)->toBe('CF10 1BH');
@@ -157,7 +157,7 @@ it('turns a concurrent approval of the same VAT number into a friendly error, ro
         }
     });
 
-    expect(fn () => app(ApplicationReviewService::class)->approve($application, $this->admin, new ApprovalTerms($this->tier->id, PaymentTerms::Prepay, 0)))
+    expect(fn () => app(ApplicationReviewService::class)->approve($application, $this->admin, new ApprovalTerms($this->tier->id, PaymentTerms::Prepay, 0), true))
         ->toThrow(ValidationException::class, 'VAT number GB980780684 was approved for another account a moment ago');
 
     expect($application->fresh()->status)->toBe('in_review')

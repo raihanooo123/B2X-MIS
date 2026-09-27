@@ -485,20 +485,29 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
     - [x] PR #20 fixes: a friendly error when two applications with one VAT number are
           approved at the same moment (`companies_vat_uq` caught); postcodes stored as
           `SW1A 1AA`, including the approval address copy.
-  - **Slice B2 — external checks and the approval rule:**
-    - [ ] `App\Domain\Accounts\BusinessVerification` + `HmrcVatClient`, `ViesVatClient` and
-          `CompaniesHouseClient` (Laravel HTTP client, 5 s timeout); the
-          `VerifyApplicationBusiness` job (3 retries: 10/60/300 s), dispatched after commit;
-          `unchecked` on every failure, never blocking. Enums `VatCheckAuthority`,
-          `VatCheckOutcome`, `CompaniesHouseCheckOutcome` and `VerificationFailureReason`.
-    - [ ] `UkVatNumber` accepts `XI`; `ApplicationDuplicates` matches the VAT number's
+  - **Slice B2 — built 2026-09-28, pending test verification:**
+    - [x] `App\Domain\Accounts\BusinessVerification` with `HmrcVatClient` (OAuth
+          client-credentials, token cached), `ViesVatClient` and `CompaniesHouseClient`
+          (Laravel HTTP client, 5 s timeout, never throws); the `VerifyApplicationBusiness`
+          job (4 tries, backoff 10/60/300 s, only the final result written; first attempt final
+          on the sync queue), dispatched after a trade registration commits. Credentials in
+          `config/services.php`, documented in `.env.example`. Enums `VatCheckAuthority`,
+          `VatCheckOutcome`, `CompaniesHouseCheckOutcome`, `VerificationFailureReason` and
+          `VerificationWarning`, plus `CompaniesHouseStatus::REFUSES_APPROVAL`.
+    - [x] `UkVatNumber` accepts `XI`; `ApplicationDuplicates` matches the VAT number's
           nine-digit core.
-    - [ ] Review screen: Verification section and queue badge; **Re-run checks**
-          (`B2bApplicationPolicy::rerunChecks`). Approval enforces 02 §25.9 (the
-          `CompaniesHouseStatus::REFUSES_APPROVAL` list, `VerificationWarning` codes,
-          acknowledgement), with the approval audit shape per §25.9.
-    - [ ] Tests: each check outcome and failure reason, the refusal and every warning code,
-          the stale threshold, audit shapes, and the job never failing a registration.
+    - [x] Review screen: a Verification section (evidence, age, a stale flag past
+          `applications.verification_max_age_days`, history, what approval will require), a
+          queue checks badge, and **Re-run checks** (`B2bApplicationPolicy::rerunChecks`,
+          audited as `application.verification_requested`). Approval enforces 02 §25.9 —
+          refusal, warning codes, acknowledgement — with the approval audit shape per §25.9.
+    - [x] Tests: each client outcome and failure reason with HTTP fakes (stray requests
+          blocked), the retry path, every refusal status and warning code, the stale
+          threshold, acknowledgement, re-run access and audit, XI.
+    - [x] Fixes from manual testing: the IP and user agent on every staff audit entry
+          (`AuditContext`, 07 §6.5); terms "Publish" button and plain-Markdown editor;
+          application status badge colours; "Trade applicant — pending" and links to
+          applications on customer users; readable subjects in the audit log.
     - [ ] Storefront terms page (the current version outside the registration form).
   - [ ] **Later slice — public terms of sale at checkout** (02 §25.1, ⚑1): the terms of sale
         version on the checkout page; a `terms_acceptances` row (`kind = 'sale'`, source
@@ -1210,6 +1219,10 @@ retention operations still need delivery.
 - [x] Wire `auth.sign_in_failed` from password and second-factor failures with a dedicated
       configured HMAC key; do not record raw identifiers. Other 05.13 §15 events follow.
 - [x] Admin-only read-only Filament viewer with family, actor, company, subject and date filters.
+      Subjects show a readable name — email, company, application, terms version (2026-09-28).
+- [x] Every staff (`actor_type = user`) entry records the client IP and user agent from the
+      request (`AuditContext`, a scoped binding; honours trusted proxies; empty in console
+      and queue runs). 2026-09-28, pending verification.
 - [ ] Yearly partition creation, default-partition monitoring and seven-year retention job.
 
 ---

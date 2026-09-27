@@ -126,6 +126,17 @@ class User extends Authenticatable implements FilamentUser, HasName
     }
 
     /**
+     * Trade applications this user filed (02 §4.6 `applicant_user_id`),
+     * newest first.
+     *
+     * @return HasMany<B2bApplication, $this>
+     */
+    public function tradeApplications(): HasMany
+    {
+        return $this->hasMany(B2bApplication::class, 'applicant_user_id')->orderByDesc('submitted_at')->orderByDesc('id');
+    }
+
+    /**
      * Internal staff RBAC (02 §14.1) — distinct from company()/companies()'
      * B2B customer-side role. Read-only convenience relation — grant a role
      * via `RoleUser::create(['role_id' => ..., 'user_id' => ...])`, not

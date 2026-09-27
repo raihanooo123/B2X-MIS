@@ -3,7 +3,9 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerUserResource\Pages;
+use App\Models\B2bApplication;
 use App\Models\User;
+use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -46,7 +48,8 @@ class CustomerUserResource extends Resource
     /** @return Builder<User> */
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->whereDoesntHave('roles')->with('companies');
+        return parent::getEloquentQuery()->whereDoesntHave('roles')->with('companies')
+            ->withExists(['tradeApplications as has_open_application' => fn (Builder $query) => $query->whereIn('status', B2bApplication::OPEN_STATUSES)]);
     }
 
     public static function canViewAny(): bool
@@ -93,9 +96,18 @@ class CustomerUserResource extends Resource
             ])->columns(2),
             Section::make('Company memberships')->schema([
                 TextEntry::make('memberships')->hiddenLabel()
-                    ->state(fn (User $record): array => self::memberships($record))
-                    ->listWithLineBreaks()
-                    ->placeholder('No company — a public customer'),
+                    ->state(fn (User $record): array => self::memberships($record) ?: ['No company — '.lcfirst(self::customerKind($record))])
+                    ->listWithLineBreaks(),
+            ]),
+            Section::make('Trade applications')->schema([
+                RepeatableEntry::make('tradeApplications')->hiddenLabel()->schema([
+                    TextEntry::make('company_name')->label('Company')
+                        ->url(fn (B2bApplication $record): string => TradeApplicationResource::getUrl('view', ['record' => $record]))
+                        ->color('primary'),
+                    TextEntry::make('status')->badge()
+                        ->color(fn (string $state): string => TradeApplicationResource::statusColor($state)),
+                    TextEntry::make('submitted_at')->label('Submitted')->dateTime(),
+                ])->columns(3)->placeholder('No trade applications.'),
             ]),
         ]);
     }
@@ -106,9 +118,25 @@ class CustomerUserResource extends Resource
             TextColumn::make('first_name')->label('First name')->searchable()->sortable(),
             TextColumn::make('last_name')->label('Last name')->searchable()->sortable(),
             TextColumn::make('email')->searchable()->sortable(),
-            TextColumn::make('companies.name')->label('Companies')->badge()->placeholder('Public customer'),
+            TextColumn::make('account')->label('Companies')->badge()
+                ->state(fn (User $record): array => $record->companies->pluck('name')->all() ?: [self::customerKind($record)])
+                ->color(fn (string $state, User $record): string => $record->companies->isNotEmpty() ? 'primary' : ($state === self::PENDING_APPLICANT ? 'warning' : 'gray')),
             TextColumn::make('status')->badge(),
         ])->actions([ViewAction::make()])->defaultSort('created_at', 'desc');
+    }
+
+    public const PENDING_APPLICANT = 'Trade applicant — pending';
+
+    /**
+     * A user with no company: "Trade applicant — pending" while they have an
+     * open application (05.13 §4.1), otherwise a public customer.
+     */
+    public static function customerKind(User $user): string
+    {
+        $open = $user->getAttribute('has_open_application')
+            ?? $user->tradeApplications()->whereIn('status', B2bApplication::OPEN_STATUSES)->exists();
+
+        return $open ? self::PENDING_APPLICANT : 'Public customer';
     }
 
     /** @return list<string> "Company (ACCOUNT) — role · company status" */

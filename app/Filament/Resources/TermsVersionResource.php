@@ -56,7 +56,9 @@ class TermsVersionResource extends Resource
                 ->helperText('For example 2026-10 or v2.1. Unique for these terms.'),
             DateTimePicker::make('effective_from')->label('Takes effect')->seconds(false)
                 ->helperText('Leave empty to take effect immediately. Never in the past.'),
-            MarkdownEditor::make('body_markdown')->label('Text')->required()->live(debounce: 500)->columnSpanFull(),
+            // Plain Markdown only: no uploaded images or tables in legal text.
+            MarkdownEditor::make('body_markdown')->label('Text')->required()->live(debounce: 500)->columnSpanFull()
+                ->disableToolbarButtons(['attachFiles', 'table']),
             Placeholder::make('preview')->label('Preview')->columnSpanFull()
                 ->content(fn (Get $get): HtmlString => self::render((string) $get('body_markdown'))),
             Placeholder::make('fingerprint')->label('SHA-256 of this text')

@@ -6,7 +6,9 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * 05.2 §5.1: UK VAT number, `GB` + 9 or 12 digits, checksum validated.
+ * 05.2 §5.1, §17: UK VAT number, `GB` — or `XI` for Northern Ireland,
+ * the same VRN under the NI prefix (02 §25.4) — + 9 or 12 digits,
+ * checksum validated.
  * HMRC's check: weight the first seven digits 8..2, add the two check
  * digits; the total is valid if divisible by 97 (the original scheme)
  * or if it is divisible by 97 after adding 55 (the 9755 scheme). A
@@ -14,6 +16,11 @@ use Illuminate\Contracts\Validation\ValidationRule;
  */
 final class UkVatNumber implements ValidationRule
 {
+    /** Examples shown to users. Both pass the checksum, so copying one works. */
+    public const EXAMPLE_GB = 'GB123456782';
+
+    public const EXAMPLE_XI = 'XI123456782';
+
     public static function normalise(string $value): string
     {
         return strtoupper(preg_replace('/[\s.\-]/', '', $value) ?? '');
@@ -23,8 +30,8 @@ final class UkVatNumber implements ValidationRule
     {
         $vat = self::normalise((string) $value);
 
-        if (preg_match('/^GB(\d{9})(\d{3})?$/', $vat, $m) !== 1 || ! self::checksumValid($m[1])) {
-            $fail('Enter a valid UK VAT number, e.g. GB123456789.');
+        if (preg_match('/^(?:GB|XI)(\d{9})(\d{3})?$/', $vat, $m) !== 1 || ! self::checksumValid($m[1])) {
+            $fail('Enter a valid UK VAT number, e.g. '.self::EXAMPLE_GB.', or '.self::EXAMPLE_XI.' in Northern Ireland.');
         }
     }
 

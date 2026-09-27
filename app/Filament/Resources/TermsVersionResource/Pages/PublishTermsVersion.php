@@ -6,6 +6,7 @@ use App\Domain\Accounts\TermsKind;
 use App\Domain\Accounts\TermsPublisher;
 use App\Filament\Resources\TermsVersionResource;
 use App\Models\User;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -45,6 +46,11 @@ class PublishTermsVersion extends CreateRecord
 
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    protected function getCreateFormAction(): Action
+    {
+        return parent::getCreateFormAction()->label('Publish');
     }
 
     protected function getRedirectUrl(): string

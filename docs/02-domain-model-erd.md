@@ -3828,7 +3828,12 @@ CREATE INDEX stocktake_line_serials_serial_idx ON stocktake_line_serials (serial
 
 ## 25. Schema amendment 2026-09-28 — trade application compliance (signed off 2026-09-28)
 
-> **Status: signed off 2026-09-28**, with the decisions in §25.8 and two changes made before sign-off the same day: the wider Companies House refusal list (§25.9) and terms publishing with a development seeder (§25.1, §25.10). **Slice B1 built 2026-09-28, pending test verification:** all four migrations (`2026_10_14_090100`–`090400`), terms publishing and acceptance, legal form, rejection outcome and the re-application gate. The external checks (§25.4–§25.5 writers) and the §25.9 approval rule are slice B2; until then the check tables stay empty. Remaining tasks are in ROADMAP §6. Behaviour is in 05.2 §17. The approval rule and audit shapes are in §25.9, and deployment prerequisites in §25.10.
+> **Status: signed off 2026-09-28**, with the decisions in §25.8 and two changes made before sign-off the same day: the wider Companies House refusal list (§25.9) and terms publishing with a development seeder (§25.1, §25.10). **Built 2026-09-28, pending test verification.**
+>
+> - Slice B1: the four migrations (`2026_10_14_090100`–`090400`), terms publishing and acceptance, legal form, the rejection outcome and the re-application gate.
+> - Slice B2: the HMRC, VIES and Companies House checks, the review screen's evidence, **Re-run checks**, and the §25.9 approval rule.
+>
+> Remaining tasks are in ROADMAP §6. Behaviour is in 05.2 §17. The approval rule and audit shapes are in §25.9, and deployment prerequisites in §25.10.
 
 This amendment adds what a UK wholesaler needs to record when an application is made and reviewed:
 
@@ -4139,7 +4144,7 @@ CREATE INDEX vat_number_checks_latest_idx
 
 **Read by:** `TradeApplicationResource` (queue badge and a new "Verification" section with history), and the approval rule (§25.9).
 
-**Duplicate detection** (05.2 §5.2) compares the nine-digit core, not the whole string. A Northern Ireland business's `XI` and `GB` numbers share their digits, and `companies_vat_uq` treats `GB123456789` and `XI123456789` as different values. `ApplicationDuplicates` therefore matches on `substring(vat_number from 3 for 9)`. At current volumes that is a sequential scan over `companies`, and it adds no index until measured.
+**Duplicate detection** (05.2 §5.2) compares the nine-digit core, not the whole string. A Northern Ireland business's `XI` and `GB` numbers share their digits, and `companies_vat_uq` treats `GB123456782` and `XI123456782` as different values. `ApplicationDuplicates` therefore matches on `substring(vat_number from 3 for 9)`. At current volumes that is a sequential scan over `companies`, and it adds no index until measured.
 
 **Configuration** (§21.3's seller details, `global`, `value_type 'text'`): `seller.xi_vat_number` is the seller's own `XI` number. It is optional: when unset, VIES checks run without a requester and return no request identifier.
 
@@ -4274,6 +4279,9 @@ The codes are a PHP backed enum, `VerificationWarning`. They are computed at app
 - `application.rejected` `after` gains `rejection_category` (a `RejectionCategory` value). `applicant_message` and `review_note` stay out of the audit log.
 - Both actions keep their family (`permission`) and their other fields unchanged.
 - New: `configuration.terms_version_published` (family `configuration`, subject `terms_version`, actor the publishing admin). `before` is empty. `after` is exactly `kind`, `version`, `effective_from` (ISO 8601) and `body_sha256`, with no text (§25.1).
+- New (added at implementation, 2026-09-28): `application.verification_requested` (family `permission`, subject the application, actor the reviewer), written when a reviewer re-runs the checks. `before` is empty; `after` is exactly `checks` — `companies_house`, `vat` or `companies_house,vat`. The results themselves are rows in the check tables, each carrying `requested_by_user_id`.
+- Like every staff entry, these record the client IP and user agent (07 §6.5).
+- "A Companies House check applies" means a Companies House number was given. That is always so for a `limited_company` or `llp`, and a number's absence means nothing to check.
 
 ### 25.10 Deployment prerequisites
 

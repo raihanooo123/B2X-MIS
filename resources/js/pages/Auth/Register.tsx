@@ -188,7 +188,7 @@ function TradeApplicationForm({ businessTypes, legalForms, terms }: { businessTy
                         error={errors.registration_number}
                         hint={needsCompanyNumber ? 'Required for a limited company or LLP. 8 digits, or 2 letters and 6 digits.' : '8 digits, or 2 letters and 6 digits.'}
                     />
-                    <Field label="VAT number" value={form.data.vat_number} onChange={(e) => form.setData('vat_number', e.target.value)} error={errors.vat_number} hint="e.g. GB123456789" />
+                    <Field label="VAT number" value={form.data.vat_number} onChange={(e) => form.setData('vat_number', e.target.value)} error={errors.vat_number} hint="e.g. GB123456782 (XI123456782 in Northern Ireland)" />
                 </div>
                 <Field
                     label="Estimated monthly spend (£, excluding VAT)"
