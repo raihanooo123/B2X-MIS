@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Identity\RecoveryCodes;
+use App\Domain\Identity\CompanyUserDirectory;
 use App\Http\Controllers\Auth\TwoFactorSetupController;
 use App\Http\Support\ActingCompany;
 use App\Models\User;
@@ -33,6 +34,8 @@ class AccountController extends Controller
                 'email_verified' => $user->hasVerifiedEmail(),
             ],
             'company' => $company === null ? null : ['name' => $company->name, 'account_code' => $company->account_code],
+            'company_management' => CompanyUserDirectory::management($user, $company),
+            'invitations' => CompanyUserDirectory::pending($user),
             'two_factor' => [
                 'enabled' => $user->two_factor_enabled,
                 'required' => $user->isStaff(),

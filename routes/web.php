@@ -10,6 +10,8 @@ use App\Http\Controllers\Auth\TwoFactorChallengeController;
 use App\Http\Controllers\Auth\TwoFactorSetupController;
 use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CheckoutPageController;
+use App\Http\Controllers\CompanyInvitationController;
+use App\Http\Controllers\CompanyMemberController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderPadController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
@@ -55,6 +57,14 @@ Route::middleware('guest')->group(function (): void {
     Route::post('/reset-password', [PasswordResetController::class, 'reset'])->name('password.update');
 });
 
+// 05.13 §9: the same invitation page for new and existing accounts.
+Route::get('/company-invitations/{token}', [CompanyInvitationController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]{64}')->name('company-invitations.show');
+Route::get('/company-invitations/{token}/sign-in', [CompanyInvitationController::class, 'signIn'])
+    ->where('token', '[A-Za-z0-9]{64}')->name('company-invitations.sign-in');
+Route::post('/company-invitations/{token}', [CompanyInvitationController::class, 'accept'])
+    ->where('token', '[A-Za-z0-9]{64}')->middleware('throttle:10,1')->name('company-invitations.accept');
+
 // Not a sign-in link: works signed in or out, on any device (05.13 §11).
 Route::get('/email/verify/{user}/{expires}/{signature}', [EmailVerificationController::class, 'verify'])
     ->whereUlid('user')
@@ -78,6 +88,15 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/two-factor/recovery-codes/confirm', [TwoFactorSetupController::class, 'confirmRegeneratedCodes'])->name('two-factor.setup.recovery-codes.confirm');
     Route::post('/two-factor/recovery-codes/cancel', [TwoFactorSetupController::class, 'cancelRegeneratedCodes'])->name('two-factor.setup.recovery-codes.cancel');
     Route::delete('/two-factor', [TwoFactorSetupController::class, 'destroy'])->name('two-factor.setup.disable');
+
+    Route::post('/account/companies/{company:public_id}/invitations', [CompanyInvitationController::class, 'store'])
+        ->middleware('throttle:10,1')->name('account.invitations.store');
+    Route::post('/account/invitations/{invitation:public_id}/resend', [CompanyInvitationController::class, 'resend'])
+        ->middleware('throttle:10,1')->name('account.invitations.resend');
+    Route::delete('/account/invitations/{invitation:public_id}', [CompanyInvitationController::class, 'revoke'])->name('account.invitations.revoke');
+    Route::post('/account/invitations/{invitation:public_id}/accept', [CompanyInvitationController::class, 'acceptFromAccount'])->name('account.invitations.accept');
+    Route::patch('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'update'])->name('account.members.update');
+    Route::delete('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'destroy'])->name('account.members.destroy');
 
     Route::get('/account', [AccountController::class, 'show'])->name('account');
 

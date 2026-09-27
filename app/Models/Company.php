@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Doc 02 §4.3 — companies. The trade account: price tier, payment terms, credit.
@@ -64,6 +65,12 @@ class Company extends Model
             'tax_exempt' => 'boolean',
             'approved_at' => 'datetime',
         ];
+    }
+
+    /** @return HasMany<CompanyInvitation, $this> */
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(CompanyInvitation::class);
     }
 
     /**

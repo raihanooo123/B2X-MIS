@@ -6,6 +6,7 @@ use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Accounts\TermsKind;
 use App\Domain\Accounts\VerificationWarning;
 use App\Domain\Billing\PaymentTerms;
+use App\Domain\Identity\CompanyMemberRole;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
@@ -35,6 +36,8 @@ final class AuditLogger
         $this->validateFields($entry->before, $entry->action->beforeFields());
         $this->validateFields($entry->after, $entry->action->afterFields());
         match ($entry->action) {
+            AuditAction::CompanyInvited, AuditAction::CompanyInvitationRevoked, AuditAction::CompanyInvitationAccepted,
+            AuditAction::CompanyMemberChanged, AuditAction::CompanyMemberRemoved => $this->validateCompanyAdministration($entry),
             AuditAction::SignInFailed => $this->validateFailedSignIn($entry),
             AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested,
             AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked,
@@ -222,6 +225,28 @@ final class AuditLogger
             || $entry->subjectType !== 'terms_version' || $entry->subjectId === null
             || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid terms version audit entry.');
+        }
+    }
+
+    private function validateCompanyAdministration(AuditEntry $entry): void
+    {
+        $membership = in_array($entry->action, [AuditAction::CompanyMemberChanged, AuditAction::CompanyMemberRemoved], true);
+        $valid = $entry->actorType === 'user' && $entry->actorUserId !== null && $entry->companyId !== null
+            && $entry->subjectType === ($membership ? 'user' : 'company_invitation') && $entry->subjectId !== null
+            && $entry->reason === null && $entry->actingForCompanyId === null;
+        foreach (['before', 'after'] as $side) {
+            $payload = $entry->{$side};
+            $fields = $side === 'before' ? $entry->action->beforeFields() : $entry->action->afterFields();
+            $valid = $valid && count($payload) === count($fields);
+            if ($fields !== []) {
+                $valid = $valid && is_string($payload['role'] ?? null) && CompanyMemberRole::tryFrom($payload['role']) !== null
+                    && array_key_exists('order_limit_minor', $payload)
+                    && ($payload['order_limit_minor'] === null || (is_int($payload['order_limit_minor']) && $payload['order_limit_minor'] >= 0))
+                    && is_bool($payload['requires_approval'] ?? null);
+            }
+        }
+        if (! $valid) {
+            throw new InvalidArgumentException('Invalid company administration audit entry.');
         }
     }
 
