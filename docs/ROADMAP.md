@@ -1236,9 +1236,18 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       2FA with recovery codes, company choice (guest-cart merge moved after it), session
       limits. Done 2026-09-24 — see 05.13 §20.
 - [x] Resolve 05.13 §19 Q15/Q17/Q18. Done 2026-09-24.
+- [x] Admin-only staff directory and pending-account creation, including admin-to-admin
+      creation, explicit initial role grants with grantor, password-setup email and resend,
+      audit events and access tests. No migration needed; uses existing `users`, `role_user`,
+      password broker, notification and audit tables. 2026-09-27, pending verification.
+- [ ] Staff account lifecycle: grant/revoke existing roles, suspension/reactivation, 2FA
+      reset, and recovery controls. These actions need their own policies, audit events and
+      reviewable tests; staff creation does not imply they are implemented.
+- [ ] Customer/company user administration and invitation management; keep staff roles
+      separate from customer-side `company_users` roles.
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
-      reset and user suspension in Filament, §15 audit events (after §18's audit log).
+      reset and user suspension in Filament, remaining §15 audit events.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.

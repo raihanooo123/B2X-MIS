@@ -22,6 +22,7 @@ final class AuditLogger
         $this->validateFields($entry->after, $entry->action->afterFields());
         match ($entry->action) {
             AuditAction::SignInFailed => $this->validateFailedSignIn($entry),
+            AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested, AuditAction::StaffRoleGranted => $this->validateStaffEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -91,6 +92,27 @@ final class AuditLogger
             || ! is_string($entry->after['key_version'] ?? null)
             || preg_match('/^[A-Za-z0-9_-]{1,32}$/', $entry->after['key_version']) !== 1) {
             throw new InvalidArgumentException('Invalid failed sign-in audit entry.');
+        }
+    }
+
+    private function validateStaffEvent(AuditEntry $entry): void
+    {
+        $expected = match ($entry->action) {
+            AuditAction::StaffCreated => ['status' => 'pending'],
+            AuditAction::StaffOnboardingRequested => ['channel' => 'email'],
+            AuditAction::StaffRoleGranted => null,
+            default => throw new InvalidArgumentException('Unsupported staff audit action.'),
+        };
+
+        if ($entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'user' || $entry->subjectId === null
+            || $entry->before !== [] || $entry->reason !== null
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null
+            || ($expected !== null && $entry->after !== $expected)
+            || ($entry->action === AuditAction::StaffRoleGranted
+                && (count($entry->after) !== 1
+                    || ! in_array($entry->after['role'] ?? null, ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'], true)))) {
+            throw new InvalidArgumentException('Invalid staff audit entry.');
         }
     }
 }
