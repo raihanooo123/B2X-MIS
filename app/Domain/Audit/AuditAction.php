@@ -14,10 +14,15 @@ enum AuditAction: string
 
     case StaffRoleRevoked = 'permission.staff_role_revoked';
 
+    case StaffSuspended = 'auth.staff_suspended';
+
+    case StaffReinstated = 'auth.staff_reinstated';
+
     public function family(): string
     {
         return match ($this) {
-            self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested => 'auth',
+            self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested,
+            self::StaffSuspended, self::StaffReinstated => 'auth',
             self::StaffRoleGranted, self::StaffRoleRevoked => 'permission',
         };
     }
@@ -28,6 +33,7 @@ enum AuditAction: string
         return match ($this) {
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested, self::StaffRoleGranted => [],
             self::StaffRoleRevoked => ['role', 'granted_by_user_id'],
+            self::StaffSuspended, self::StaffReinstated => ['status'],
         };
     }
 
@@ -40,6 +46,7 @@ enum AuditAction: string
             self::StaffOnboardingRequested => ['channel'],
             self::StaffRoleGranted => ['role'],
             self::StaffRoleRevoked => [],
+            self::StaffSuspended, self::StaffReinstated => ['status'],
         };
     }
 }
