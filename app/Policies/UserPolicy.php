@@ -50,6 +50,22 @@ final class UserPolicy
         return false;
     }
 
+    /**
+     * 05.13 §5.3: an active administrator grants or revokes another staff
+     * member's `role_user` rows. Never their own, never a customer (no
+     * implicit conversion to staff) and never a suspended or closed
+     * account — those lifecycle actions are separate slices.
+     * StaffRoleService re-checks this under its row locks and adds the
+     * last-active-admin and final-role safeguards.
+     */
+    public function manageStaffRoles(User $user, User $staff): bool
+    {
+        return $user->status === 'active'
+            && $user->id !== $staff->id
+            && in_array($staff->status, ['pending', 'active'], true)
+            && $this->view($user, $staff);
+    }
+
     public function resendStaffOnboarding(User $user, User $staff): bool
     {
         return $this->view($user, $staff)

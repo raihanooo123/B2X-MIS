@@ -23,7 +23,7 @@ use Illuminate\Validation\ValidationException;
 
 final class StaffOnboardingService
 {
-    private const ROLES = ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'];
+    public const ROLES = ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'];
 
     public function __construct(
         private readonly AuditLogger $audit = new AuditLogger,
