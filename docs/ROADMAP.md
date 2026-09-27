@@ -1240,9 +1240,14 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       creation, explicit initial role grants with grantor, password-setup email and resend,
       audit events and access tests. No migration needed; uses existing `users`, `role_user`,
       password broker, notification and audit tables. 2026-09-27, pending verification.
-- [ ] Staff account lifecycle: grant/revoke existing roles, suspension/reactivation, 2FA
-      reset, and recovery controls. These actions need their own policies, audit events and
-      reviewable tests; staff creation does not imply they are implemented.
+- [x] Admin-only grant/revoke of existing staff roles from the Staff detail page
+      (`StaffRoleService`, `UserPolicy::manageStaffRoles`): grantor recorded, every change
+      audited (`permission.staff_role_granted` / `permission.staff_role_revoked`), no
+      self-changes, last active admin and final role protected, changes serialised on the
+      `admin` role row. No migration needed. 2026-09-27, pending verification.
+- [ ] Staff account lifecycle: suspension/reactivation, 2FA reset, and recovery controls.
+      These actions need their own policies, audit events and reviewable tests; suspension
+      must take the same `admin` role-row lock as role changes (05.13 §5.3).
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in

@@ -22,7 +22,8 @@ final class AuditLogger
         $this->validateFields($entry->after, $entry->action->afterFields());
         match ($entry->action) {
             AuditAction::SignInFailed => $this->validateFailedSignIn($entry),
-            AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested, AuditAction::StaffRoleGranted => $this->validateStaffEvent($entry),
+            AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested,
+            AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked => $this->validateStaffEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -97,21 +98,23 @@ final class AuditLogger
 
     private function validateStaffEvent(AuditEntry $entry): void
     {
-        $expected = match ($entry->action) {
-            AuditAction::StaffCreated => ['status' => 'pending'],
-            AuditAction::StaffOnboardingRequested => ['channel' => 'email'],
-            AuditAction::StaffRoleGranted => null,
+        $roles = ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'];
+        $valid = match ($entry->action) {
+            AuditAction::StaffCreated => $entry->before === [] && $entry->after === ['status' => 'pending'],
+            AuditAction::StaffOnboardingRequested => $entry->before === [] && $entry->after === ['channel' => 'email'],
+            AuditAction::StaffRoleGranted => $entry->before === [] && count($entry->after) === 1
+                && in_array($entry->after['role'] ?? null, $roles, true),
+            AuditAction::StaffRoleRevoked => $entry->after === [] && count($entry->before) === 2
+                && in_array($entry->before['role'] ?? null, $roles, true)
+                && array_key_exists('granted_by_user_id', $entry->before)
+                && ($entry->before['granted_by_user_id'] === null || is_int($entry->before['granted_by_user_id'])),
             default => throw new InvalidArgumentException('Unsupported staff audit action.'),
         };
 
-        if ($entry->actorType !== 'user' || $entry->actorUserId === null
+        if (! $valid || $entry->actorType !== 'user' || $entry->actorUserId === null
             || $entry->subjectType !== 'user' || $entry->subjectId === null
-            || $entry->before !== [] || $entry->reason !== null
-            || $entry->companyId !== null || $entry->actingForCompanyId !== null
-            || ($expected !== null && $entry->after !== $expected)
-            || ($entry->action === AuditAction::StaffRoleGranted
-                && (count($entry->after) !== 1
-                    || ! in_array($entry->after['role'] ?? null, ['admin', 'accounts', 'purchasing', 'rep', 'warehouse', 'sales_manager'], true)))) {
+            || $entry->reason !== null
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid staff audit entry.');
         }
     }

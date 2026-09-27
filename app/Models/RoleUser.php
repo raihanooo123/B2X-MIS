@@ -10,7 +10,12 @@ use Illuminate\Database\Eloquent\Relations\Pivot;
  * Doc 02 §14.1 — role_user. Composite PK (user_id, role_id) serves "roles
  * held by this user"; role_user_role_idx (DB-level) is the reverse
  * direction for "who holds this role". created_at only, no updated_at —
- * a role grant is a fact, not an editable row.
+ * a role grant is a fact, not an editable row. Grants and revocations of
+ * existing staff go through StaffRoleService, which audits each change.
+ *
+ * @property int $role_id
+ * @property int $user_id
+ * @property int|null $granted_by_user_id
  */
 class RoleUser extends Pivot
 {
