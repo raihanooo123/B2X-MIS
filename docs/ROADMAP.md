@@ -1124,7 +1124,8 @@ can run in a real browser.
 
 `07-nfr.md` §6.5 mandates an immutable, append-only, 7-year-retained audit log. The
 schema gap was closed in 02 §15 and the storage/logger foundation merged in PR #12;
-event callers, a read-only viewer and retention operations still need delivery.
+failed-sign-in events and the read-only admin viewer are built. Other event callers and
+retention operations still need delivery.
 
 - [x] **02 §15 signed off and merged in PR #11** (partitioned, DB-trigger append-only,
       admin-only read; decisions in §15.3).
@@ -1139,9 +1140,9 @@ event callers, a read-only viewer and retention operations still need delivery.
       as those workflows are built.
 - [x] `tests/Feature/Domain/AuditLoggerTest.php` — direct database assertions that
       `UPDATE`, `DELETE` and `TRUNCATE` fail on the parent and named partitions.
-- [ ] Wire `auth.sign_in_failed` from password and second-factor failures with a dedicated
+- [x] Wire `auth.sign_in_failed` from password and second-factor failures with a dedicated
       configured HMAC key; do not record raw identifiers. Other 05.13 §15 events follow.
-- [ ] Admin-only read-only Filament viewer with family, actor, company, subject and date filters.
+- [x] Admin-only read-only Filament viewer with family, actor, company, subject and date filters.
 - [ ] Yearly partition creation, default-partition monitoring and seven-year retention job.
 
 ---
