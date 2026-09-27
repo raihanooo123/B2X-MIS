@@ -44,6 +44,10 @@ final class HmrcVatClient
             return VatLookup::unchecked($this->failureFor($exception));
         }
 
+        if ($response->status() === 401) {
+            Cache::forget(self::TOKEN_CACHE_KEY);
+        }
+
         if ($response->status() === 404) {
             return VatLookup::notFound();
         }
@@ -63,7 +67,7 @@ final class HmrcVatClient
             $name,
             is_array($address) ? $address : null,
             is_string($consultation) && $consultation !== '' ? $consultation : null,
-            CarbonImmutable::parse($processed),
+            CarbonImmutable::parse($processed, 'Europe/London')->utc(),
         );
     }
 

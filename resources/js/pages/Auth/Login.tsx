@@ -8,14 +8,18 @@ import type { FormEvent } from 'react';
 
 import { AuthLayout } from '@/components/auth/AuthLayout';
 import { Field } from '@/components/auth/Field';
+import { clearPasswords } from '@/components/auth/passwordInputs';
 import { Button } from '@/components/ui/button';
 
 export default function Login({ status }: { status: string | null }) {
     const form = useForm({ email: '', password: '' });
 
-    const submit = (e: FormEvent) => {
+    const submit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        form.post('/login', { onFinish: () => form.reset('password') });
+        const element = e.currentTarget;
+        const values = new FormData(element);
+        form.transform((data) => ({ ...data, password: String(values.get('password') ?? '') }));
+        form.post('/login', { onFinish: () => { form.reset('password'); clearPasswords(element); } });
     };
 
     return (
@@ -47,8 +51,7 @@ export default function Login({ status }: { status: string | null }) {
                     name="password"
                     autoComplete="current-password"
                     required
-                    value={form.data.password}
-                    onChange={(e) => form.setData('password', e.target.value)}
+                    defaultValue=""
                     error={form.errors.password}
                     labelAside={
                         <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-4 hover:underline">

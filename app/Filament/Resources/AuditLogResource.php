@@ -123,9 +123,9 @@ class AuditLogResource extends Resource
                 DatePicker::make('to')->label('To'),
             ])->query(fn (Builder $query, array $data): Builder => $query
                 ->when($data['from'] ?? null, fn (Builder $query, string $from) => $query
-                    ->where('occurred_at', '>=', Carbon::parse($from, 'UTC')->startOfDay()))
+                    ->where('occurred_at', '>=', Carbon::parse($from, config('app.display_timezone'))->startOfDay()->utc()))
                 ->when($data['to'] ?? null, fn (Builder $query, string $to) => $query
-                    ->where('occurred_at', '<', Carbon::parse($to, 'UTC')->addDay()->startOfDay()))),
+                    ->where('occurred_at', '<', Carbon::parse($to, config('app.display_timezone'))->addDay()->startOfDay()->utc()))),
         ])->actions([ViewAction::make()])->defaultSort('occurred_at', 'desc');
     }
 
