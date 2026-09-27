@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\CompanyUserDirectory;
+use App\Domain\Identity\RecoveryCodes;
 use App\Http\Controllers\Auth\TwoFactorSetupController;
 use App\Http\Support\ActingCompany;
 use App\Models\User;

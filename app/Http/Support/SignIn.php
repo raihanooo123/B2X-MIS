@@ -3,8 +3,8 @@
 namespace App\Http\Support;
 
 use App\Domain\Audit\AuditLogger;
-use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\CompanyUserDirectory;
+use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
 use App\Domain\Notifications\Notices\TwoFactorChanged;

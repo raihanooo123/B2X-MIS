@@ -20,4 +20,10 @@ class ManageCompanyMemberRequest extends FormRequest
     {
         return $this->isMethod('delete') ? [] : CompanyMemberSettings::rules();
     }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return CompanyMemberSettings::messages();
+    }
 }

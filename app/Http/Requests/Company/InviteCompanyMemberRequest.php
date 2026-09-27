@@ -28,4 +28,10 @@ class InviteCompanyMemberRequest extends FormRequest
     {
         return ['email' => AuthFields::email(), 'first_name' => ['required', 'string', 'max:100'], 'last_name' => ['required', 'string', 'max:100']];
     }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return CompanyMemberSettings::messages();
+    }
 }

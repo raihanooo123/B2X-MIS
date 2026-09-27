@@ -16,8 +16,10 @@ final class CompanyMemberFields
     {
         return [
             Select::make('role')->options(CompanyMemberRole::options())->required()->default('buyer'),
-            TextInput::make('order_limit_minor')->label('Order limit (pence)')->helperText('Whole pence; leave empty for no limit.')
-                ->rules(['nullable', 'integer', 'min:0', 'max:'.PHP_INT_MAX])->inputMode('numeric'),
+            TextInput::make('order_limit')->label('Order limit')->prefix('£')->inputMode('decimal')
+                ->helperText('The most a single order may total, in pounds. Leave empty for no limit.')
+                ->rules(['nullable', 'regex:/^\\d{1,9}(\\.\\d{1,2})?$/'])
+                ->validationMessages(['regex' => 'Enter the order limit in pounds, e.g. 2500 or 2500.50.']),
             Toggle::make('requires_approval')->label('Requires approval')->default(false),
         ];
     }

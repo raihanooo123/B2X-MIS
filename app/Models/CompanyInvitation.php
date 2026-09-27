@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
  * timestamps (open / accepted / revoked / expired), never stored. The
  * flows are implemented by CompanyInvitationService (05.13 §9).
  *
+ * @property-read Company $company
  * @property string $public_id
  * @property string $first_name
  * @property string $last_name

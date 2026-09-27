@@ -5,6 +5,7 @@ namespace App\Filament\Resources\CompanyResource\RelationManagers;
 use App\Domain\Identity\CompanyInvitationService;
 use App\Domain\Identity\CompanyMemberSettings;
 use App\Filament\Support\CompanyMemberFields;
+use App\Filament\Support\MoneyFormatter;
 use App\Models\Company;
 use App\Models\CompanyInvitation;
 use App\Models\User;
@@ -28,7 +29,8 @@ class InvitationsRelationManager extends RelationManager
         return $table->columns([
             TextColumn::make('email')->searchable(),
             TextColumn::make('role'),
-            TextColumn::make('order_limit_minor')->label('Order limit (pence)')->placeholder('No limit'),
+            TextColumn::make('order_limit_minor')->label('Order limit')->placeholder('No limit')
+                ->formatStateUsing(fn (?int $state): ?string => MoneyFormatter::minor($state)),
             TextColumn::make('expires_at')->dateTime(),
             TextColumn::make('state')->state(fn (CompanyInvitation $record): string => $record->accepted_at !== null
                 ? 'Accepted' : ($record->revoked_at !== null ? 'Revoked' : ($record->isOpen() ? 'Invited' : 'Expired'))),

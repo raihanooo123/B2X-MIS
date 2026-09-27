@@ -1344,12 +1344,14 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       owner of an approved or suspended company cannot be suspended (05.13 §9 ⚑5, decided
       2026-09-27; applied/rejected/closed exempt), serialised on the `companies` rows; company status and credit untouched. No migration needed. 2026-09-27, pending
       verification.
-- [ ] Customer/company user administration and invitation management; keep staff roles
-      separate from customer-side `company_users` roles.
+- [x] Company invitations (invite, resend, revoke, accept for new and existing accounts) and
+      company member management (role, order limit in pounds, approval flag, remove) for owners
+      on the storefront and admins in Filament; ⚑5 enforced under the company row lock; all
+      audited. 05.13 §9.3 implementation note. No migration needed. 2026-09-28, pending verification.
 - [x] 05.13 §5.1 additions: legal form and terms of trade acceptance (slice B1,
       2026-09-28, pending verification). Verification after commit is slice B2 — ROADMAP §6,
       "Application compliance".
-- [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
+- [ ] 05.13 §20 "not built yet": applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
       reset for trade users (staff reset done; blocked on ⚑9), remaining §15 audit events.
       Customer suspension is done.

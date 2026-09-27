@@ -17,9 +17,13 @@ import { SaveRecoveryCodes } from '@/components/auth/twoFactor';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+import { CompanyUsers, PendingInvitations, type CompanyManagement, type PendingInvitation } from './components/CompanyUsers';
+
 interface AccountProps {
     user: { name: string; email: string; email_verified: boolean };
     company: { name: string; account_code: string } | null;
+    company_management: CompanyManagement | null;
+    invitations: PendingInvitation[];
     two_factor: {
         enabled: boolean;
         required: boolean;
@@ -30,7 +34,7 @@ interface AccountProps {
     status: string | null;
 }
 
-export default function AccountIndex({ user, company, two_factor: tf, status }: AccountProps) {
+export default function AccountIndex({ user, company, company_management, invitations, two_factor: tf, status }: AccountProps) {
     return (
         <>
             <Head title="Your account" />
@@ -75,6 +79,18 @@ export default function AccountIndex({ user, company, two_factor: tf, status }: 
                             )}
                         </dl>
                     </Card>
+
+                    {invitations.length > 0 && (
+                        <Card title="Invitations for you">
+                            <PendingInvitations invitations={invitations} />
+                        </Card>
+                    )}
+
+                    {company_management && company && (
+                        <Card title={`People at ${company.name}`}>
+                            <CompanyUsers management={company_management} />
+                        </Card>
+                    )}
 
                     <Card title="Two-factor authentication">
                         {tf.enabled ? <TwoFactorOn tf={tf} /> : <TwoFactorOff required={tf.required} />}
