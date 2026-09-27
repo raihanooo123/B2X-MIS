@@ -5,7 +5,7 @@ namespace App\Domain\Notifications;
 /**
  * The notifications this codebase sends today (05.12 §5). A key is added
  * here when its trigger exists: quotes, returns, back-in-stock,
- * invitations and application review have none yet.
+ * invitations and application withdrawal have none yet.
  *
  * `templateVersion()` is recorded on every log row (05.12 §8.2) and bumped
  * whenever that notification's wording changes.
@@ -21,6 +21,9 @@ enum NotificationKey: string
     case CreditLimitReached = 'credit.limit_reached';
     case CreditLimitWarning = 'credit.limit_warning';
     case ApplicationSubmitted = 'application.submitted';
+    case ApplicationInfoRequested = 'application.info_requested';
+    case ApplicationApproved = 'application.approved';
+    case ApplicationRejected = 'application.rejected';
     case EmailVerification = 'auth.email_verification';
     case ExistingAccount = 'auth.existing_account';
     case PasswordReset = 'auth.password_reset';

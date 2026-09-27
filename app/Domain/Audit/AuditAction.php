@@ -24,13 +24,33 @@ enum AuditAction: string
 
     case CustomerReinstated = 'auth.customer_reinstated';
 
+    /*
+     * 05.2 §4: every application transition, with actor and time. 07 §6.5
+     * has no application family; review decides who may buy on trade
+     * terms, so these sit under `permission`.
+     */
+    case ApplicationReviewStarted = 'application.review_started';
+
+    case ApplicationInfoRequested = 'application.info_requested';
+
+    case ApplicationReviewResumed = 'application.review_resumed';
+
+    case ApplicationRejected = 'application.rejected';
+
+    case ApplicationApproved = 'application.approved';
+
+    case CreditLimitChanged = 'credit_limit.changed';
+
     public function family(): string
     {
         return match ($this) {
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested,
             self::StaffSuspended, self::StaffReinstated, self::StaffTwoFactorReset,
             self::CustomerSuspended, self::CustomerReinstated => 'auth',
-            self::StaffRoleGranted, self::StaffRoleRevoked => 'permission',
+            self::StaffRoleGranted, self::StaffRoleRevoked,
+            self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
+            self::ApplicationRejected, self::ApplicationApproved => 'permission',
+            self::CreditLimitChanged => 'credit_limit',
         };
     }
 
@@ -43,6 +63,9 @@ enum AuditAction: string
             self::StaffSuspended, self::StaffReinstated,
             self::CustomerSuspended, self::CustomerReinstated => ['status'],
             self::StaffTwoFactorReset => ['two_factor_enabled'],
+            self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
+            self::ApplicationRejected, self::ApplicationApproved => ['status'],
+            self::CreditLimitChanged => ['credit_limit_minor'],
         };
     }
 
@@ -58,6 +81,10 @@ enum AuditAction: string
             self::StaffSuspended, self::StaffReinstated,
             self::CustomerSuspended, self::CustomerReinstated => ['status'],
             self::StaffTwoFactorReset => ['two_factor_enabled'],
+            self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed => ['status'],
+            self::ApplicationRejected => ['status', 'remediable'],
+            self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor'],
+            self::CreditLimitChanged => ['credit_limit_minor'],
         };
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Audit;
 
+use App\Domain\Billing\PaymentTerms;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RuntimeException;
@@ -27,6 +28,9 @@ final class AuditLogger
             AuditAction::StaffSuspended, AuditAction::StaffReinstated,
             AuditAction::StaffTwoFactorReset,
             AuditAction::CustomerSuspended, AuditAction::CustomerReinstated => $this->validateUserAdministrationEvent($entry),
+            AuditAction::ApplicationReviewStarted, AuditAction::ApplicationInfoRequested, AuditAction::ApplicationReviewResumed,
+            AuditAction::ApplicationRejected, AuditAction::ApplicationApproved => $this->validateApplicationEvent($entry),
+            AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -82,6 +86,59 @@ final class AuditLogger
                 || (! is_bool($value) && ! is_int($value) && ! is_string($value) && $value !== null)) {
                 throw new InvalidArgumentException('Unsupported audit payload field.');
             }
+        }
+    }
+
+    /**
+     * 05.2 §4 transitions of one application, by a staff user. Status
+     * only — never the internal reason, the information request or any
+     * applicant detail. An approval also names the company it created,
+     * which must match the entry's company, and the terms granted.
+     */
+    private function validateApplicationEvent(AuditEntry $entry): void
+    {
+        $from = $entry->before['status'] ?? null;
+        $to = $entry->after['status'] ?? null;
+        $after = $entry->after;
+
+        $valid = count($entry->before) === 1 && match ($entry->action) {
+            AuditAction::ApplicationReviewStarted => $from === 'submitted' && $after === ['status' => 'in_review'],
+            AuditAction::ApplicationInfoRequested => $from === 'in_review' && $after === ['status' => 'info_requested'],
+            AuditAction::ApplicationReviewResumed => $from === 'info_requested' && $after === ['status' => 'in_review'],
+            AuditAction::ApplicationRejected => $from === 'in_review' && $to === 'rejected' && count($after) === 2
+                && is_bool($after['remediable'] ?? null),
+            AuditAction::ApplicationApproved => $from === 'in_review' && $to === 'approved' && count($after) === 6
+                && is_int($after['company_id'] ?? null) && $after['company_id'] === $entry->companyId
+                && is_int($after['owner_user_id'] ?? null)
+                && is_int($after['price_tier_id'] ?? null)
+                && is_string($after['payment_terms'] ?? null) && PaymentTerms::tryFrom($after['payment_terms']) !== null
+                && is_int($after['credit_limit_minor'] ?? null) && $after['credit_limit_minor'] >= 0,
+            default => throw new InvalidArgumentException('Unsupported application audit action.'),
+        };
+
+        if (! $valid || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'b2b_application' || $entry->subjectId === null
+            || $entry->reason !== null || $entry->actingForCompanyId !== null
+            || ($entry->action !== AuditAction::ApplicationApproved && $entry->companyId !== null)) {
+            throw new InvalidArgumentException('Invalid application audit entry.');
+        }
+    }
+
+    /**
+     * 07 §6.5: a company's credit limit changed, in whole pence
+     * (invariant 1). The subject is the company.
+     */
+    private function validateCreditLimitChange(AuditEntry $entry): void
+    {
+        $before = $entry->before['credit_limit_minor'] ?? null;
+        $after = $entry->after['credit_limit_minor'] ?? null;
+
+        if (! is_int($before) || ! is_int($after) || $before < 0 || $after < 0 || $before === $after
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'company' || $entry->subjectId === null
+            || $entry->companyId !== $entry->subjectId
+            || $entry->reason !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid credit limit audit entry.');
         }
     }
 

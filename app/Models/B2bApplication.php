@@ -7,6 +7,7 @@ use Database\Factories\B2bApplicationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §4.6 — b2b_applications. `address` is `jsonb` (GIN-indexed) rather
@@ -15,12 +16,32 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * `companies`/`addresses` row.
  *
  * @property int $id
+ * @property string $public_id
+ * @property int|null $company_id
+ * @property int|null $applicant_user_id
  * @property string $company_name
+ * @property string|null $vat_number
+ * @property string|null $registration_number
+ * @property string $contact_name
  * @property string $contact_email
+ * @property string|null $contact_phone
+ * @property string|null $business_type
+ * @property int|null $estimated_monthly_spend_minor
+ * @property array<string, mixed> $address
  * @property string $status
+ * @property int|null $requested_tier_id
+ * @property int|null $granted_tier_id
+ * @property int|null $reviewer_user_id
+ * @property string|null $review_note
+ * @property string|null $info_request
+ * @property Carbon|null $reviewed_at
+ * @property Carbon $submitted_at
  */
 class B2bApplication extends Model
 {
+    /** 05.2 §4: the statuses the review queue works on (`b2b_applications_queue_idx`). */
+    public const OPEN_STATUSES = ['submitted', 'in_review', 'info_requested'];
+
     /** @use HasFactory<B2bApplicationFactory> */
     use HasFactory, HasPublicId;
 

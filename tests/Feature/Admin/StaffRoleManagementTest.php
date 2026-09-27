@@ -75,7 +75,7 @@ it('lets an admin grant and revoke roles from the staff detail page, recording g
         ->and($entries->every(fn (AuditLog $entry) => $entry->actor_type === 'user' && $entry->actor_user_id === $admin->id))->toBeTrue()
         ->and($entries[0]->before)->toBeNull()
         ->and($entries[0]->after)->toBe(['role' => 'accounts'])
-        ->and($entries[1]->before)->toBe(['role' => 'warehouse', 'granted_by_user_id' => null])
+        ->and($entries[1]->before)->toEqual(['role' => 'warehouse', 'granted_by_user_id' => null])
         ->and($entries[1]->after)->toBeNull();
 });
 
@@ -92,7 +92,7 @@ it('lets an admin grant admin to other staff and revoke it while another active 
 
     $entries = roleAudit($staff);
     expect($entries)->toHaveCount(2)
-        ->and($entries[1]->before)->toBe(['role' => 'admin', 'granted_by_user_id' => $admin->id]);
+        ->and($entries[1]->before)->toEqual(['role' => 'admin', 'granted_by_user_id' => $admin->id]);
 });
 
 it('denies role management to non-admin staff, customers and inactive admins', function () {

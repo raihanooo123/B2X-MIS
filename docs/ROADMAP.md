@@ -451,12 +451,17 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
 - [ ] `database/migrations/2026_09_26_090200_create_b2b_application_status_info_requested.php`
       — only needed if §1's `b2b_applications` migration didn't already include
       `info_requested` in the `CHECK` (it should — see §1's note).
-- [ ] `app/Domain/Accounts/ApplicationReviewService.php` — 05.2 Part A: the state machine
-      (§4), duplicate detection (§5.2), the one-transaction approval sequence (§5.6:
-      create/link `companies`, set tier/terms/limit, generate `account_code` via
-      `NumberSequenceService` — already built in `app/Domain/Reference/` — link/create
-      `users` + `company_users(role=owner)`, copy application address, flush
-      `pricing:lists:{company_id}`).
+- [x] `app/Domain/Accounts/ApplicationReviewService.php` — 05.2 Part A: the state machine
+      (§4), duplicate detection (§5.2, `ApplicationDuplicates`), the one-transaction approval
+      sequence (§5.6: create `companies`, set tier/terms/limit, `account_code` from the
+      `account_code` series, link the applicant as `company_users(role=owner)`, copy the
+      application address, flush `pricing:lists:{company_id}` after commit). Audited and
+      notified after commit. 2026-09-27, pending verification — see 05.2 §16. Migration
+      `2026_10_13_090100_seed_account_code_sequence.php`.
+- [ ] Follow-ups from 05.2 §16: reassignment; linking an approval to an existing company
+      (additional site); staff-entered applications (`applicant_user_id` NULL); the 02 §4.6
+      amendment for `remediable`, the applicant-facing rejection message and the cooling
+      period key; document download on the review page.
 - [ ] `app/Domain/Accounts/CreditCheckService.php` — 05.2 §8: `available = limit − used −
       held`, the decision table (proceed / prepay-required / awaiting_approval / suspended /
       overdue-blocked). **This must extend, not duplicate, `AllocationService`'s existing
@@ -487,11 +492,15 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
       `/company/addresses`, `/company/credit` (06 §8).
 - [ ] `app/Http/Resources/CompanyCreditResource.php` — limit/used/held/available/balance,
       never exposing raw `id`s.
-- [ ] `app/Policies/B2bApplicationPolicy.php`, `CompanyPolicy.php`, `CompanyUserPolicy.php`
-- [ ] `app/Filament/Resources/B2bApplicationResource.php` + `Pages/ListB2bApplications.php`,
-      `Pages/ReviewB2bApplication.php` — the review queue UI (05.2 §5.4), sorted by
-      `b2b_applications_queue_idx`, with approve/reject/request-info actions and attachment
-      display (blocked on `attachments`, §0.2).
+- [x] `app/Policies/B2bApplicationPolicy.php` — `admin` and `accounts` review, one ability
+      per §4 edge; `grantCredit` limits a credit limit above zero to those roles.
+      2026-09-27, pending verification.
+- [ ] `CompanyPolicy.php`, `CompanyUserPolicy.php`
+- [x] `app/Filament/Resources/TradeApplicationResource.php` + `Pages/ListTradeApplications.php`,
+      `Pages/ViewTradeApplication.php` — the review queue UI (05.2 §5.4), open applications
+      oldest first, with start-review/request-info/resume/approve/reject actions, duplicate
+      flags, resolved delivery zone and document names (no download yet). 2026-09-27,
+      pending verification.
 - [ ] `app/Filament/Resources/CompanyResource.php` — admin credit-limit/terms editing
       (`/admin/companies/{id}/credit`), suspension controls.
 - [ ] `resources/js/pages/Account/Application.tsx` — public application form (05.2 §5.1's
@@ -503,9 +512,10 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
 - [ ] `tests/Feature/Domain/CreditCheckServiceTest.php` — CR1–CR5 concurrency matrix (05.2
       §13), especially CR1's 20-parallel-£600-orders-against-£10,000-limit exact-figure
       assertion.
-- [ ] `tests/Feature/ApplicationReviewTest.php` — the full workflow fixture list from 05.2
-      §13 (submit → info-requested → approved with tier; duplicate VAT flagged not
-      auto-rejected; second-site linking).
+- [x] `tests/Feature/Admin/TradeApplicationReviewTest.php` — transitions, refused
+      transitions, access, prerequisites, two administrators deciding at once, rollback,
+      after-commit notices and audit shapes. Second-site linking is not built, so not tested;
+      "prices change immediately" waits on the 03 §9 cache. 2026-09-27, pending verification.
 
 ---
 
