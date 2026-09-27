@@ -82,6 +82,20 @@ final class UserPolicy
             && $staff->password_hash !== null;
     }
 
+    /**
+     * 05.13 §12.3: an active administrator resets another active staff
+     * member's 2FA after a lost device. Never their own, never a customer
+     * (a customer reset needs the identity checks of ⚑9) and never a user
+     * with nothing enrolled. StaffTwoFactorResetService re-checks this
+     * under the same locks as StaffRoleService.
+     */
+    public function resetStaffTwoFactor(User $user, User $staff): bool
+    {
+        return $this->managesOtherStaff($user, $staff)
+            && $staff->status === 'active'
+            && $staff->two_factor_enabled;
+    }
+
     public function resendStaffOnboarding(User $user, User $staff): bool
     {
         return $this->view($user, $staff)
