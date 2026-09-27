@@ -18,12 +18,16 @@ final class ApplicationDuplicates
     {
         $flags = [];
 
+        // 02 §25.4: a Northern Ireland business's XI and GB numbers share
+        // their nine digits, so the match is on the core, not the string.
         if ($application->vat_number !== null) {
-            foreach (Company::query()->where('vat_number', $application->vat_number)->get(['name', 'account_code', 'status']) as $company) {
-                $flags[] = "VAT number matches account {$company->name} ({$company->account_code}, {$company->status}).";
+            $core = substr($application->vat_number, 2, 9);
+            $sameCore = 'substring(vat_number from 3 for 9) = ?';
+            foreach (Company::query()->whereRaw($sameCore, [$core])->get(['name', 'account_code', 'status', 'vat_number']) as $company) {
+                $flags[] = "VAT number matches account {$company->name} ({$company->account_code}, {$company->status})".self::viaPrefix($company->vat_number, $application->vat_number).'.';
             }
-            foreach ($this->otherApplications($application)->where('vat_number', $application->vat_number)->get(['public_id', 'company_name', 'status']) as $other) {
-                $flags[] = "VAT number also on application {$other->public_id} for {$other->company_name} ({$other->status}).";
+            foreach ($this->otherApplications($application)->whereRaw($sameCore, [$core])->get(['public_id', 'company_name', 'status', 'vat_number']) as $other) {
+                $flags[] = "VAT number also on application {$other->public_id} for {$other->company_name} ({$other->status})".self::viaPrefix($other->vat_number, $application->vat_number).'.';
             }
         }
 
@@ -52,6 +56,11 @@ final class ApplicationDuplicates
         }
 
         return array_values(array_unique($flags));
+    }
+
+    private static function viaPrefix(?string $theirs, string $ours): string
+    {
+        return $theirs !== null && $theirs !== $ours ? ", as {$theirs}" : '';
     }
 
     /** @return Builder<B2bApplication> */

@@ -22,4 +22,22 @@ final readonly class AuditEntry
         public ?string $ip = null,
         public ?string $userAgent = null,
     ) {}
+
+    public function withClient(?string $ip, ?string $userAgent): self
+    {
+        return new self(
+            action: $this->action,
+            actorType: $this->actorType,
+            actorUserId: $this->actorUserId,
+            actingForCompanyId: $this->actingForCompanyId,
+            companyId: $this->companyId,
+            subjectType: $this->subjectType,
+            subjectId: $this->subjectId,
+            before: $this->before,
+            after: $this->after,
+            reason: $this->reason,
+            ip: $ip,
+            userAgent: $userAgent,
+        );
+    }
 }

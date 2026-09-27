@@ -10,6 +10,7 @@ use App\Models\B2bApplication;
 use App\Models\TermsAcceptance;
 use App\Models\TermsVersion;
 use App\Models\User;
+use App\Support\DisplayTime;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -161,7 +162,7 @@ final class Registration
 
     public static function reapplyMessage(CarbonInterface $until): string
     {
-        return 'You can apply for a trade account again from '.$until->copy()->timezone('Europe/London')->format('j F Y').'. You can still buy at our standard prices meanwhile.';
+        return 'You can apply for a trade account again from '.DisplayTime::format($until, 'j F Y').'. You can still buy at our standard prices meanwhile.';
     }
 
     /**

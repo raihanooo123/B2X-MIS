@@ -8,6 +8,7 @@ use App\Models\GoodsReceipt;
 use App\Models\Shipment;
 use App\Models\Stocktake;
 use App\Models\User;
+use App\Support\DisplayTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Middleware;
@@ -46,6 +47,8 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => fn () => $this->auth($request),
             'flash' => fn () => ['status' => $request->hasSession() ? $request->session()->get('status') : null],
+            // Every page shows times in one zone (App\Support\DisplayTime).
+            'display_timezone' => DisplayTime::zone(),
         ];
     }
 

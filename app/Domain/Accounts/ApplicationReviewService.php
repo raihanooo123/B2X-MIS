@@ -13,6 +13,7 @@ use App\Domain\Notifications\Notices\ApplicationRejected;
 use App\Domain\Notifications\Notifications;
 use App\Domain\Pricing\PricingCache;
 use App\Domain\Reference\NumberSequenceService;
+use App\Jobs\VerifyApplicationBusiness;
 use App\Models\Address;
 use App\Models\B2bApplication;
 use App\Models\Company;
@@ -64,6 +65,7 @@ final class ApplicationReviewService
         private readonly ZoneResolver $zones = new ZoneResolver,
         private readonly PricingCache $pricingCache = new PricingCache,
         private readonly ApplicationSettings $settings = new ApplicationSettings,
+        private readonly BusinessVerification $verification = new BusinessVerification,
     ) {}
 
     public function startReview(B2bApplication $application, User $actor): void
@@ -142,12 +144,18 @@ final class ApplicationReviewService
      * 05.2 §5.6, one transaction. The applicant's existing account is
      * linked as the company's owner (05.13 §5.1, "link, not create").
      */
-    public function approve(B2bApplication $application, User $actor, ApprovalTerms $terms): Company
+    /**
+     * 02 §25.9 applies under the application lock: a limited company or LLP
+     * that Companies House reports missing, ended or insolvent is refused,
+     * and any other shortfall in the evidence needs `$acknowledgeWarnings`.
+     * The warnings and the acknowledgement are recorded in the audit row.
+     */
+    public function approve(B2bApplication $application, User $actor, ApprovalTerms $terms, bool $acknowledgeWarnings = false): Company
     {
         $company = null;
 
         try {
-            $this->approveInTransaction($application, $actor, $terms, $company);
+            $this->approveInTransaction($application, $actor, $terms, $acknowledgeWarnings, $company);
         } catch (UniqueConstraintViolationException $exception) {
             // Two applications with one VAT number approved at the same
             // moment: both passed the pre-check, and `companies_vat_uq`
@@ -168,9 +176,9 @@ final class ApplicationReviewService
         return $company;
     }
 
-    private function approveInTransaction(B2bApplication $application, User $actor, ApprovalTerms $terms, ?Company &$company): void
+    private function approveInTransaction(B2bApplication $application, User $actor, ApprovalTerms $terms, bool $acknowledgeWarnings, ?Company &$company): void
     {
-        $this->transition($application, $actor, 'approve', function (B2bApplication $locked, User $reviewer, User $applicant) use ($terms, &$company): void {
+        $this->transition($application, $actor, 'approve', function (B2bApplication $locked, User $reviewer, User $applicant) use ($terms, $acknowledgeWarnings, &$company): void {
             if ($terms->creditLimitMinor > 0) {
                 Gate::forUser($reviewer)->authorize('grantCredit', $locked);
             }
@@ -190,6 +198,14 @@ final class ApplicationReviewService
                 }
             }
             $address = $this->tradingAddress($locked);
+
+            $assessment = $this->verification->assess($locked);
+            if ($assessment->refusal !== null) {
+                throw ValidationException::withMessages(['application' => $assessment->refusal]);
+            }
+            if ($assessment->warnings !== [] && ! $acknowledgeWarnings) {
+                throw ValidationException::withMessages(['acknowledge_warnings' => 'Review the verification warnings and tick to confirm before approving.']);
+            }
 
             // Last, after every check (02 §11.3).
             $accountCode = $this->numbers->next('account_code');
@@ -247,6 +263,8 @@ final class ApplicationReviewService
                 'price_tier_id' => $terms->priceTierId,
                 'payment_terms' => $terms->paymentTerms->value,
                 'credit_limit_minor' => $terms->creditLimitMinor,
+                'verification_warnings' => $assessment->warningCodes(),
+                'verification_acknowledged' => $assessment->warnings !== [],
             ], companyId: $company->id);
 
             if ($terms->creditLimitMinor > 0) {
@@ -265,6 +283,34 @@ final class ApplicationReviewService
             $this->notifications->toUser(new ApplicationApproved($locked->id), $applicant);
             $companyId = $company->id;
             DB::afterCommit(fn () => $this->pricingCache->forgetCompanyLists($companyId));
+        });
+    }
+
+    /**
+     * 02 §25.4: a reviewer re-runs the VAT and Companies House checks. The
+     * request is audited under the same locks as a review transition; the
+     * checks themselves run in the queued job after commit, recording the
+     * reviewer on each result.
+     */
+    public function requestChecks(B2bApplication $application, User $actor): void
+    {
+        DB::transaction(function () use ($application, $actor): void {
+            Role::query()->where('code', 'admin')->lockForUpdate()->first();
+            $locked = B2bApplication::query()->lockForUpdate()->findOrFail($application->id);
+            $currentActor = User::query()->findOrFail($actor->id);
+            Gate::forUser($currentActor)->authorize('rerunChecks', $locked);
+
+            $checks = BusinessVerification::checksFor($locked);
+            $this->audit->record(new AuditEntry(
+                action: AuditAction::ApplicationVerificationRequested,
+                actorType: 'user',
+                actorUserId: $currentActor->id,
+                subjectType: 'b2b_application',
+                subjectId: $locked->id,
+                after: ['checks' => implode(',', $checks)],
+            ));
+
+            VerifyApplicationBusiness::dispatch($locked->id, $currentActor->id);
         });
     }
 

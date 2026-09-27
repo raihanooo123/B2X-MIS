@@ -3,14 +3,24 @@
 namespace App\Filament\Resources;
 
 use App\Domain\Accounts\ApplicationDuplicates;
+use App\Domain\Accounts\ApplicationSettings;
+use App\Domain\Accounts\BusinessVerification;
 use App\Domain\Accounts\LegalForm;
 use App\Domain\Accounts\RejectionCategory;
+use App\Domain\Accounts\VatCheckAuthority;
+use App\Domain\Accounts\VerificationFailureReason;
+use App\Domain\Accounts\VerificationWarning;
 use App\Domain\Delivery\ZoneResolver;
 use App\Domain\Identity\BusinessType;
 use App\Filament\Resources\TradeApplicationResource\Pages;
 use App\Filament\Support\MoneyFormatter;
 use App\Models\Attachment;
 use App\Models\B2bApplication;
+use App\Models\CompaniesHouseCheck;
+use App\Models\User;
+use App\Models\VatNumberCheck;
+use App\Support\DisplayTime;
+use Carbon\CarbonInterface;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -65,7 +75,8 @@ class TradeApplicationResource extends Resource
     {
         return $infolist->schema([
             Section::make('Application')->schema([
-                TextEntry::make('status')->badge()->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state),
+                TextEntry::make('status')->badge()->color(fn (string $state): string => self::statusColor($state))
+                    ->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state),
                 TextEntry::make('submitted_at')->label('Submitted')->dateTime(),
                 TextEntry::make('company_name')->label('Company name'),
                 TextEntry::make('legal_form')->label('Legal form')
@@ -94,6 +105,19 @@ class TradeApplicationResource extends Resource
                 TextEntry::make('delivery_zone')->label('Delivery zone')
                     ->state(fn (B2bApplication $record): string => self::deliveryZone($record)),
             ])->columns(2),
+            Section::make('Verification')
+                ->description(fn (): string => 'HMRC or VIES for the VAT number, Companies House for the company number (02 §25.4–25.5). Evidence older than '.app(ApplicationSettings::class)->verificationMaxAgeDays().' days is stale.')
+                ->schema([
+                    TextEntry::make('verification_outcome')->label('For approval')->columnSpanFull()
+                        ->state(fn (B2bApplication $record): array => self::assessmentLines($record))->listWithLineBreaks(),
+                    TextEntry::make('vat_evidence')->label('VAT number')
+                        ->state(fn (B2bApplication $record): array => self::vatLines($record))->listWithLineBreaks(),
+                    TextEntry::make('companies_house_evidence')->label('Companies House')
+                        ->state(fn (B2bApplication $record): array => self::companyLines($record))->listWithLineBreaks(),
+                    TextEntry::make('verification_history')->label('History')->columnSpanFull()
+                        ->state(fn (B2bApplication $record): array => self::historyLines($record))->listWithLineBreaks()
+                        ->placeholder('No checks have run yet.'),
+                ])->columns(2),
             Section::make('Duplicate checks')->description('For the reviewer only. A match is a prompt to check, never a reason to reject on its own (05.2 §5.2).')->schema([
                 TextEntry::make('duplicate_flags')->hiddenLabel()
                     ->state(fn (B2bApplication $record): array => app(ApplicationDuplicates::class)->flags($record))
@@ -129,13 +153,147 @@ class TradeApplicationResource extends Resource
             TextColumn::make('contact_email')->label('Email')->searchable(),
             TextColumn::make('business_type')->label('Business type')
                 ->formatStateUsing(fn (?string $state): string => BusinessType::tryFrom((string) $state)?->label() ?? '—'),
-            TextColumn::make('status')->badge()->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state),
+            TextColumn::make('status')->badge()->color(fn (string $state): string => self::statusColor($state))
+                ->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state),
+            TextColumn::make('checks')->label('Checks')->badge()
+                ->state(fn (B2bApplication $record): string => app(BusinessVerification::class)->assess($record)->badge())
+                ->color(fn (string $state): string => match ($state) {
+                    'Verified' => 'success',
+                    'Needs attention' => 'danger',
+                    'Unchecked' => 'warning',
+                    default => 'gray',
+                }),
             TextColumn::make('reviewer.email')->label('Reviewer')->placeholder('—'),
         ])->filters([
             Filter::make('open')->label('Open applications only')->default()
                 ->query(fn (Builder $query): Builder => $query->whereIn('status', B2bApplication::OPEN_STATUSES)),
             SelectFilter::make('status')->options(self::STATUSES),
         ])->actions([ViewAction::make()])->defaultSort('submitted_at', 'asc');
+    }
+
+    /** 05.2 §17 badge colours: rejected red, approved green, in progress amber, submitted grey. */
+    public static function statusColor(string $status): string
+    {
+        return match ($status) {
+            'rejected' => 'danger',
+            'approved' => 'success',
+            'in_review', 'info_requested' => 'warning',
+            default => 'gray',
+        };
+    }
+
+    /** @return list<string> */
+    private static function assessmentLines(B2bApplication $application): array
+    {
+        $assessment = app(BusinessVerification::class)->assess($application);
+        if (! $assessment->vatApplies && ! $assessment->companiesHouseApplies) {
+            return ['No VAT or Companies House number given, so there is nothing to check.'];
+        }
+        if ($assessment->refusal !== null) {
+            return ['Cannot be approved: '.$assessment->refusal];
+        }
+        if ($assessment->warnings === []) {
+            return ['Verified — no warnings.'];
+        }
+
+        return array_map(fn (VerificationWarning $w): string => 'Needs acknowledgement: '.$w->label(), $assessment->warnings);
+    }
+
+    /** @return list<string> */
+    private static function vatLines(B2bApplication $application): array
+    {
+        if ($application->vat_number === null) {
+            return ['No VAT number given.'];
+        }
+        $check = app(BusinessVerification::class)->latestVat($application);
+        if ($check === null) {
+            return ["{$application->vat_number} — not checked yet."];
+        }
+
+        $lines = [VatCheckAuthority::from($check->authority)->label()." — {$check->vat_number}: ".self::outcomeLabel($check->outcome, $check->failure_reason)];
+        if ($check->registered_name !== null) {
+            $lines[] = "Registered name: {$check->registered_name} (applied as {$application->company_name})";
+        }
+        if ($check->registered_address !== null) {
+            $lines[] = 'Registered address: '.self::flatten($check->registered_address);
+        }
+        if ($check->consultation_number !== null) {
+            $lines[] = "Consultation number: {$check->consultation_number}";
+        }
+        $lines[] = self::age($check->checked_at);
+
+        return $lines;
+    }
+
+    /** @return list<string> */
+    private static function companyLines(B2bApplication $application): array
+    {
+        if ($application->registration_number === null) {
+            return ['No Companies House number given.'];
+        }
+        $check = app(BusinessVerification::class)->latestCompany($application);
+        if ($check === null) {
+            return ["{$application->registration_number} — not checked yet."];
+        }
+
+        $lines = ["{$check->company_number}: ".self::outcomeLabel($check->outcome, $check->failure_reason)];
+        if ($check->registered_name !== null) {
+            $lines[] = "Registered name: {$check->registered_name} (applied as {$application->company_name})";
+            $lines[] = 'Status: '.$check->company_status.($check->company_type === null ? '' : ", type {$check->company_type}");
+        }
+        if ($check->registered_office !== null) {
+            $lines[] = 'Registered office: '.self::flatten($check->registered_office);
+        }
+        if ($check->incorporated_on !== null) {
+            $lines[] = 'Incorporated '.$check->incorporated_on->format('j M Y');
+        }
+        $lines[] = self::age($check->checked_at);
+
+        return $lines;
+    }
+
+    /** @return list<string> every attempt, newest first */
+    private static function historyLines(B2bApplication $application): array
+    {
+        $rows = [];
+        foreach (VatNumberCheck::query()->where('b2b_application_id', $application->id)->get() as $check) {
+            $rows[] = [$check->checked_at, $check->id, 'VAT ('.VatCheckAuthority::from($check->authority)->label().')', $check->outcome, $check->failure_reason, $check->requested_by_user_id];
+        }
+        foreach (CompaniesHouseCheck::query()->where('b2b_application_id', $application->id)->get() as $check) {
+            $rows[] = [$check->checked_at, $check->id, 'Companies House', $check->outcome, $check->failure_reason, $check->requested_by_user_id];
+        }
+        usort($rows, fn (array $a, array $b): int => [$b[0], $b[1]] <=> [$a[0], $a[1]]);
+
+        $emails = User::query()->whereKey(array_filter(array_column($rows, 5)))->pluck('email', 'id');
+
+        return array_map(fn (array $row): string => DisplayTime::format($row[0]).' — '.$row[2].': '
+            .self::outcomeLabel($row[3], $row[4])
+            .($row[5] === null ? ' (automatic)' : ' (re-run by '.($emails[$row[5]] ?? 'a reviewer').')'), $rows);
+    }
+
+    private static function outcomeLabel(string $outcome, ?string $failure): string
+    {
+        return match ($outcome) {
+            'valid' => 'registered',
+            'found' => 'found',
+            'not_found' => 'not found',
+            default => 'unchecked — '.(VerificationFailureReason::tryFrom((string) $failure)?->label() ?? 'no answer'),
+        };
+    }
+
+    private static function age(CarbonInterface $checkedAt): string
+    {
+        $maxAge = app(ApplicationSettings::class)->verificationMaxAgeDays();
+        $stale = $checkedAt->lt(now()->subDays($maxAge));
+
+        return 'Checked '.DisplayTime::format($checkedAt).' ('.$checkedAt->diffForHumans().')'
+            .($stale ? " — STALE: older than {$maxAge} days, re-run before relying on it" : '');
+    }
+
+    /** @param array<string, mixed> $parts */
+    private static function flatten(array $parts): string
+    {
+        return implode(', ', array_filter(array_map(fn ($part) => is_scalar($part) ? trim((string) $part) : '', $parts)));
     }
 
     private static function applicantSummary(B2bApplication $application): string
@@ -159,7 +317,7 @@ class TradeApplicationResource extends Resource
         }
 
         $version = $acceptance->termsVersion->version ?? '?';
-        $at = $acceptance->accepted_at->timezone('Europe/London')->format('j M Y H:i');
+        $at = DisplayTime::format($acceptance->accepted_at);
 
         return "Version {$version}, {$at}".($acceptance->ip === null ? '' : " from {$acceptance->ip}");
     }
@@ -172,7 +330,7 @@ class TradeApplicationResource extends Resource
 
         return $application->reapply_after === null
             ? 'Straight away (remediable)'
-            : 'From '.$application->reapply_after->timezone('Europe/London')->format('j M Y');
+            : 'From '.DisplayTime::format($application->reapply_after, DisplayTime::DATE);
     }
 
     /** @return list<string> */

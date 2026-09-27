@@ -4,6 +4,7 @@ namespace App\Domain\Audit;
 
 use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Accounts\TermsKind;
+use App\Domain\Accounts\VerificationWarning;
 use App\Domain\Billing\PaymentTerms;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -11,8 +12,18 @@ use RuntimeException;
 
 final class AuditLogger
 {
+    /**
+     * A staff action (`actor_type = user`) with no IP of its own records the
+     * current request's IP and user agent (07 §6.5, AuditContext). Entries
+     * that carry their own — a failed sign-in — are left as they are.
+     */
     public function record(AuditEntry $entry): void
     {
+        if ($entry->actorType === 'user' && $entry->ip === null && $entry->userAgent === null) {
+            $context = app(AuditContext::class);
+            $entry = $entry->withClient($context->ip, $context->userAgent);
+        }
+
         if (($entry->actorType === 'user') !== ($entry->actorUserId !== null)
             || ! in_array($entry->actorType, ['user', 'system', 'anonymous'], true)) {
             throw new InvalidArgumentException('Invalid audit actor.');
@@ -31,7 +42,8 @@ final class AuditLogger
             AuditAction::StaffTwoFactorReset,
             AuditAction::CustomerSuspended, AuditAction::CustomerReinstated => $this->validateUserAdministrationEvent($entry),
             AuditAction::ApplicationReviewStarted, AuditAction::ApplicationInfoRequested, AuditAction::ApplicationReviewResumed,
-            AuditAction::ApplicationRejected, AuditAction::ApplicationApproved => $this->validateApplicationEvent($entry),
+            AuditAction::ApplicationRejected, AuditAction::ApplicationApproved,
+            AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
         };
@@ -104,6 +116,12 @@ final class AuditLogger
         $to = $entry->after['status'] ?? null;
         $after = $entry->after;
 
+        if ($entry->action === AuditAction::ApplicationVerificationRequested) {
+            $this->validateVerificationRequested($entry);
+
+            return;
+        }
+
         $valid = count($entry->before) === 1 && match ($entry->action) {
             AuditAction::ApplicationReviewStarted => $from === 'submitted' && $after === ['status' => 'in_review'],
             AuditAction::ApplicationInfoRequested => $from === 'in_review' && $after === ['status' => 'info_requested'],
@@ -111,7 +129,8 @@ final class AuditLogger
             AuditAction::ApplicationRejected => $from === 'in_review' && $to === 'rejected' && count($after) === 3
                 && is_bool($after['remediable'] ?? null)
                 && is_string($after['rejection_category'] ?? null) && RejectionCategory::tryFrom($after['rejection_category']) !== null,
-            AuditAction::ApplicationApproved => $from === 'in_review' && $to === 'approved' && count($after) === 6
+            AuditAction::ApplicationApproved => $from === 'in_review' && $to === 'approved' && count($after) === 8
+                && $this->validWarnings($after['verification_warnings'] ?? null, $after['verification_acknowledged'] ?? null)
                 && is_int($after['company_id'] ?? null) && $after['company_id'] === $entry->companyId
                 && is_int($after['owner_user_id'] ?? null)
                 && is_int($after['price_tier_id'] ?? null)
@@ -125,6 +144,45 @@ final class AuditLogger
             || $entry->reason !== null || $entry->actingForCompanyId !== null
             || ($entry->action !== AuditAction::ApplicationApproved && $entry->companyId !== null)) {
             throw new InvalidArgumentException('Invalid application audit entry.');
+        }
+    }
+
+    /**
+     * 02 §25.9: the warning codes are VerificationWarning values, sorted,
+     * unique and comma-separated ('' for none), and acknowledgement is true
+     * exactly when there are warnings.
+     */
+    private function validWarnings(mixed $codes, mixed $acknowledged): bool
+    {
+        if (! is_string($codes) || ! is_bool($acknowledged) || $acknowledged !== ($codes !== '')) {
+            return false;
+        }
+        if ($codes === '') {
+            return true;
+        }
+
+        $list = explode(',', $codes);
+        $sorted = $list;
+        sort($sorted);
+
+        return $list === $sorted && count(array_unique($list)) === count($list)
+            && array_filter($list, fn (string $code) => VerificationWarning::tryFrom($code) === null) === [];
+    }
+
+    /**
+     * 02 §25.4: a reviewer re-ran the checks. `checks` names what was run —
+     * `companies_house`, `vat` or both, sorted — and nothing else.
+     */
+    private function validateVerificationRequested(AuditEntry $entry): void
+    {
+        $checks = $entry->after['checks'] ?? null;
+
+        if ($entry->before !== [] || count($entry->after) !== 1
+            || ! in_array($checks, ['companies_house', 'vat', 'companies_house,vat'], true)
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'b2b_application' || $entry->subjectId === null
+            || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid verification request audit entry.');
         }
     }
 

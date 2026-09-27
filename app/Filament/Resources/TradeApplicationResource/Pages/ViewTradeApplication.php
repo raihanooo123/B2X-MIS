@@ -5,7 +5,10 @@ namespace App\Filament\Resources\TradeApplicationResource\Pages;
 use App\Domain\Accounts\ApplicationReviewService;
 use App\Domain\Accounts\ApplicationSettings;
 use App\Domain\Accounts\ApprovalTerms;
+use App\Domain\Accounts\BusinessVerification;
 use App\Domain\Accounts\RejectionCategory;
+use App\Domain\Accounts\Verification\VerificationAssessment;
+use App\Domain\Accounts\VerificationWarning;
 use App\Domain\Billing\PaymentTerms;
 use App\Domain\Notifications\Notices\ApplicationRejected;
 use App\Filament\Resources\TradeApplicationResource;
@@ -14,6 +17,8 @@ use App\Models\B2bApplication;
 use App\Models\PriceTier;
 use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -21,6 +26,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
 class ViewTradeApplication extends ViewRecord
@@ -50,8 +56,19 @@ class ViewTradeApplication extends ViewRecord
                     TextInput::make('credit_limit')->label('Credit limit (£)')->required()->default('0')
                         ->regex('/^\d{1,9}(\.\d{1,2})?$/')
                         ->helperText('Pounds and pence, for example 2500 or 2500.00. Leave at 0 for no credit.'),
+                    Placeholder::make('verification')->label('Verification (02 §25.9)')
+                        ->content(fn (): HtmlString => $this->verificationSummary()),
+                    Checkbox::make('acknowledge_warnings')->label('I have reviewed the verification warnings')
+                        ->visible(fn (): bool => $this->assessment()->warnings !== [])
+                        ->accepted(fn (): bool => $this->assessment()->warnings !== []),
                 ])
                 ->action(fn (array $data) => $this->approve($data)),
+            Action::make('rerunChecks')
+                ->label('Re-run checks')
+                ->requiresConfirmation()
+                ->modalDescription('Checks the VAT number and Companies House number again, in the background. Each result is recorded with your name.')
+                ->visible(fn (): bool => Gate::allows('rerunChecks', $this->application()))
+                ->action(fn () => $this->review('Checks queued — refresh in a moment to see the results', fn (ApplicationReviewService $service, User $actor) => $service->requestChecks($this->application(), $actor))),
             Action::make('requestInfo')
                 ->label('Request information')
                 ->visible(fn (): bool => Gate::allows('requestInfo', $this->application()))
@@ -113,8 +130,25 @@ class ViewTradeApplication extends ViewRecord
         }
 
         $this->review('Application approved', fn (ApplicationReviewService $service, User $actor) => $service->approve(
-            $this->application(), $actor, new ApprovalTerms((int) $tierId, $terms, $limit),
+            $this->application(), $actor, new ApprovalTerms((int) $tierId, $terms, $limit), (bool) ($data['acknowledge_warnings'] ?? false),
         ));
+    }
+
+    private function assessment(): VerificationAssessment
+    {
+        return app(BusinessVerification::class)->assess($this->application());
+    }
+
+    private function verificationSummary(): HtmlString
+    {
+        $assessment = $this->assessment();
+        $lines = match (true) {
+            $assessment->refusal !== null => ['<strong>Cannot be approved:</strong> '.e($assessment->refusal)],
+            $assessment->warnings === [] => ['No warnings.'],
+            default => array_map(fn (VerificationWarning $w): string => e($w->label()), $assessment->warnings),
+        };
+
+        return new HtmlString(implode('<br>', $lines));
     }
 
     /**

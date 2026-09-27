@@ -3,12 +3,13 @@
 namespace App\Domain\Notifications\Notices;
 
 use App\Filament\Support\MoneyFormatter;
+use App\Support\DisplayTime;
 use DateTimeInterface;
-use Illuminate\Support\Carbon;
 
 /**
  * Formatting for notification content: money through the integer-only
- * formatter (invariant 1), dates in UK local time (05.12 §13).
+ * formatter (invariant 1), dates in the display timezone (05.12 §13,
+ * App\Support\DisplayTime).
  */
 trait FormatsForMail
 {
@@ -19,6 +20,6 @@ trait FormatsForMail
 
     protected static function date(?DateTimeInterface $at): string
     {
-        return $at === null ? '—' : Carbon::instance($at)->timezone('Europe/London')->format('j F Y');
+        return DisplayTime::format($at, 'j F Y');
     }
 }

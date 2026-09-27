@@ -47,4 +47,27 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    // 02 §25.4–25.5, §25.10: trade application verification. Missing
+    // credentials never block an application: checks record `unchecked`
+    // with `not_configured`. Every request times out after 5 seconds.
+    'hmrc_vat' => [
+        // Sandbox: https://test-api.service.hmrc.gov.uk
+        'base_url' => env('HMRC_API_BASE_URL', 'https://api.service.hmrc.gov.uk'),
+        'client_id' => env('HMRC_CLIENT_ID'),
+        'client_secret' => env('HMRC_CLIENT_SECRET'),
+    ],
+
+    'vies' => [
+        'base_url' => env('VIES_API_BASE_URL', 'https://ec.europa.eu/taxation_customs/vies/rest-api'),
+    ],
+
+    'companies_house' => [
+        'base_url' => env('COMPANIES_HOUSE_API_BASE_URL', 'https://api.company-information.service.gov.uk'),
+        'key' => env('COMPANIES_HOUSE_API_KEY'),
+    ],
+
+    'verification' => [
+        'timeout_seconds' => 5,
+    ],
+
 ];

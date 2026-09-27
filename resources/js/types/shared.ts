@@ -24,5 +24,7 @@ export interface SharedAuth {
 export interface SharedProps {
     auth: SharedAuth | null;
     flash: { status: string | null };
+    /** IANA zone every time is shown in (App\Support\DisplayTime); storage is UTC. */
+    display_timezone: string;
     [key: string]: unknown;
 }

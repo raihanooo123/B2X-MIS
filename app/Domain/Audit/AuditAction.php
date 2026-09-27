@@ -39,6 +39,9 @@ enum AuditAction: string
 
     case ApplicationApproved = 'application.approved';
 
+    /** 02 §25.4: a reviewer re-ran the verification checks. */
+    case ApplicationVerificationRequested = 'application.verification_requested';
+
     case CreditLimitChanged = 'credit_limit.changed';
 
     /** 02 §25.1: 07 §6.5 "configuration changes". */
@@ -52,7 +55,7 @@ enum AuditAction: string
             self::CustomerSuspended, self::CustomerReinstated => 'auth',
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
-            self::ApplicationRejected, self::ApplicationApproved => 'permission',
+            self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested => 'permission',
             self::CreditLimitChanged => 'credit_limit',
             self::TermsVersionPublished => 'configuration',
         };
@@ -69,6 +72,7 @@ enum AuditAction: string
             self::StaffTwoFactorReset => ['two_factor_enabled'],
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
+            self::ApplicationVerificationRequested => [],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => [],
         };
@@ -88,7 +92,9 @@ enum AuditAction: string
             self::StaffTwoFactorReset => ['two_factor_enabled'],
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed => ['status'],
             self::ApplicationRejected => ['status', 'remediable', 'rejection_category'],
-            self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor'],
+            self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor',
+                'verification_warnings', 'verification_acknowledged'],
+            self::ApplicationVerificationRequested => ['checks'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
         };

@@ -68,6 +68,12 @@ return [
     'timezone' => env('APP_TIMEZONE', 'UTC'),
 
     /*
+     | The timezone every date and time is shown in — admin, storefront and
+     | emails (App\Support\DisplayTime). Storage stays in `timezone` (UTC).
+     */
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Europe/London'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Accounts\BusinessVerification;
 use App\Domain\Accounts\LegalForm;
 use App\Domain\Accounts\TermsKind;
 use App\Domain\Identity\BusinessType;
@@ -16,6 +17,7 @@ use App\Domain\Notifications\Recipient;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterPublicRequest;
 use App\Http\Requests\Auth\RegisterTradeRequest;
+use App\Jobs\VerifyApplicationBusiness;
 use App\Models\TermsVersion;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -108,6 +110,11 @@ class RegisterController extends Controller
         }
 
         [$user, $application] = Registration::tradeApplicant($person, $request->application(), $request->acceptedTerms());
+        // 02 §25.4–25.5: checked after commit, off the request. An outage is
+        // recorded for the reviewer; the applicant never waits on it.
+        if (BusinessVerification::checksFor($application) !== []) {
+            VerifyApplicationBusiness::dispatch($application->id);
+        }
         (new Notifications)->toUser(new EmailVerification($user->id), $user);
         (new Notifications)->toUser(new ApplicationSubmitted($application->id), $user);
 

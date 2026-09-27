@@ -15,6 +15,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\User;
+use App\Support\DisplayTime;
 
 /**
  * The entry points domain code calls: each pairs one notice with its
@@ -110,7 +111,7 @@ final class Notifications
     public function creditLimitReached(int $companyId, int $attemptedMinor): void
     {
         $this->dispatcher->send(
-            new CreditLimitReached($companyId, $attemptedMinor, now()->timezone('Europe/London')->toDateString()),
+            new CreditLimitReached($companyId, $attemptedMinor, DisplayTime::local(now())->toDateString()),
             $this->recipients->role('accounts'),
         );
     }
