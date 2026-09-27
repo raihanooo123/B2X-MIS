@@ -3066,9 +3066,9 @@ None of these are resolved by the schema above; each is a judgment call flagged 
 
 ---
 
-## 15. Schema amendment 2026-09-27 — `audit_log` (pending separate sign-off commit)
+## 15. Schema amendment 2026-09-27 — `audit_log` (signed off in PR #11)
 
-> **Status: draft reviewed 2026-09-27; not yet committed or migrated.** Addresses ROADMAP §0.6 / §18: `07-nfr.md` §6.5 mandates an
+> **Status: signed off and merged in PR #11; migration in progress.** Addresses ROADMAP §0.6 / §18: `07-nfr.md` §6.5 mandates an
 > immutable, append-only audit log retained 7 years (07 §7.2), and signed-off constraints
 > (`rmas_waiver_chk`, `role_user.granted_by_user_id`) and 05.13 §15's event list already assume
 > one exists. No code writes to it until it is migrated.
@@ -3119,7 +3119,7 @@ CREATE INDEX audit_log_company_idx ON audit_log (company_id, occurred_at)
   WHERE company_id IS NOT NULL;
 CREATE INDEX audit_log_family_idx  ON audit_log (event_family, occurred_at);
 
-CREATE FUNCTION audit_log_reject_mutation() RETURNS trigger
+CREATE OR REPLACE FUNCTION audit_log_reject_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'audit_log is append-only';
