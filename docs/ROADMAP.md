@@ -790,6 +790,11 @@ remains draft in 05.7.
       `ReorderSuggestionResource` (Purchasing → Reorder suggestions) rather than a dashboard
       widget, so it pages, sorts and filters in SQL. The `/admin/reorder-suggestions` API
       endpoint stays with the admin API controllers above.
+- [x] Reorder settings (05.7 §10.7, signed off 2026-09-27): `ReorderSettingsService::set()` writes
+      the reorder point and quantity on the NULL-batch row and zeroes batch rows' copies; the
+      Purchasing → Reorder settings page and an edit action on each suggestion row. **Carry into
+      `ReconcileStockLevels` (§4): a rebuild must update quantities in place, never delete and
+      re-insert `stock_levels` rows, or reorder settings are lost.**
 - [ ] `tests/Feature/Domain/LandedCostApportionerTest.php` — L1–L8 fixtures from 05.7 §14
       verbatim, especially L1 reproducing the §8.3 table exactly including the residual.
 

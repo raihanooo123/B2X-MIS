@@ -61,6 +61,8 @@ class ReorderSuggestionResource extends Resource
                 ->options(fn (): array => Location::query()->where('is_sellable', true)->orderBy('name')->pluck('name', 'id')->all()),
             SelectFilter::make('supplier_id')->label('Supplier')
                 ->options(fn (): array => Supplier::query()->orderBy('name')->pluck('name', 'id')->all()),
+        ])->actions([
+            ReorderSettingResource::editAction(),
         ])->defaultSort('suggested_base_qty', 'desc');
     }
 
