@@ -15,6 +15,7 @@ import { useEffect, useId, useState, type FormEvent } from 'react';
 
 import { AuthLayout } from '@/components/auth/AuthLayout';
 import { Checkbox, Field } from '@/components/auth/Field';
+import { clearPasswords } from '@/components/auth/passwordInputs';
 import { PASSWORD_HINT } from '@/components/auth/passwordHint';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -84,9 +85,12 @@ export default function Register({ type, business_types, legal_forms, trade_term
 function PublicForm() {
     const form = useForm({ first_name: '', last_name: '', email: '', password: '', password_confirmation: '', terms: false });
 
-    const submit = (e: FormEvent) => {
+    const submit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        form.post('/register/public', { onFinish: () => form.reset('password', 'password_confirmation') });
+        const element = e.currentTarget;
+        const values = new FormData(element);
+        form.transform((data) => ({ ...data, password: String(values.get('password') ?? ''), password_confirmation: String(values.get('password_confirmation') ?? '') }));
+        form.post('/register/public', { onFinish: () => { form.reset('password', 'password_confirmation'); clearPasswords(element); } });
     };
 
     return (
@@ -151,10 +155,12 @@ function TradeApplicationForm({ businessTypes, legalForms, terms }: { businessTy
     const errors = form.errors as Record<string, string | undefined>;
     const setAddress = (key: keyof typeof form.data.address, value: string) => form.setData('address', { ...form.data.address, [key]: value });
 
-    const submit = (e: FormEvent) => {
+    const submit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        form.transform((data) => ({ ...data, estimated_monthly_spend: data.estimated_monthly_spend === '' ? null : data.estimated_monthly_spend }));
-        form.post('/register/trade', { onFinish: () => form.reset('password', 'password_confirmation') });
+        const element = e.currentTarget;
+        const values = new FormData(element);
+        form.transform((data) => ({ ...data, password: String(values.get('password') ?? ''), password_confirmation: String(values.get('password_confirmation') ?? ''), estimated_monthly_spend: data.estimated_monthly_spend === '' ? null : data.estimated_monthly_spend }));
+        form.post('/register/trade', { onFinish: () => { form.reset('password', 'password_confirmation'); clearPasswords(element); } });
     };
 
     return (
@@ -256,21 +262,21 @@ function PasswordFields({ form }: { form: PasswordForm }) {
             <Field
                 label="Password"
                 type="password"
+                name="password"
                 autoComplete="new-password"
                 required
                 minLength={12}
-                value={form.data.password}
-                onChange={(e) => form.setData('password', e.target.value)}
+                defaultValue=""
                 error={form.errors.password}
                 hint={PASSWORD_HINT}
             />
             <Field
                 label="Confirm password"
                 type="password"
+                name="password_confirmation"
                 autoComplete="new-password"
                 required
-                value={form.data.password_confirmation}
-                onChange={(e) => form.setData('password_confirmation', e.target.value)}
+                defaultValue=""
                 error={form.errors.password_confirmation}
             />
         </div>

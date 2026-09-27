@@ -3,7 +3,7 @@
  * readers (07 §8): the error is linked by aria-describedby and the input
  * marked aria-invalid. 44 px tall on touch screens (05.1 §8.2).
  */
-import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useId, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,7 @@ interface FieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> {
 
 export function Field({ label, error, hint, labelAside, className, ...input }: FieldProps) {
     const id = useId();
+    const [visible, setVisible] = useState(false);
     const describedBy = [error ? `${id}-error` : null, hint ? `${id}-hint` : null].filter(Boolean).join(' ') || undefined;
 
     return (
@@ -28,7 +29,14 @@ export function Field({ label, error, hint, labelAside, className, ...input }: F
                 </label>
                 {labelAside}
             </div>
-            <Input id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy} className={cn('h-11 md:h-10', error && 'border-red-500')} {...input} />
+            <div className="relative">
+                <Input id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy} className={cn('h-11 md:h-10', input.type === 'password' && 'pr-20', error && 'border-red-500')} {...input} type={input.type === 'password' && visible ? 'text' : input.type} />
+                {input.type === 'password' && (
+                    <button type="button" aria-controls={id} aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`} aria-pressed={visible} onClick={() => setVisible((value) => !value)} className="absolute inset-y-0 right-0 rounded-r-md px-3 text-sm font-medium focus-visible:outline focus-visible:outline-2">
+                        {visible ? 'Hide' : 'Show'}
+                    </button>
+                )}
+            </div>
             {hint && (
                 <p id={`${id}-hint`} className="text-xs text-muted-foreground">
                     {hint}

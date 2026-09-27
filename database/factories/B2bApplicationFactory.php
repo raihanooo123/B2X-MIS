@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Domain\Accounts\LegalForm;
 use App\Models\B2bApplication;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -10,6 +11,18 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class B2bApplicationFactory extends Factory
 {
+    public function configure(): static
+    {
+        return $this->afterMaking(function (B2bApplication $application): void {
+            $form = LegalForm::tryFrom($application->legal_form ?? '');
+            if ($form?->requiresCompaniesHouseNumber() && ! $application->registration_number) {
+                $application->registration_number = $form === LegalForm::Llp
+                    ? 'OC'.fake()->numerify('######')
+                    : fake()->numerify('########');
+            }
+        });
+    }
+
     public function definition(): array
     {
         return [

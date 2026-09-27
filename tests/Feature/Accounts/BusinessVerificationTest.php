@@ -1,6 +1,8 @@
 <?php
 
 use App\Domain\Accounts\BusinessVerification;
+use App\Domain\Accounts\VatCheckOutcome;
+use App\Domain\Accounts\Verification\HmrcVatClient;
 use App\Jobs\VerifyApplicationBusiness;
 use App\Models\B2bApplication;
 use App\Models\CompaniesHouseCheck;
@@ -11,6 +13,7 @@ use App\Models\VatNumberCheck;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -146,7 +149,7 @@ it('checks XI numbers through VIES, storing withheld details as NULL', function 
         'countryCode' => 'XI', 'vatNumber' => '980780684', 'requestDate' => '2026-09-28T10:00:00.000Z',
         'valid' => true, 'requestIdentifier' => 'WAPIAAAAY', 'name' => '---', 'address' => "1 QUAY STREET\nBELFAST BT1 1AA",
     ])]);
-    $application = verifiedApplication(['vat_number' => 'XI980780684', 'registration_number' => null]);
+    $application = verifiedApplication(['legal_form' => 'sole_trader', 'vat_number' => 'XI980780684', 'registration_number' => null]);
 
     runChecks($application);
 
@@ -161,7 +164,7 @@ it('checks XI numbers through VIES, storing withheld details as NULL', function 
 
 it('maps VIES member-state outages and invalid numbers', function (array $body, string $outcome, ?string $reason) {
     Http::fake(['vies.test/*' => Http::response($body)]);
-    runChecks(verifiedApplication(['vat_number' => 'XI980780684', 'registration_number' => null]));
+    runChecks(verifiedApplication(['legal_form' => 'sole_trader', 'vat_number' => 'XI980780684', 'registration_number' => null]));
 
     expect(VatNumberCheck::query()->sole()->only(['outcome', 'failure_reason']))->toBe(['outcome' => $outcome, 'failure_reason' => $reason]);
 })->with([
@@ -220,3 +223,43 @@ it('queues the checks after a trade registration, and never makes the applicant 
 
     File::deleteDirectory($dir);
 });
+
+it('stores HMRC processing dates in UTC using London only when no offset is supplied', function (string $processed, string $expected) {
+    Http::fake([
+        'hmrc.test/oauth/token' => Http::response(['access_token' => 'tok', 'expires_in' => 14400]),
+        'hmrc.test/organisations/*' => Http::response([...hmrcValid(), 'processingDate' => $processed]),
+    ]);
+    runChecks(verifiedApplication(['legal_form' => 'sole_trader', 'registration_number' => null]));
+
+    expect(VatNumberCheck::query()->sole()->processed_at?->toIso8601String())->toBe($expected);
+})->with([
+    'explicit summer offset' => ['2026-09-28T10:00:00+01:00', '2026-09-28T09:00:00+00:00'],
+    'explicit UTC' => ['2026-09-28T10:00:00Z', '2026-09-28T10:00:00+00:00'],
+    'different offset' => ['2026-09-28T10:00:00-04:00', '2026-09-28T14:00:00+00:00'],
+    'implicit BST' => ['2026-09-28T10:00:00', '2026-09-28T09:00:00+00:00'],
+    'implicit GMT' => ['2026-01-28T10:00:00', '2026-01-28T10:00:00+00:00'],
+]);
+
+it('discards a rejected HMRC token so the next lookup obtains a new one', function () {
+    Cache::put('verification:hmrc:token', 'stale', 3600);
+    Http::fake([
+        'hmrc.test/oauth/token' => Http::response(['access_token' => 'fresh', 'expires_in' => 14400]),
+        'hmrc.test/organisations/*' => Http::sequence()->push([], 401)->push(hmrcValid()),
+    ]);
+    $client = app(HmrcVatClient::class);
+
+    expect($client->lookup('GB980780684', null)->outcome)->toBe(VatCheckOutcome::Unchecked)
+        ->and(Cache::has('verification:hmrc:token'))->toBeFalse();
+    Http::assertSentCount(1);
+
+    expect($client->lookup('GB980780684', null)->outcome)->toBe(VatCheckOutcome::Valid);
+    Http::assertSentCount(3);
+    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/lookup/') && $request->hasHeader('Authorization', 'Bearer fresh'));
+});
+
+it('makes registered legal forms with a registration number even when overridden with null', function (string $legalForm) {
+    $application = B2bApplication::factory()->create(['legal_form' => $legalForm, 'registration_number' => null]);
+
+    expect($application->fresh()?->registration_number)->toMatch('/^(?:[0-9]{8}|OC[0-9]{6})$/');
+    expect(B2bApplication::factory()->make(['legal_form' => $legalForm, 'registration_number' => 'SC123456'])->registration_number)->toBe('SC123456');
+})->with(['limited_company', 'llp']);
