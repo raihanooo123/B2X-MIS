@@ -4,6 +4,7 @@ namespace App\Filament\Resources\StaffUserResource\Pages;
 
 use App\Domain\Identity\StaffOnboardingService;
 use App\Domain\Identity\StaffRoleService;
+use App\Domain\Identity\StaffSuspensionService;
 use App\Filament\Resources\StaffUserResource;
 use App\Models\Role;
 use App\Models\User;
@@ -56,7 +57,40 @@ class ViewStaffUser extends ViewRecord
                         ->options(fn (): array => $this->roleOptions(held: true)),
                 ])
                 ->action(fn (array $data) => $this->changeRole('revoke', $data)),
+            Action::make('suspend')
+                ->label('Suspend')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalDescription('Sign-in is blocked and every open session ends at once. The account keeps its roles.')
+                ->visible(fn (): bool => Gate::allows('suspendStaff', $this->staff()))
+                ->action(fn () => $this->changeStatus('suspend')),
+            Action::make('reinstate')
+                ->label('Reinstate')
+                ->requiresConfirmation()
+                ->visible(fn (): bool => Gate::allows('reinstateStaff', $this->staff()))
+                ->action(fn () => $this->changeStatus('reinstate')),
         ];
+    }
+
+    private function changeStatus(string $operation): void
+    {
+        $actor = auth()->user();
+        if (! $actor instanceof User) {
+            abort(403);
+        }
+
+        $service = app(StaffSuspensionService::class);
+
+        try {
+            $operation === 'suspend'
+                ? $service->suspend($this->staff(), $actor)
+                : $service->reinstate($this->staff(), $actor);
+            Notification::make()->title($operation === 'suspend' ? 'Staff member suspended' : 'Staff member reinstated')->success()->send();
+        } catch (ValidationException $exception) {
+            Notification::make()->title(collect($exception->errors())->flatten()->first() ?? 'Unable to change status')->danger()->send();
+        }
+
+        $this->staff()->refresh();
     }
 
     /** @return array<string, string> */

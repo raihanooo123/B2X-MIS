@@ -1244,15 +1244,19 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       (`StaffRoleService`, `UserPolicy::manageStaffRoles`): grantor recorded, every change
       audited (`permission.staff_role_granted` / `permission.staff_role_revoked`), no
       self-changes, last active admin and final role protected, changes serialised on the
-      `admin` role row. No migration needed. 2026-09-27, pending verification.
-- [ ] Staff account lifecycle: suspension/reactivation, 2FA reset, and recovery controls.
-      These actions need their own policies, audit events and reviewable tests; suspension
-      must take the same `admin` role-row lock as role changes (05.13 §5.3).
+      `admin` role row. No migration needed. 2026-09-27, verified (PR #16).
+- [x] Admin-only staff suspension and reinstatement from the Staff detail page
+      (`StaffSuspensionService`, `UserPolicy::suspendStaff`/`reinstateStaff`): sessions and
+      reset tokens removed on suspension, roles kept, audited (`auth.staff_suspended` /
+      `auth.staff_reinstated`), no self-suspension, last active admin protected, same
+      lock order as role changes. No migration needed. 2026-09-27, pending verification.
+- [ ] Staff 2FA reset and recovery controls (05.13 §12.3). Needs its own policy, audit
+      event and reviewable tests.
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
-      reset and user suspension in Filament, remaining §15 audit events.
+      reset and customer suspension in Filament, remaining §15 audit events.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.

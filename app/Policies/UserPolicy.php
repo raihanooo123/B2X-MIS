@@ -60,10 +60,26 @@ final class UserPolicy
      */
     public function manageStaffRoles(User $user, User $staff): bool
     {
-        return $user->status === 'active'
-            && $user->id !== $staff->id
-            && in_array($staff->status, ['pending', 'active'], true)
-            && $this->view($user, $staff);
+        return in_array($staff->status, ['pending', 'active'], true)
+            && $this->managesOtherStaff($user, $staff);
+    }
+
+    /**
+     * 05.13 §4.2: an active administrator suspends another active staff
+     * member, or reinstates a suspended one. Never themselves. Customer
+     * suspension is a separate slice. StaffSuspensionService re-checks
+     * this under the same locks as StaffRoleService.
+     */
+    public function suspendStaff(User $user, User $staff): bool
+    {
+        return $this->managesOtherStaff($user, $staff) && $staff->status === 'active';
+    }
+
+    public function reinstateStaff(User $user, User $staff): bool
+    {
+        return $this->managesOtherStaff($user, $staff)
+            && $staff->status === 'suspended'
+            && $staff->password_hash !== null;
     }
 
     public function resendStaffOnboarding(User $user, User $staff): bool
@@ -71,5 +87,12 @@ final class UserPolicy
         return $this->view($user, $staff)
             && $staff->status === 'pending'
             && $staff->password_hash === null;
+    }
+
+    private function managesOtherStaff(User $user, User $staff): bool
+    {
+        return $user->status === 'active'
+            && $user->id !== $staff->id
+            && $this->view($user, $staff);
     }
 }

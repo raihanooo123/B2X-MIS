@@ -23,7 +23,8 @@ final class AuditLogger
         match ($entry->action) {
             AuditAction::SignInFailed => $this->validateFailedSignIn($entry),
             AuditAction::StaffCreated, AuditAction::StaffOnboardingRequested,
-            AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked => $this->validateStaffEvent($entry),
+            AuditAction::StaffRoleGranted, AuditAction::StaffRoleRevoked,
+            AuditAction::StaffSuspended, AuditAction::StaffReinstated => $this->validateStaffEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -108,6 +109,8 @@ final class AuditLogger
                 && in_array($entry->before['role'] ?? null, $roles, true)
                 && array_key_exists('granted_by_user_id', $entry->before)
                 && ($entry->before['granted_by_user_id'] === null || is_int($entry->before['granted_by_user_id'])),
+            AuditAction::StaffSuspended => $entry->before === ['status' => 'active'] && $entry->after === ['status' => 'suspended'],
+            AuditAction::StaffReinstated => $entry->before === ['status' => 'suspended'] && $entry->after === ['status' => 'active'],
             default => throw new InvalidArgumentException('Unsupported staff audit action.'),
         };
 
