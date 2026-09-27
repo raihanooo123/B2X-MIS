@@ -2,6 +2,7 @@
 
 namespace App\Http\Support;
 
+use App\Domain\Audit\AuditLogger;
 use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
@@ -44,6 +45,7 @@ final class SignIn
 
     public function __construct(
         private readonly LoginThrottle $throttle = new LoginThrottle,
+        private readonly AuditLogger $audit = new AuditLogger,
     ) {}
 
     public function attempt(Request $request, string $email, string $password): SignInResult
@@ -61,6 +63,7 @@ final class SignIn
 
         if ($user === null || $hash === null || ! $passwordMatches || $user->status !== 'active') {
             $lock = $this->throttle->recordFailure($ip, $email);
+            $this->audit->failedSignIn($email, $ip, $request->userAgent());
 
             return $lock > 0 ? SignInResult::locked($lock) : SignInResult::failed();
         }
@@ -116,6 +119,7 @@ final class SignIn
 
         if (! $totpValid && ! $recoveryUsed) {
             $lock = $this->throttle->recordFailure($ip, $user->email);
+            $this->audit->failedSignIn($user->email, $ip, $request->userAgent());
 
             return $lock > 0 ? SignInResult::locked($lock) : SignInResult::failed();
         }

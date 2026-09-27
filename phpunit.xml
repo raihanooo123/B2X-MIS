@@ -27,6 +27,8 @@
         <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="AUDIT_IDENTIFIER_KEY" value="0123456789abcdef0123456789abcdef"/>
+        <env name="AUDIT_IDENTIFIER_KEY_VERSION" value="test-v1"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="ARGON_MEMORY" value="1024"/>
         <env name="ARGON_TIME" value="1"/>
