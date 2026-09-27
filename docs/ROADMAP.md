@@ -63,7 +63,7 @@ Conventions used below:
    gates on performance-budget regression, correctness properties, and security scans, this
    is worth fixing early rather than after the first regression ships silently — see §16.
 
-6. **DOC GAP CLOSED in PR #11 (02 §15); migration and `AuditLogger` in progress, §18.** `07-nfr.md` §6.5 mandates an immutable, 7-year
+6. **DOC GAP CLOSED in PR #11 (02 §15); migration and `AuditLogger` merged in PR #12, event callers remain, §18.** `07-nfr.md` §6.5 mandates an immutable, 7-year
    append-only audit log across nine event families (auth, credit-limit changes, price
    changes, manual overrides, fee waivers, stock adjustments, config changes, rep
    impersonation, RMA dispositions). `02-domain-model-erd.md` §1 declared audit log storage
@@ -1122,9 +1122,9 @@ can run in a real browser.
 
 ## 18. Audit Log (§0.6, blocking — added 2026-09-20 completeness audit)
 
-`07-nfr.md` §6.5 mandates an immutable, append-only, 7-year-retained audit log; `02
-§1`(Correction 2026-09-20) no longer disclaims it. This is a hole between two documents,
-not a decision either one made — see §0.6.
+`07-nfr.md` §6.5 mandates an immutable, append-only, 7-year-retained audit log. The
+schema gap was closed in 02 §15 and the storage/logger foundation merged in PR #12;
+event callers, a read-only viewer and retention operations still need delivery.
 
 - [x] **02 §15 signed off and merged in PR #11** (partitioned, DB-trigger append-only,
       admin-only read; decisions in §15.3).
@@ -1133,14 +1133,16 @@ not a decision either one made — see §0.6.
       `(id, occurred_at)` PK, BRIN on `occurred_at`, `actor_user_id`, `subject_type`/
       `subject_id`, `action`, `before`/`after` `jsonb`. **Draft and sign off in its own commit
       before any migration** — do not invent this schema while building the logger. [G1]
-- [ ] Once signed off: `database/migrations/*_create_audit_log_table.php`.
-- [ ] `app/Domain/Audit/AuditLogger.php` — the single write path every privileged action
-      calls, rather than each domain service writing its own ad hoc log row. First real
-      callers: `roles.granted_by_user_id` (02 §14.1) once role-granting exists, and
-      `rmas_waiver_chk`'s fee-waiver path (05.4 §5) once the RMA domain service exists —
-      neither is built yet, so wiring this is this task's responsibility, not a retrofit.
-- [ ] `tests/Feature/Domain/AuditLoggerTest.php` — including an append-only assertion in the
-      same style as `stock_movements`' (query-log assertion, no `UPDATE`/`DELETE` possible).
+- [x] `database/migrations/2026_10_12_090100_create_audit_log_table.php` — PR #12.
+- [x] `app/Domain/Audit/AuditLogger.php` — the single write path for defined actions,
+      with action-specific payload validation. Privileged-action callers remain to be wired
+      as those workflows are built.
+- [x] `tests/Feature/Domain/AuditLoggerTest.php` — direct database assertions that
+      `UPDATE`, `DELETE` and `TRUNCATE` fail on the parent and named partitions.
+- [ ] Wire `auth.sign_in_failed` from password and second-factor failures with a dedicated
+      configured HMAC key; do not record raw identifiers. Other 05.13 §15 events follow.
+- [ ] Admin-only read-only Filament viewer with family, actor, company, subject and date filters.
+- [ ] Yearly partition creation, default-partition monitoring and seven-year retention job.
 
 ---
 

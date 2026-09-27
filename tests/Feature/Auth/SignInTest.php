@@ -7,6 +7,7 @@ use App\Models\RoleUser;
 use App\Models\User;
 use Database\Factories\UserFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 uses(RefreshDatabase::class);
@@ -57,6 +58,43 @@ it('gives one generic message for a wrong password, an unknown email and an inac
     $this->post('/login', ['email' => $suspended->email, 'password' => SIGN_IN_PASSWORD])->assertSessionHasErrors(['email' => $message]);
 
     $this->assertGuest();
+});
+
+it('audits failed passwords and second factors without storing the credentials', function () {
+    $user = User::factory()->withTwoFactor()->create(['password_hash' => Hash::make(SIGN_IN_PASSWORD)]);
+
+    $this->post('/login', ['email' => strtoupper($user->email), 'password' => 'wrong-password-xxx'])
+        ->assertSessionHasErrors('email');
+    $this->post('/login', ['email' => $user->email, 'password' => SIGN_IN_PASSWORD])
+        ->assertRedirect(route('two-factor.challenge'));
+    $this->post('/two-factor-challenge', ['code' => '000000'])
+        ->assertSessionHasErrors('code');
+
+    $rows = DB::table('audit_log')->orderBy('id')->get();
+    expect($rows)->toHaveCount(2);
+    foreach ($rows as $row) {
+        $payload = json_decode($row->after, true, 512, JSON_THROW_ON_ERROR);
+        expect($row->action)->toBe('auth.sign_in_failed')
+            ->and($row->actor_type)->toBe('anonymous')
+            ->and($row->ip)->toBe('127.0.0.1')
+            ->and($payload)->toHaveKeys(['identifier_fingerprint', 'key_version'])
+            ->and($payload['key_version'])->toBe('test-v1')
+            ->and($row->after)->not->toContain($user->email)
+            ->and($row->after)->not->toContain('wrong-password-xxx');
+    }
+    expect(json_decode($rows[0]->after, true, 512, JSON_THROW_ON_ERROR))
+        ->toBe(json_decode($rows[1]->after, true, 512, JSON_THROW_ON_ERROR));
+});
+
+it('audits an unknown identifier with the same generic response', function () {
+    $email = 'unknown@example.com';
+    $this->post('/login', ['email' => $email, 'password' => 'wrong-password-xxx'])
+        ->assertSessionHasErrors(['email' => "Those details don't match an account."]);
+
+    $row = DB::table('audit_log')->sole();
+    $payload = json_decode($row->after, true, 512, JSON_THROW_ON_ERROR);
+    expect($payload['identifier_fingerprint'])->toBe(hash_hmac('sha256', $email, (string) config('audit.identifier_key')))
+        ->and($row->after)->not->toContain($email);
 });
 
 it('locks the identifier for 1 minute after 5 failures, refusing even the right password', function () {
