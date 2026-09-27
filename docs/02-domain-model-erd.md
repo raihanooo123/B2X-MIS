@@ -2197,7 +2197,7 @@ With pack structure, location, batch and serial all present from the first migra
 
 **Stocktake serials (§24.2, full DDL here, added 2026-09-26):** `stocktake_line_serials`, migrated 2026-09-26.
 
-**Trade application compliance (§25, full DDL here, signed off 2026-09-28):** `terms_versions`, `terms_acceptances`, `vat_number_checks` and `companies_house_checks` — not yet migrated (ROADMAP §6). `terms_versions`, `vat_number_checks` and `companies_house_checks` follow step 4 (`b2b_applications`). `terms_acceptances` follows step 13, because it references `orders`. The same amendment adds columns to `b2b_applications` and `companies` (§25.2–§25.3).
+**Trade application compliance (§25, full DDL here, signed off 2026-09-28):** `terms_versions`, `terms_acceptances`, `vat_number_checks` and `companies_house_checks` — migrations written 2026-09-28 (`2026_10_14_090100`–`090400`), pending verification. `terms_versions`, `vat_number_checks` and `companies_house_checks` follow step 4 (`b2b_applications`). `terms_acceptances` follows step 13, because it references `orders`. The same amendment adds columns to `b2b_applications` and `companies` (§25.2–§25.3).
 
 **Migrated 2026-09-25:** `shipments`, `shipment_lines`, `shipment_line_batches`, `shipment_line_serials`, `stocktakes`, `stocktake_lines` (§14.6–14.7); `suppliers`, `containers`, `purchase_orders`, `purchase_order_lines` (05.7 §4–6); `goods_receipts`, `goods_receipt_lines` (§23).
 
@@ -3828,7 +3828,7 @@ CREATE INDEX stocktake_line_serials_serial_idx ON stocktake_line_serials (serial
 
 ## 25. Schema amendment 2026-09-28 — trade application compliance (signed off 2026-09-28)
 
-> **Status: signed off 2026-09-28**, with the decisions in §25.8 and two changes made before sign-off the same day: the wider Companies House refusal list (§25.9) and terms publishing with a development seeder (§25.1, §25.10). No migration or code exists yet: build tasks are in ROADMAP §6. Behaviour is in 05.2 §17. The approval rule and audit shapes are in §25.9, and deployment prerequisites in §25.10.
+> **Status: signed off 2026-09-28**, with the decisions in §25.8 and two changes made before sign-off the same day: the wider Companies House refusal list (§25.9) and terms publishing with a development seeder (§25.1, §25.10). **Slice B1 built 2026-09-28, pending test verification:** all four migrations (`2026_10_14_090100`–`090400`), terms publishing and acceptance, legal form, rejection outcome and the re-application gate. The external checks (§25.4–§25.5 writers) and the §25.9 approval rule are slice B2; until then the check tables stay empty. Remaining tasks are in ROADMAP §6. Behaviour is in 05.2 §17. The approval rule and audit shapes are in §25.9, and deployment prerequisites in §25.10.
 
 This amendment adds what a UK wholesaler needs to record when an application is made and reviewed:
 
@@ -3916,7 +3916,7 @@ CREATE TRIGGER terms_acceptances_immutable
   - `terms_acceptances_application_uq` enforces one acceptance per application. It also serves the review screen's lookup by application.
   - No index on `user_id` yet: no query reads acceptances by user. One is added when a "has this user accepted the current version" check exists.
 - **`ip`** is `inet`, and `user_agent` is kept as well, as in `notification_preferences` (§22.1). Both are access-controlled personal data (§15.2 decision 5). `ip` comes from `Request::ip()`, which is correct only behind correctly configured trusted proxies.
-- **Backfill:** none. Existing applications have no acceptance row, and the review screen shows "Accepted before terms were versioned — not recorded".
+- **Backfill:** none. Existing applications have no acceptance row, and the review screen shows "Accepted before terms were versioned — not recorded". Inventing a version for them would misstate what they saw.
 - **Publishing** (Filament `TermsVersionResource`, Settings → Terms):
   - **Access:** admin only, through `TermsVersionPolicy`. `viewAny`, `view` and `create` are for an active `admin`. `update` and `delete` are always false, matching the trigger, so the screen offers no edit or delete action at all.
   - **List:** every version per kind, marking the one currently in force and any scheduled ones.
@@ -3928,7 +3928,7 @@ CREATE TRIGGER terms_acceptances_immutable
   - **Confirmation** shows the text's SHA-256 and says the version cannot be changed afterwards.
   - **On publish,** `App\Domain\Accounts\TermsPublisher` computes `body_sha256`, sets `published_by_user_id`, and inserts the row. A mistake is corrected by publishing a new version, effective now.
   - **Audit** (07 §6.5 "configuration changes"): `configuration.terms_version_published`, family `configuration`, subject `terms_version`. It records only `kind`, `version`, `effective_from` and `body_sha256` — never the text, which the row itself holds.
-  - **Production terms must be reviewed by a solicitor before they are published.** The screen publishes what it is given, and nothing in the system checks legal content. The placeholder seeder (§25.10) never runs in production. Inventing a version for them would misstate what they saw.
+  - **Production terms must be reviewed by a solicitor before they are published.** The screen publishes what it is given, and nothing in the system checks legal content. The placeholder seeder (§25.10) never runs in production.
 - **Written by:**
   - `RegisterTradeRequest` gains a required `terms_version_id` field. It must equal the current trade version; otherwise the applicant is asked to re-read the terms, which changed while the form was open.
   - `Registration::tradeApplicant()` / `fileApplication()` insert the acceptance row in the same transaction as the application.
@@ -3985,7 +3985,7 @@ CREATE INDEX b2b_applications_reapply_idx
 
 - `b2b_applications_reapply_idx` serves the re-application gate (05.13 §7): "this user's latest rejection and its `reapply_after`" — `WHERE applicant_user_id = ? AND status = 'rejected' ORDER BY reviewed_at DESC LIMIT 1`, index-only.
 - It is partial (§9 rule 1) because rejected rows are a small share, and nothing else queries by `applicant_user_id`.
-- The gate for a visitor who is not signed in keys on `contact_email`, which `b2b_applications_email_idx` already serves.
+- The gate for a visitor who is not signed in keys on `contact_email`, which `b2b_applications_email_idx` already serves. **It never reveals the rejection or its date on screen:** the form gives the normal confirmation, and only that address is emailed the date (`application.reapply_blocked`, 05.12 §5.2; 05.13 §5.1). A signed-in applicant is shown the date directly.
 
 **Backfill, inside the migration before VALIDATE**
 
@@ -4281,7 +4281,7 @@ The codes are a PHP backed enum, `VerificationWarning`. They are computed at app
 - **Companies House:** a live API key from the Companies House developer portal, in the environment, used with HTTP basic auth.
 - **VIES:** no credentials. The EU service's availability varies by member state; `XI` numbers are answered for Northern Ireland.
 - **Seller details:** set `seller.vat_number` (already required for invoices, §21.3) so HMRC returns consultation numbers. Optionally set `seller.xi_vat_number` for VIES request identifiers.
-- **Trusted proxies:** set them for the production load balancer (Laravel's `trustProxies` in `bootstrap/app.php`). Without that, `terms_acceptances.ip` records the proxy's address instead of the applicant's.
+- **Trusted proxies:** set `TRUSTED_PROXIES` to the production proxy / load balancer addresses or CIDR ranges. It is read by `config/trustedproxy.php`, which Laravel's `TrustProxies` middleware uses. The default is an empty list — nothing trusted — and never `*`, which would let any client choose its own recorded IP. It is an empty array rather than null, because the middleware trusts every caller when given null on Laravel Cloud, Forge and Vapor hosts. Without the real addresses listed, `terms_acceptances.ip` records the proxy's address instead of the applicant's.
 - **Terms:** publish the first `trade` terms version **before** trade registration is opened, through the admin terms screen (§25.1). `RegisterTradeRequest` requires a current version, so without one every trade application is refused. Publish the first `sale` version before the checkout slice ships. **Production terms must be reviewed by a solicitor before publication** — the system does not check them.
 - **Local development:** `Database\Seeders\PlaceholderTermsSeeder` publishes one `trade` version, so registration works on a fresh `migrate:fresh --seed`.
   - **Version and text:** labelled `placeholder-1`. Its text opens with "PLACEHOLDER — NOT TERMS OF TRADE. Do not use in production." It is published by the demo administrator (`admin@example.com`, from `DemoDataSeeder`), effective now.

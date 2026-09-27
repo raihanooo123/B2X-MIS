@@ -41,6 +41,9 @@ enum AuditAction: string
 
     case CreditLimitChanged = 'credit_limit.changed';
 
+    /** 02 §25.1: 07 §6.5 "configuration changes". */
+    case TermsVersionPublished = 'configuration.terms_version_published';
+
     public function family(): string
     {
         return match ($this) {
@@ -51,6 +54,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => 'permission',
             self::CreditLimitChanged => 'credit_limit',
+            self::TermsVersionPublished => 'configuration',
         };
     }
 
@@ -66,6 +70,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::CreditLimitChanged => ['credit_limit_minor'],
+            self::TermsVersionPublished => [],
         };
     }
 
@@ -82,9 +87,10 @@ enum AuditAction: string
             self::CustomerSuspended, self::CustomerReinstated => ['status'],
             self::StaffTwoFactorReset => ['two_factor_enabled'],
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed => ['status'],
-            self::ApplicationRejected => ['status', 'remediable'],
+            self::ApplicationRejected => ['status', 'remediable', 'rejection_category'],
             self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor'],
             self::CreditLimitChanged => ['credit_limit_minor'],
+            self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
         };
     }
 }

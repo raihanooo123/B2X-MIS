@@ -18,6 +18,22 @@ final readonly class Postcode
         public int $district,
     ) {}
 
+    /**
+     * A full UK postcode in its standard form — upper case, one space
+     * before the inward code (`sw1a1aa` → `SW1A 1AA`). Text that is not a
+     * full postcode is returned trimmed and upper-cased, never guessed at.
+     */
+    public static function format(string $postcode): string
+    {
+        $compact = strtoupper(preg_replace('/\s+/', '', $postcode) ?? '');
+
+        if (preg_match('/^([A-Z]{1,2}\d[A-Z\d]?)(\d[A-Z]{2})$/', $compact, $m) === 1) {
+            return $m[1].' '.$m[2];
+        }
+
+        return strtoupper(trim($postcode));
+    }
+
     /** Null when the text has no recognisable outward code. */
     public static function parse(string $postcode): ?self
     {

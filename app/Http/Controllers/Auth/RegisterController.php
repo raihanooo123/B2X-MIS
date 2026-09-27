@@ -2,19 +2,26 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Accounts\LegalForm;
+use App\Domain\Accounts\TermsKind;
 use App\Domain\Identity\BusinessType;
 use App\Domain\Identity\Registration;
+use App\Domain\Notifications\Notices\ApplicationAlreadyOpen;
+use App\Domain\Notifications\Notices\ApplicationReapplyBlocked;
 use App\Domain\Notifications\Notices\ApplicationSubmitted;
 use App\Domain\Notifications\Notices\EmailVerification;
 use App\Domain\Notifications\Notices\ExistingAccount;
 use App\Domain\Notifications\Notifications;
+use App\Domain\Notifications\Recipient;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterPublicRequest;
 use App\Http\Requests\Auth\RegisterTradeRequest;
+use App\Models\TermsVersion;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,6 +49,8 @@ class RegisterController extends Controller
                 fn (BusinessType $t) => ['value' => $t->value, 'label' => $t->label()],
                 BusinessType::cases(),
             ),
+            'legal_forms' => LegalForm::choices(),
+            'trade_terms' => $this->tradeTerms(),
         ]);
     }
 
@@ -76,16 +85,51 @@ class RegisterController extends Controller
         }
 
         // 05.2 §5.2: an application already open on this address — one a
-        // member of staff entered, since no user holds the address yet.
-        if (Registration::hasOpenApplication($person['email'])) {
-            return back()->withErrors(['email' => 'You already have an application in progress. We will be in touch.'])->withInput($request->except('password', 'password_confirmation'));
+        // member of staff entered, since no user holds the address yet. The
+        // screen gives the normal confirmation and creates nothing; only the
+        // address is told, by email (§5.1, no enumeration).
+        $open = Registration::openApplicationForEmail($person['email']);
+        if ($open !== null) {
+            (new Notifications)->toRecipient(new ApplicationAlreadyOpen($open->id), new Recipient($person['email']));
+
+            return $this->confirmation();
         }
 
-        [$user, $application] = Registration::tradeApplicant($person, $request->application());
+        // 05.13 §7, 02 §25.2: a rejection on this address that is not
+        // remediable holds a new application until its reapply_after. The
+        // screen gives the normal confirmation — never the rejection or its
+        // date — and the address alone is emailed the details (§5.1). A
+        // remediable rejection holds nothing, so that filing goes ahead.
+        $cooling = Registration::coolingRejectionForEmail($person['email']);
+        if ($cooling !== null) {
+            (new Notifications)->toRecipient(new ApplicationReapplyBlocked($cooling->id), new Recipient($person['email']));
+
+            return $this->confirmation();
+        }
+
+        [$user, $application] = Registration::tradeApplicant($person, $request->application(), $request->acceptedTerms());
         (new Notifications)->toUser(new EmailVerification($user->id), $user);
         (new Notifications)->toUser(new ApplicationSubmitted($application->id), $user);
 
         return $this->confirmation();
+    }
+
+    /**
+     * 02 §25.1: the terms of trade in force, shown in full on the form.
+     * The Markdown is rendered here with raw HTML escaped, so the page
+     * never receives markup an administrator did not write as Markdown.
+     *
+     * @return array{id: int, version: string, html: string}|null
+     */
+    private function tradeTerms(): ?array
+    {
+        $terms = TermsVersion::current(TermsKind::Trade);
+
+        return $terms === null ? null : [
+            'id' => $terms->id,
+            'version' => $terms->version,
+            'html' => Str::markdown($terms->body_markdown, ['html_input' => 'escape', 'allow_unsafe_links' => false]),
+        ];
     }
 
     private function confirmation(): RedirectResponse

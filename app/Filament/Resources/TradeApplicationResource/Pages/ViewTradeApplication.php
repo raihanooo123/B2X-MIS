@@ -3,8 +3,11 @@
 namespace App\Filament\Resources\TradeApplicationResource\Pages;
 
 use App\Domain\Accounts\ApplicationReviewService;
+use App\Domain\Accounts\ApplicationSettings;
 use App\Domain\Accounts\ApprovalTerms;
+use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Billing\PaymentTerms;
+use App\Domain\Notifications\Notices\ApplicationRejected;
 use App\Filament\Resources\TradeApplicationResource;
 use App\Filament\Support\MoneyFormatter;
 use App\Models\B2bApplication;
@@ -67,17 +70,34 @@ class ViewTradeApplication extends ViewRecord
                 ->label('Reject')
                 ->color('danger')
                 ->visible(fn (): bool => Gate::allows('reject', $this->application()))
-                ->modalDescription('The applicant receives a neutral decline. They keep their login and can buy at standard prices.')
+                ->modalDescription('The applicant keeps their login and can buy at standard prices. They are emailed your message, or a neutral decline if you leave it empty.')
                 ->form([
+                    Select::make('rejection_category')->label('Category')->required()->options(RejectionCategory::options()),
                     Textarea::make('review_note')->label('Internal reason')->required()->maxLength(2000)
                         ->helperText('Never shown to the applicant.'),
+                    Textarea::make('applicant_message')->label('Message to the applicant')->maxLength(2000)
+                        ->helperText('Optional. Sent in the rejection email instead of: "'.ApplicationRejected::DEFAULT_MESSAGE.'"'),
                     Toggle::make('remediable')->label('They may reapply straight away')
-                        ->helperText('Off: they can reapply after '.ApplicationReviewService::COOLING_PERIOD_DAYS.' days.'),
+                        ->helperText(fn (): string => 'Off: they can reapply after '.app(ApplicationSettings::class)->reapplyCoolingDays().' days.'),
                 ])
-                ->action(fn (array $data) => $this->review('Application rejected', fn (ApplicationReviewService $service, User $actor) => $service->reject(
-                    $this->application(), $actor, self::text($data, 'review_note'), (bool) ($data['remediable'] ?? false),
-                ))),
+                ->action(fn (array $data) => $this->reject($data)),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function reject(array $data): void
+    {
+        $category = RejectionCategory::tryFrom(self::text($data, 'rejection_category'));
+        if ($category === null) {
+            Notification::make()->title('Choose a rejection category.')->danger()->send();
+
+            return;
+        }
+        $message = self::text($data, 'applicant_message');
+
+        $this->review('Application rejected', fn (ApplicationReviewService $service, User $actor) => $service->reject(
+            $this->application(), $actor, self::text($data, 'review_note'), $category, (bool) ($data['remediable'] ?? false), $message === '' ? null : $message,
+        ));
     }
 
     /** @param array<string, mixed> $data */

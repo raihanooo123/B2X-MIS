@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string|null $accounts_email
  * @property string $status
  * @property int|null $price_tier_id
+ * @property string|null $legal_form
  * @property string $payment_terms
  * @property string $price_display_mode
  * @property int $credit_limit_minor

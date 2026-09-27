@@ -462,39 +462,44 @@ write to `credit_held_minor` because `credit_holds` doesn't exist yet. Build ord
       (additional site); staff-entered applications (`applicant_user_id` NULL); document
       download on the review page. (The `remediable` / applicant message / cooling-period
       amendment is 02 §25.2, signed off 2026-09-28 — built by the tasks below.)
-- **Application compliance — 02 §25 / 05.2 §17 (signed off 2026-09-28).** Build order:
-  - [ ] Migrations, one per 02 §25 subsection, with their backfills (§25.7):
-        `terms_versions` + `terms_acceptances` (+ `reject_row_mutation()`); the rejection
-        outcome columns + `applications.reapply_cooling_days`; `legal_form` on
-        `b2b_applications` and `companies`; `vat_number_checks` + `companies_house_checks`
-        + `applications.verification_max_age_days`. Enums, and the §2.5 CHECK/enum test for
-        each.
-  - [ ] Terms of trade:
-        - admin-only `TermsVersionResource` + `TermsVersionPolicy` — publish and view, never
-          edit or delete;
-        - `TermsPublisher`, with the SHA-256, the `configuration.terms_version_published`
-          audit, and effective dates never in the past;
-        - storefront terms page;
-        - `RegisterTradeRequest.terms_version_id`, and the acceptance row in `Registration`;
-        - `TermsVersionFactory`;
-        - `PlaceholderTermsSeeder` — `local` only, throws elsewhere, reserved `placeholder-`
-          prefix (02 §25.10).
-  - [ ] `legal_form` in `RegisterTradeRequest` and `Registration`; `registration_number`
-        required for `limited_company` / `llp`; `UkVatNumber` accepts `XI`; copied to the
-        company at approval.
-  - [ ] `App\Domain\Accounts\BusinessVerification` + `HmrcVatClient`, `ViesVatClient` and
-        `CompaniesHouseClient` (Laravel HTTP client, 5 s timeout); the `VerifyApplicationBusiness`
-        job (3 retries: 10/60/300 s), dispatched after commit; `unchecked` on every failure,
-        never blocking.
-  - [ ] Review screen: Verification section and queue badge; **Re-run checks**
-        (`B2bApplicationPolicy::rerunChecks`); reject form gains category and applicant message,
-        and writes `reapply_after`; approval enforces 02 §25.9 (the
-        `CompaniesHouseStatus::REFUSES_APPROVAL` list, warning codes, acknowledgement); audit
-        shapes per §25.9. `ApplicationDuplicates` matches the VAT
-        number's nine-digit core.
-  - [ ] Tests: backfills, each check outcome and failure reason, the refusal and every
-        warning code, the stale threshold, audit shapes, and the job never failing a
-        registration.
+- **Application compliance — 02 §25 / 05.2 §17 (signed off 2026-09-28).**
+  - **Slice B1 — built 2026-09-28, pending test verification:**
+    - [x] Migrations `2026_10_14_090100`–`090400`, with the §25.2 and §25.3 backfills and the
+          two settings. The check tables are created empty. Enums `TermsKind`,
+          `TermsAcceptanceSource`, `RejectionCategory` and `LegalForm`, each with the §2.5
+          CHECK/enum test.
+    - [x] Terms: `TermsVersion` and `TermsAcceptance` models; `TermsPublisher` (SHA-256,
+          `configuration.terms_version_published` audit, never in the past, reserved
+          `placeholder-` prefix); admin-only Settings → Terms (`TermsVersionResource`,
+          `TermsVersionPolicy`; publish and view only); `TermsVersionFactory`;
+          `PlaceholderTermsSeeder` (`local` only).
+    - [x] Registration: `legal_form`, the Companies House number required for a limited
+          company or LLP, `terms_version_id` with a re-prompt when the terms change, and the
+          acceptance row (IP through `config/trustedproxy.php`, user agent) in the
+          application's transaction. React registration page updated.
+    - [x] Review: rejection category, remediable choice, optional applicant message and
+          `reapply_after` from `applications.reapply_cooling_days`; `rejection_category` in
+          the audit; the rejection email carries the message (template version 2); legal
+          form and terms acceptance on the review screen; legal form copied at approval.
+    - [x] Re-application gate, by user (locked) and by email.
+    - [x] PR #20 fixes: a friendly error when two applications with one VAT number are
+          approved at the same moment (`companies_vat_uq` caught); postcodes stored as
+          `SW1A 1AA`, including the approval address copy.
+  - **Slice B2 — external checks and the approval rule:**
+    - [ ] `App\Domain\Accounts\BusinessVerification` + `HmrcVatClient`, `ViesVatClient` and
+          `CompaniesHouseClient` (Laravel HTTP client, 5 s timeout); the
+          `VerifyApplicationBusiness` job (3 retries: 10/60/300 s), dispatched after commit;
+          `unchecked` on every failure, never blocking. Enums `VatCheckAuthority`,
+          `VatCheckOutcome`, `CompaniesHouseCheckOutcome` and `VerificationFailureReason`.
+    - [ ] `UkVatNumber` accepts `XI`; `ApplicationDuplicates` matches the VAT number's
+          nine-digit core.
+    - [ ] Review screen: Verification section and queue badge; **Re-run checks**
+          (`B2bApplicationPolicy::rerunChecks`). Approval enforces 02 §25.9 (the
+          `CompaniesHouseStatus::REFUSES_APPROVAL` list, `VerificationWarning` codes,
+          acknowledgement), with the approval audit shape per §25.9.
+    - [ ] Tests: each check outcome and failure reason, the refusal and every warning code,
+          the stale threshold, audit shapes, and the job never failing a registration.
+    - [ ] Storefront terms page (the current version outside the registration form).
   - [ ] **Later slice — public terms of sale at checkout** (02 §25.1, ⚑1): the terms of sale
         version on the checkout page; a `terms_acceptances` row (`kind = 'sale'`, source
         `checkout`, `order_id`) in the order transaction.
@@ -1328,8 +1333,9 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       verification.
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
-- [ ] 05.13 §5.1 additions (legal form, terms of trade acceptance, verification after
-      commit), per 02 §25 — tracked in ROADMAP §6, "Application compliance".
+- [x] 05.13 §5.1 additions: legal form and terms of trade acceptance (slice B1,
+      2026-09-28, pending verification). Verification after commit is slice B2 — ROADMAP §6,
+      "Application compliance".
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
       reset for trade users (staff reset done; blocked on ⚑9), remaining §15 audit events.

@@ -2,6 +2,8 @@
 
 namespace App\Domain\Audit;
 
+use App\Domain\Accounts\RejectionCategory;
+use App\Domain\Accounts\TermsKind;
 use App\Domain\Billing\PaymentTerms;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -31,6 +33,7 @@ final class AuditLogger
             AuditAction::ApplicationReviewStarted, AuditAction::ApplicationInfoRequested, AuditAction::ApplicationReviewResumed,
             AuditAction::ApplicationRejected, AuditAction::ApplicationApproved => $this->validateApplicationEvent($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
+            AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -105,8 +108,9 @@ final class AuditLogger
             AuditAction::ApplicationReviewStarted => $from === 'submitted' && $after === ['status' => 'in_review'],
             AuditAction::ApplicationInfoRequested => $from === 'in_review' && $after === ['status' => 'info_requested'],
             AuditAction::ApplicationReviewResumed => $from === 'info_requested' && $after === ['status' => 'in_review'],
-            AuditAction::ApplicationRejected => $from === 'in_review' && $to === 'rejected' && count($after) === 2
-                && is_bool($after['remediable'] ?? null),
+            AuditAction::ApplicationRejected => $from === 'in_review' && $to === 'rejected' && count($after) === 3
+                && is_bool($after['remediable'] ?? null)
+                && is_string($after['rejection_category'] ?? null) && RejectionCategory::tryFrom($after['rejection_category']) !== null,
             AuditAction::ApplicationApproved => $from === 'in_review' && $to === 'approved' && count($after) === 6
                 && is_int($after['company_id'] ?? null) && $after['company_id'] === $entry->companyId
                 && is_int($after['owner_user_id'] ?? null)
@@ -139,6 +143,27 @@ final class AuditLogger
             || $entry->companyId !== $entry->subjectId
             || $entry->reason !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid credit limit audit entry.');
+        }
+    }
+
+    /**
+     * 02 §25.1, §25.9: a terms version published by an administrator. The
+     * text itself is never copied; the row holds it and its SHA-256.
+     */
+    private function validateTermsVersionPublished(AuditEntry $entry): void
+    {
+        $after = $entry->after;
+        $effective = $after['effective_from'] ?? null;
+
+        if ($entry->before !== [] || count($after) !== 4
+            || ! is_string($after['kind'] ?? null) || TermsKind::tryFrom($after['kind']) === null
+            || ! is_string($after['version'] ?? null) || preg_match('/^[0-9A-Za-z._-]{1,32}$/', $after['version']) !== 1
+            || ! is_string($effective) || \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $effective) === false
+            || ! is_string($after['body_sha256'] ?? null) || preg_match('/^[0-9a-f]{64}$/', $after['body_sha256']) !== 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'terms_version' || $entry->subjectId === null
+            || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid terms version audit entry.');
         }
     }
 

@@ -2,6 +2,7 @@
 
 use App\Domain\Accounts\ApplicationReviewService;
 use App\Domain\Accounts\ApprovalTerms;
+use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditEntry;
 use App\Domain\Audit\AuditLogger;
@@ -61,7 +62,9 @@ function reviewStaff(string $role = 'admin', string $status = 'active'): User
 /** @param array<string, mixed> $overrides */
 function applicationFor(?User $applicant, string $status = 'submitted', array $overrides = []): B2bApplication
 {
-    return B2bApplication::factory()->create(array_merge([
+    $factory = $status === 'rejected' ? B2bApplication::factory()->rejected() : B2bApplication::factory();
+
+    return $factory->create(array_merge([
         'applicant_user_id' => $applicant?->id,
         'company_name' => 'Harbour Stores Ltd',
         'registration_number' => '01234567',
@@ -137,7 +140,7 @@ it('starts review, requests information, resumes and rejects from the detail pag
     expect($application->fresh()->status)->toBe('in_review');
 
     Livewire::test(ViewTradeApplication::class, ['record' => $application->id])
-        ->callAction('reject', data: ['review_note' => 'Trading address could not be verified.', 'remediable' => false])
+        ->callAction('reject', data: ['rejection_category' => 'business_not_verified', 'review_note' => 'Trading address could not be verified.', 'remediable' => false])
         ->assertHasNoActionErrors();
 
     $fresh = $application->fresh();
@@ -155,7 +158,8 @@ it('starts review, requests information, resumes and rejects from the detail pag
         ->and($audit->every(fn (AuditLog $entry) => $entry->actor_user_id === $admin->id && $entry->event_family === 'permission' && $entry->company_id === null))->toBeTrue()
         ->and($audit->pluck('before')->all())->toBe([['status' => 'submitted'], ['status' => 'in_review'], ['status' => 'info_requested'], ['status' => 'in_review']])
         ->and($audit->pluck('after')->all())->toEqual([
-            ['status' => 'in_review'], ['status' => 'info_requested'], ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false],
+            ['status' => 'in_review'], ['status' => 'info_requested'], ['status' => 'in_review'],
+            ['status' => 'rejected', 'remediable' => false, 'rejection_category' => 'business_not_verified'],
         ]);
 });
 
@@ -259,7 +263,7 @@ it('lets an accounts reviewer take an application through to approval with credi
         ->and(AuditLog::query()->where('action', 'credit_limit.changed')->sole()->actor_user_id)->toBe($accounts->id);
 
     $rejected = applicationFor(User::factory()->create(), 'in_review');
-    $service->reject($rejected, $accounts, 'Could not verify the business.', true);
+    $service->reject($rejected, $accounts, 'Could not verify the business.', RejectionCategory::BusinessNotVerified, true);
     expect($rejected->fresh()->status)->toBe('rejected');
 });
 
@@ -288,7 +292,7 @@ it('refuses every transition the state machine does not allow', function () {
         'requestInfo' => fn (B2bApplication $a) => $service->requestInfo($a, $admin, 'Please send ID.'),
         'resumeReview' => fn (B2bApplication $a) => $service->resumeReview($a, $admin),
         'approve' => fn (B2bApplication $a) => $service->approve($a, $admin, netThirtyTerms($this->gold)),
-        'reject' => fn (B2bApplication $a) => $service->reject($a, $admin, 'No.', false),
+        'reject' => fn (B2bApplication $a) => $service->reject($a, $admin, 'No.', RejectionCategory::Other, false),
     ];
     $allowedFrom = ['startReview' => 'submitted', 'requestInfo' => 'in_review', 'resumeReview' => 'info_requested', 'approve' => 'in_review', 'reject' => 'in_review'];
 
@@ -453,7 +457,7 @@ it('sends notices and flushes pricing only after the decision commits', function
     DB::transaction(function () use ($application, $toReject, $admin, $applicant, $rejectedApplicant): void {
         $service = app(ApplicationReviewService::class);
         $service->approve($application, $admin, netThirtyTerms($this->gold));
-        $service->reject($toReject, $admin, 'Duplicate of an existing account.', true);
+        $service->reject($toReject, $admin, 'Duplicate of an existing account.', RejectionCategory::DuplicateAccount, true);
 
         expect(applicationNotices($applicant, NotificationKey::ApplicationApproved))->toBeEmpty()
             ->and(applicationNotices($rejectedApplicant, NotificationKey::ApplicationRejected))->toBeEmpty()
@@ -471,16 +475,23 @@ it('keeps the internal reason out of the rejection email and puts the terms in t
     $rejected = applicationFor($rejectedApplicant = User::factory()->create(), 'in_review');
     $approved = applicationFor($approvedApplicant = User::factory()->create(), 'in_review', ['company_name' => 'Quay Traders Ltd']);
 
-    $service->reject($rejected, $admin, 'Director is on the internal watch list.', false);
+    $remediableApplication = applicationFor($remediableApplicant = User::factory()->create(), 'in_review');
+
+    $service->reject($rejected, $admin, 'Director is on the internal watch list.', RejectionCategory::CreditOrRiskConcern, false);
+    $service->reject($remediableApplication, $admin, 'Needs a VAT certificate.', RejectionCategory::BusinessNotVerified, true, 'Please reapply with your VAT certificate attached.');
     $company = $service->approve($approved, $admin, netThirtyTerms($this->gold));
 
-    $cooling = (new ApplicationRejected($rejected->id, false, now()->addDays(90)->toIso8601String()))->content(Recipient::user($rejectedApplicant));
+    $cooling = (new ApplicationRejected($rejected->id))->content(Recipient::user($rejectedApplicant));
     $text = implode(' ', [$cooling->subject, ...$cooling->paragraphs]);
     expect($text)->not->toContain('watch list')
-        ->and($text)->toContain('apply again from '.now()->addDays(90)->timezone('Europe/London')->format('j F Y'));
+        ->and($text)->not->toContain('Credit or risk')
+        ->and($text)->toContain(ApplicationRejected::DEFAULT_MESSAGE)
+        ->and($text)->toContain('apply again from '.$rejected->fresh()->reapply_after->timezone('Europe/London')->format('j F Y'));
 
-    $remediable = (new ApplicationRejected($rejected->id, true, null))->content(Recipient::user($rejectedApplicant));
-    expect(implode(' ', $remediable->paragraphs))->not->toContain('apply again from');
+    $remediable = (new ApplicationRejected($remediableApplication->id))->content(Recipient::user($remediableApplicant));
+    expect($remediable->paragraphs)->toContain('Please reapply with your VAT certificate attached.')
+        ->and(implode(' ', $remediable->paragraphs))->not->toContain('apply again from')
+        ->and(implode(' ', $remediable->paragraphs))->not->toContain(ApplicationRejected::DEFAULT_MESSAGE);
 
     $welcome = (new ApplicationApproved($approved->id))->content(Recipient::user($approvedApplicant));
     expect($welcome->facts)->toBe([
@@ -511,8 +522,10 @@ it('accepts only the approved application and credit limit audit shapes', functi
         $entry(AuditAction::ApplicationInfoRequested, ['status' => 'in_review'], ['status' => 'info_requested', 'info_request' => 'Send ID']),
         $entry(AuditAction::ApplicationReviewResumed, ['status' => 'submitted'], ['status' => 'in_review']),
         $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected']),
-        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false, 'review_note' => 'Watch list']),
-        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false], reason: 'Watch list'),
+        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false]),
+        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false, 'rejection_category' => 'watch_list']),
+        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false, 'rejection_category' => 'other', 'review_note' => 'Watch list']),
+        $entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => false, 'rejection_category' => 'other'], reason: 'Watch list'),
         $entry(AuditAction::ApplicationApproved, ['status' => 'in_review'], $approvedAfter, companyId: 8),
         $entry(AuditAction::ApplicationApproved, ['status' => 'in_review'], [...$approvedAfter, 'payment_terms' => 'net90'], companyId: 7),
         $entry(AuditAction::ApplicationApproved, ['status' => 'in_review'], [...$approvedAfter, 'credit_limit_minor' => -1], companyId: 7),
@@ -525,7 +538,7 @@ it('accepts only the approved application and credit limit audit shapes', functi
     }
 
     $company = Company::factory()->create();
-    $logger->record($entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => true]));
+    $logger->record($entry(AuditAction::ApplicationRejected, ['status' => 'in_review'], ['status' => 'rejected', 'remediable' => true, 'rejection_category' => 'duplicate_account']));
     $logger->record($entry(AuditAction::ApplicationApproved, ['status' => 'in_review'], [...$approvedAfter, 'company_id' => $company->id], companyId: $company->id));
     $logger->record($entry(AuditAction::CreditLimitChanged, ['credit_limit_minor' => 0], ['credit_limit_minor' => 1000], companyId: $company->id, subjectType: 'company', subjectId: $company->id));
 
