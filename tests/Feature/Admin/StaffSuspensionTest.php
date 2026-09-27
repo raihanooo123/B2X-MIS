@@ -97,6 +97,8 @@ it('signs a suspended staff member out on their next request', function () {
 
     $this->actingAs($staff)->get('/admin')->assertOk();
     app(StaffSuspensionService::class)->suspend($staff, $admin);
+    // The test guard reuses this instance across requests; a real request reloads the user.
+    $staff->refresh();
 
     $this->get('/admin')->assertRedirect('/login');
     $this->assertGuest();
