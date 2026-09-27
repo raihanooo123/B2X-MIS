@@ -63,7 +63,7 @@ Conventions used below:
    gates on performance-budget regression, correctness properties, and security scans, this
    is worth fixing early rather than after the first regression ships silently — see §16.
 
-6. **⛔ DOC GAP — audit log has no table.** `07-nfr.md` §6.5 mandates an immutable, 7-year
+6. **DOC GAP: amendment drafted 2026-09-27 (02 §15); separate sign-off commit pending, then migration and `AuditLogger`, §18.** `07-nfr.md` §6.5 mandates an immutable, 7-year
    append-only audit log across nine event families (auth, credit-limit changes, price
    changes, manual overrides, fee waivers, stock adjustments, config changes, rep
    impersonation, RMA dispositions). `02-domain-model-erd.md` §1 declared audit log storage
@@ -1126,7 +1126,9 @@ can run in a real browser.
 §1`(Correction 2026-09-20) no longer disclaims it. This is a hole between two documents,
 not a decision either one made — see §0.6.
 
-- [ ] Propose `docs/02-domain-model-erd.md` §15 amendment — `audit_log`: partitioned by
+- [ ] **Draft reviewed 2026-09-27 — 02 §15 awaiting its own sign-off commit** (partitioned,
+      DB-trigger append-only, admin-only read; decisions in §15.3).
+- [x] Propose `docs/02-domain-model-erd.md` §15 amendment — `audit_log`: partitioned by
       `occurred_at` (mirrors `stock_movements`, 02 §7.4), append-only, composite
       `(id, occurred_at)` PK, BRIN on `occurred_at`, `actor_user_id`, `subject_type`/
       `subject_id`, `action`, `before`/`after` `jsonb`. **Draft and sign off in its own commit
