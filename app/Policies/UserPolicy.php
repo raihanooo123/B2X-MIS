@@ -103,6 +103,45 @@ final class UserPolicy
             && $staff->password_hash === null;
     }
 
+    /**
+     * Customer users (05.13 §4.1): no `role_user` rows. Admin-only and
+     * read-only apart from suspension; a user holding any staff role is
+     * managed from the Staff resource instead, never here.
+     */
+    public function viewAnyCustomers(User $user): bool
+    {
+        return $this->viewAny($user);
+    }
+
+    public function viewCustomer(User $user, User $customer): bool
+    {
+        return $this->viewAnyCustomers($user) && ! $customer->roles()->exists();
+    }
+
+    /**
+     * 05.13 §4.2: an active administrator suspends an active customer user,
+     * or reinstates a suspended one. CustomerSuspensionService re-checks
+     * this under lock and adds the last-active-owner guard (§9 ⚑5).
+     */
+    public function suspendCustomer(User $user, User $customer): bool
+    {
+        return $this->managesCustomer($user, $customer) && $customer->status === 'active';
+    }
+
+    public function reinstateCustomer(User $user, User $customer): bool
+    {
+        return $this->managesCustomer($user, $customer)
+            && $customer->status === 'suspended'
+            && $customer->password_hash !== null;
+    }
+
+    private function managesCustomer(User $user, User $customer): bool
+    {
+        return $user->status === 'active'
+            && $user->id !== $customer->id
+            && $this->viewCustomer($user, $customer);
+    }
+
     private function managesOtherStaff(User $user, User $staff): bool
     {
         return $user->status === 'active'

@@ -1256,12 +1256,20 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       deleted so the next sign-in re-enrols; audited (`auth.staff_two_factor_reset`, before/after
       `two_factor_enabled` only) and the `auth.two_factor_changed` notice sent after commit;
       same lock order as role changes. No migration needed. 2026-09-27, pending verification.
+- [x] Admin-only customer user suspension and reinstatement (05.13 §4.2,
+      `CustomerSuspensionService`, `UserPolicy::suspendCustomer`/`reinstateCustomer`) from a
+      read-only Customer users resource listing users with no `role_user` row and their company
+      memberships. Sessions and reset tokens removed on suspension; audited
+      (`auth.customer_suspended` / `auth.customer_reinstated`, `status` only); the last active
+      owner of an approved or suspended company cannot be suspended (05.13 §9 ⚑5, decided
+      2026-09-27; applied/rejected/closed exempt), serialised on the `companies` rows; company status and credit untouched. No migration needed. 2026-09-27, pending
+      verification.
 - [ ] Customer/company user administration and invitation management; keep staff roles
       separate from customer-side `company_users` roles.
 - [ ] 05.13 §20 "not built yet": invitation flows, applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
-      reset for trade users (staff reset done) and customer suspension in Filament, remaining
-      §15 audit events.
+      reset for trade users (staff reset done; blocked on ⚑9), remaining §15 audit events.
+      Customer suspension is done.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.
