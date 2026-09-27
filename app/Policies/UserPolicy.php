@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\User;
+use App\Policies\Concerns\DeniesDeletion;
 
 /**
  * Doc 02 §14.1: `role_user` governs "internal staff authorisation —
@@ -22,8 +23,37 @@ use App\Models\User;
  */
 final class UserPolicy
 {
+    use DeniesDeletion;
+
     public function accessAdminPanel(User $user): bool
     {
         return $user->roles()->exists();
+    }
+
+    public function viewAny(User $user): bool
+    {
+        return $user->hasAnyRole(['admin']);
+    }
+
+    public function view(User $user, User $staff): bool
+    {
+        return $this->viewAny($user) && $staff->roles()->exists();
+    }
+
+    public function create(User $user): bool
+    {
+        return $this->viewAny($user);
+    }
+
+    public function update(User $user, User $staff): bool
+    {
+        return false;
+    }
+
+    public function resendStaffOnboarding(User $user, User $staff): bool
+    {
+        return $this->view($user, $staff)
+            && $staff->status === 'pending'
+            && $staff->password_hash === null;
     }
 }
