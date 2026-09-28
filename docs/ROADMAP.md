@@ -1360,6 +1360,15 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       reset for trade users (staff reset done; blocked on ⚑9). §15 audit events are done except
       for flows not built yet (password change, email change, account closure).
       Customer suspension is done.
+- [ ] **Parked 2026-09-28 — user management, resume after the storefront.** Deliberately
+      deferred, not forgotten:
+      1. Applicant status page and "information requested" reply form (05.13 §7, 05.2 §5.5).
+      2. Change email address, with notices to the old and new address (05.13 §15).
+      3. Password change while signed in (05.13 §15).
+      4. Admin 2FA reset for trade users — needs the ⚑9 identity-check decision
+         (recommended: call-back to the company phone on file, or confirmation by another owner).
+      5. Follow-ups: staff-entered applications, inviting into a chosen company when an owner
+         has several, a "my companies" list, closing a user account (§4.2).
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.
