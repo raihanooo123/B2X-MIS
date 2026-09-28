@@ -91,12 +91,13 @@ it('lists a category with its whole subtree, and 404s an unknown or hidden one',
 it('searches names and SKU codes, and filters by brand and stock', function () {
     $acme = Brand::factory()->create(['name' => 'Acme', 'slug' => 'acme']);
     catalogueProduct('Frying Pan', attributes: ['brand_id' => $acme->id]);
-    catalogueProduct('Saucepan', skuCode: 'PAN-SAU-18');
+    catalogueProduct('Saucepan', skuCode: 'ZX-4471-18');
     catalogueProduct('Pan Scourer', onHand: 0);
     catalogueProduct('Bath Mat');
 
     expect(listedNames('/search?q=pan'))->toBe(['Frying Pan', 'Pan Scourer', 'Saucepan'])
-        ->and(listedNames('/search?q=PAN-SAU'))->toBe(['Saucepan'])
+        // A SKU code that resembles no name, so only the code can match.
+        ->and(listedNames('/search?q=ZX-4471'))->toBe(['Saucepan'])
         ->and(listedNames('/search?q=pan&brand=acme'))->toBe(['Frying Pan'])
         ->and(listedNames('/search?q=pan&in_stock=1'))->toBe(['Frying Pan', 'Saucepan']);
 
