@@ -487,6 +487,12 @@ GET /api/v1/stock/availability?sku_ids=01J8A,01J8B
 }
 ```
 
+**Figures for trade and staff only** (*decided 2026-09-28*, 05.15 §12 Q2, 05.13 §14). A caller
+with no company and no staff role (a guest, public customer or applicant) receives
+`"available_base_qty": null`, `"incoming": null` and a `stock_label` of `in_stock`, `low_stock`,
+`backorder` or `out_of_stock` (Inventory's `StockLabels`). Trade and staff callers receive the
+figures, and the label as well.
+
 Batch and serial detail are **not** exposed to customer-facing callers. Which batch a customer will receive is an internal allocation decision (04 §5), and exposing it invites cherry-picking.
 
 ---
