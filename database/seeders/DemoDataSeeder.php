@@ -558,8 +558,8 @@ class DemoDataSeeder extends Seeder
 
     /**
      * A clean placeholder image per product (05.15 §5.1 cards), written to
-     * the public disk as SVG: a department-coloured panel, a simple box
-     * motif and the product name. Seeded content only. Uploaded images are
+     * the public disk as SVG: a department-coloured panel and a simple box
+     * motif. No text: the card prints the name. Seeded content only. Uploaded images are
      * raster, never SVG (StorefrontSettingsPage).
      */
     private function seedProductImage(Product $product, string $name, string $categoryKey): void
@@ -572,24 +572,13 @@ class DemoDataSeeder extends Seeder
         ];
         [$background, $ink] = $palette[$categoryKey] ?? ['#f4f4f5', '#3f3f46'];
 
-        // Two lines of about 20 characters, on word boundaries.
-        $lines = explode("\n", wordwrap($name, 20, "\n", true));
-        $lines = array_slice($lines, 0, 2);
-        $text = '';
-        foreach ($lines as $i => $line) {
-            $y = 470 + $i * 52;
-            $text .= '<text x="300" y="'.$y.'" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="600" fill="'.$ink.'">'
-                .htmlspecialchars($line, ENT_XML1).'</text>';
-        }
-
         $svg = <<<SVG
             <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
               <rect width="600" height="600" fill="{$background}"/>
               <g fill="none" stroke="{$ink}" stroke-width="10" stroke-linejoin="round" opacity="0.85">
-                <path d="M300 110 L420 170 L420 310 L300 370 L180 310 L180 170 Z"/>
-                <path d="M180 170 L300 230 L420 170 M300 230 L300 370"/>
+                <path d="M300 170 L420 230 L420 370 L300 430 L180 370 L180 230 Z"/>
+                <path d="M180 230 L300 290 L420 230 M300 290 L300 430"/>
               </g>
-              {$text}
             </svg>
             SVG;
 

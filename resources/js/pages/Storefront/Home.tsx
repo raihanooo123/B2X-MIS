@@ -18,7 +18,7 @@ interface HomeProps {
 }
 
 export default function Home({ shell, products }: HomeProps) {
-    const { brand, price_display, auth } = usePage<SharedProps>().props;
+    const { brand, price_display } = usePage<SharedProps>().props;
 
     return (
         <StorefrontLayout title={brand.name} description={brand.tagline ?? `Shop online with ${brand.name}.`} shell={shell}>
@@ -46,7 +46,7 @@ export default function Home({ shell, products }: HomeProps) {
                                 >
                                     <span className="font-medium leading-snug">{category.name}</span>
                                     <span className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-primary">
-                                        {category.children.length > 0 ? `${category.children.length} ranges` : 'Browse'}
+                                        {category.children.length === 0 ? 'Browse' : `${category.children.length} ${category.children.length === 1 ? 'range' : 'ranges'}`}
                                         <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
                                     </span>
                                 </Link>
@@ -76,7 +76,8 @@ export default function Home({ shell, products }: HomeProps) {
                 )}
             </section>
 
-            {auth?.company == null && (
+            {/* Guests and public customers only: not trade users or staff. */}
+            {price_display.can_switch && (
                 <section className="mx-auto max-w-7xl px-4 pt-12">
                     <div className="flex flex-col items-start justify-between gap-4 rounded-2xl bg-primary px-6 py-8 text-primary-foreground sm:flex-row sm:items-center sm:px-10">
                         <div>
