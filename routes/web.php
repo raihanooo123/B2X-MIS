@@ -14,16 +14,17 @@ use App\Http\Controllers\CompanyInvitationController;
 use App\Http\Controllers\CompanyMemberController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderPadController;
+use App\Http\Controllers\Storefront\HomeController;
+use App\Http\Controllers\Storefront\PriceDisplayController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
 use App\Http\Controllers\Warehouse\PickListPageController;
 use App\Http\Controllers\Warehouse\StocktakePageController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
-Route::get('/', function () {
-    return Inertia::render('Dashboard');
-});
+// 05.15 — the public storefront. Guests, public customers and trade users.
+Route::get('/', HomeController::class)->name('home');
+Route::post('/price-display', PriceDisplayController::class)->middleware('throttle:30,1')->name('price-display');
 
 // Doc 05.1. No auth middleware: guests have carts too (02 §14.3) and see
 // base prices (05.13 §14).

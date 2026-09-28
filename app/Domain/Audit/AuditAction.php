@@ -82,6 +82,9 @@ enum AuditAction: string
     /** 02 §25.1: 07 §6.5 "configuration changes". */
     case TermsVersionPublished = 'configuration.terms_version_published';
 
+    /** 05.15 §3.1: storefront branding, the changed `brand.*` keys only. */
+    case StorefrontSettingsChanged = 'configuration.storefront_settings_changed';
+
     public function family(): string
     {
         return match ($this) {
@@ -98,7 +101,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested => 'permission',
             self::CreditLimitChanged => 'credit_limit',
-            self::TermsVersionPublished => 'configuration',
+            self::TermsVersionPublished, self::StorefrontSettingsChanged => 'configuration',
         };
     }
 
@@ -118,6 +121,8 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => [],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => [],
+            self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
+                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
             self::PasswordResetRequested, self::PasswordResetCompleted,
             self::TwoFactorEnabled, self::TwoFactorDisabled,
@@ -146,6 +151,8 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => ['checks'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
+            self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
+                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
             self::SignedIn => ['method'],
             self::SessionExpired => ['reason'],
             self::LockedOut => ['identifier_fingerprint', 'key_version', 'locked_seconds'],

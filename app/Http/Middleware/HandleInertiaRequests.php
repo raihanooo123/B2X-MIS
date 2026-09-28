@@ -3,7 +3,9 @@
 namespace App\Http\Middleware;
 
 use App\Domain\Identity\CompanyMemberships;
+use App\Domain\Storefront\Branding;
 use App\Http\Support\ActingCompany;
+use App\Http\Support\PriceDisplay;
 use App\Models\GoodsReceipt;
 use App\Models\Shipment;
 use App\Models\Stocktake;
@@ -49,6 +51,9 @@ class HandleInertiaRequests extends Middleware
             'flash' => fn () => ['status' => $request->hasSession() ? $request->session()->get('status') : null],
             // Every page shows times in one zone (App\Support\DisplayTime).
             'display_timezone' => DisplayTime::zone(),
+            // 05.15 §3–4: the business's own branding and the VAT switch.
+            'brand' => fn () => Branding::current()->toArray(),
+            'price_display' => fn () => PriceDisplay::shared($request),
         ];
     }
 

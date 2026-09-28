@@ -32,7 +32,7 @@ class CheckoutPageController extends Controller
         $company = ActingCompany::current($request->session(), $user);
 
         return Inertia::render('Checkout/Index', [
-            'display_mode' => PriceDisplay::mode($request),
+            'display_mode' => PriceDisplay::checkoutMode($request),
             'is_trade' => $company !== null,
             'company_name' => $company?->name,
             'contact' => [

@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Identity\Exceptions\CompanyChoiceRequiredException;
+use App\Domain\Storefront\StorefrontShell;
 use App\Http\Exceptions\ApiException;
 use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\EnsureCompanyChosen;
@@ -13,6 +14,8 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -92,5 +95,32 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->is('api/*')
                 ? ApiException::envelope($request, 403, 'forbidden', 'This action is not permitted.')
                 : null;
+        });
+
+        // 05.15 §3.2: page errors in the storefront's own design rather than
+        // the framework's. Not for /api (its envelope above), the admin panel
+        // (Filament's own), or local and test runs, where the real error is
+        // what a developer needs. A 419 goes back with a message instead.
+        $exceptions->respond(function (Response $response, Throwable $e, Request $request) {
+            $status = $response->getStatusCode();
+            if (app()->environment(['local', 'testing']) || $request->is('api/*', 'admin', 'admin/*')
+                || ! in_array($status, [403, 404, 419, 429, 500, 503], true)) {
+                return $response;
+            }
+
+            if ($status === 419) {
+                return back()->with('status', 'The page expired. Please try again.');
+            }
+
+            try {
+                // Not for a 500 or 503: the database may be what failed.
+                $shell = in_array($status, [403, 404, 429], true) ? (new StorefrontShell)->props(null) : null;
+            } catch (Throwable) {
+                $shell = null;
+            }
+
+            return Inertia::render('Error', ['status' => $status, 'shell' => $shell])
+                ->toResponse($request)
+                ->setStatusCode($status);
         });
     })->create();

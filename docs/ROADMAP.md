@@ -1382,7 +1382,10 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 
 - [x] 05.15 signed off 2026-09-28.
 - [ ] Amend 02 with 05.15 §9 A1–A3 (and the §19/§21.2 guest-customer note), and 05.6 with A4, each in its own signed-off commit, before S4/S5.
-- [ ] S1 demo seeder · S2 shell/brand/price display/home · S3 category, search, product pages
+- [x] S1 demo seeder (branding, images, featured, stock variety, trade and public sign-ins) and
+      S2 shell, branding settings, price display switch, home page, error pages. 2026-09-28,
+      pending verification.
+- [ ] S3 category, search, product pages (then change `resources/js/lib/storefront/links.ts`)
 - [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
 - [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 

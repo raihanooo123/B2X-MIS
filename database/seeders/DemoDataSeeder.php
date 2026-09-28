@@ -5,10 +5,13 @@ namespace Database\Seeders;
 use App\Domain\Catalogue\CategoryClosureMaintainer;
 use App\Domain\Catalogue\CategoryPath;
 use App\Domain\Pricing\Money;
+use App\Domain\Storefront\Branding;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Company;
+use App\Models\CompanyUser;
 use App\Models\Location;
+use App\Models\Media;
 use App\Models\NumberSequence;
 use App\Models\Pack;
 use App\Models\PriceList;
@@ -24,6 +27,7 @@ use App\Models\TaxClass;
 use App\Models\TaxRate;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -58,6 +62,7 @@ class DemoDataSeeder extends Seeder
         $this->seedAdminUser($roles['admin']);
         $this->seedNumberSequences();
         $this->seedSellerDetails();
+        $this->seedBranding();
 
         $tiers = $this->seedPriceTiers();
         $taxClasses = $this->seedTaxClasses();
@@ -72,9 +77,12 @@ class DemoDataSeeder extends Seeder
         ]);
 
         $this->seedProducts($categories, $brands, $taxClasses['standard'], $basePriceList, $location);
-        $this->seedCompanies($tiers);
+        $companies = $this->seedCompanies($tiers);
+        $this->seedCustomers($companies['northgate']);
 
-        $this->command?->info('Demo data seeded. Admin login: admin@example.com / password');
+        $this->command?->info('Demo data seeded. Password for every login: password');
+        $this->command?->info('  admin@example.com (staff admin) · buyer@example.com (trade owner, Northgate) · customer@example.com (public customer)');
+        $this->command?->info('Product images are on the public disk: run `php artisan storage:link` once so they show.');
     }
 
     /**
@@ -159,6 +167,48 @@ class DemoDataSeeder extends Seeder
                 'description' => 'Printed on invoices and receipts (02 §21.3).',
             ]);
         }
+    }
+
+    /**
+     * 05.15 §3.1 — the storefront's branding, as a business would set it in
+     * Storefront settings. A demo name, plainly not a real business.
+     */
+    private function seedBranding(): void
+    {
+        foreach ([
+            Branding::NAME => 'Demo Wholesale',
+            Branding::TAGLINE => 'Kitchen, cleaning, storage and party essentials at wholesale value.',
+            Branding::PRIMARY_COLOUR => '#1d4ed8',
+            Branding::SUPPORT_EMAIL => 'hello@example.com',
+            Branding::SUPPORT_PHONE => '020 7946 0000',
+        ] as $key => $value) {
+            SystemConfiguration::factory()->create([
+                'config_key' => $key,
+                'value_type' => 'text',
+                'value_int' => null,
+                'value_text' => $value,
+                'description' => 'Storefront branding (05.15 §3.1).',
+            ]);
+        }
+
+        SystemConfiguration::factory()->create([
+            'config_key' => Branding::SHOW_POWERED_BY,
+            'value_type' => 'bool',
+            'value_int' => 1,
+            'description' => 'Storefront branding (05.15 §3.1).',
+        ]);
+    }
+
+    /**
+     * Two sign-ins for trying the storefront: a trade owner of Northgate
+     * (their prices, ex VAT) and a public customer (base prices, inc VAT).
+     */
+    private function seedCustomers(Company $northgate): void
+    {
+        $buyer = User::factory()->create(['email' => 'buyer@example.com', 'first_name' => 'Priya', 'last_name' => 'Shah']);
+        CompanyUser::factory()->owner()->create(['company_id' => $northgate->id, 'user_id' => $buyer->id]);
+
+        User::factory()->create(['email' => 'customer@example.com', 'first_name' => 'Tom', 'last_name' => 'Evans']);
     }
 
     /**
@@ -415,7 +465,14 @@ class DemoDataSeeder extends Seeder
             ['PTY-BAL100', 'Balloons 100pk', 'party-tableware', 'bristol-party', 24500],
         ];
 
-        foreach ($products as [$skuCode, $name, $categoryKey, $brandKey, $unitPriceE4]) {
+        // 05.15 §5.1: the home page shows featured products first.
+        $featured = ['KIT-FRY24', 'CLN-LDT100', 'STO-BOX35', 'BTH-MAT01', 'STA-BPP50', 'PTY-PLT50'];
+        // 05.15 §5.3 stock labels: a few lines low (at or below the reorder
+        // point) and a few sold out, so every label can be seen.
+        $lowStock = ['KIT-CAS4L', 'CLN-MOP01', 'STA-PMK12', 'PTY-BAL100'];
+        $outOfStock = ['KIT-STP10', 'STO-VAC03', 'BTH-CAD01'];
+
+        foreach ($products as $index => [$skuCode, $name, $categoryKey, $brandKey, $unitPriceE4]) {
             [$innerQty, $outerQty] = $packProfiles[$categoryKey];
             $description = $descriptions[$categoryKey];
 
@@ -426,7 +483,11 @@ class DemoDataSeeder extends Seeder
                 'primary_category_id' => $categories[$categoryKey]->id,
                 'short_description' => $description,
                 'description' => $description,
+                'is_featured' => in_array($skuCode, $featured, true),
+                // Staggered, so "newest" has a real order.
+                'published_at' => now()->subDays(count($products) - $index),
             ]);
+            $this->seedProductImage($product, $name, $categoryKey);
 
             // 05.6 §5.1: carriage is rated from pack weights. A stable
             // 100–900 g per unit from the SKU code; packs add packaging
@@ -467,9 +528,11 @@ class DemoDataSeeder extends Seeder
             // its default-sell pack exists.
             $sku->update(['default_pack_id' => $each->id]);
 
-            StockLevel::factory()->for($sku)->for($location)->create([
-                'on_hand_base_qty' => fake()->numberBetween(100, 2000),
-            ]);
+            StockLevel::factory()->for($sku)->for($location)->create(match (true) {
+                in_array($skuCode, $outOfStock, true) => ['on_hand_base_qty' => 0],
+                in_array($skuCode, $lowStock, true) => ['on_hand_base_qty' => 18, 'reorder_point_base_qty' => 48, 'reorder_qty_base_qty' => 240],
+                default => ['on_hand_base_qty' => fake()->numberBetween(300, 2000), 'reorder_point_base_qty' => 48, 'reorder_qty_base_qty' => 240],
+            });
 
             // Break pricing: 5% off at the inner case, 10% off at the
             // outer case — integer-only (CLAUDE.md invariant 1):
@@ -494,11 +557,67 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
-     * @param  array<string, PriceTier>  $tiers
+     * A clean placeholder image per product (05.15 §5.1 cards), written to
+     * the public disk as SVG: a department-coloured panel, a simple box
+     * motif and the product name. Seeded content only. Uploaded images are
+     * raster, never SVG (StorefrontSettingsPage).
      */
-    private function seedCompanies(array $tiers): void
+    private function seedProductImage(Product $product, string $name, string $categoryKey): void
     {
-        Company::factory()->create([
+        $palette = [
+            'cookware' => ['#fde7d9', '#c2410c'], 'kitchen-utensils' => ['#fef3c7', '#b45309'], 'food-storage' => ['#dcfce7', '#15803d'],
+            'household-cleaning' => ['#dbeafe', '#1d4ed8'], 'laundry' => ['#e0f2fe', '#0369a1'], 'storage-boxes' => ['#ede9fe', '#6d28d9'],
+            'bathroom-accessories' => ['#ccfbf1', '#0f766e'], 'office-supplies' => ['#f1f5f9', '#334155'],
+            'writing-instruments' => ['#fce7f3', '#be185d'], 'party-tableware' => ['#fee2e2', '#b91c1c'],
+        ];
+        [$background, $ink] = $palette[$categoryKey] ?? ['#f4f4f5', '#3f3f46'];
+
+        // Two lines of about 20 characters, on word boundaries.
+        $lines = explode("\n", wordwrap($name, 20, "\n", true));
+        $lines = array_slice($lines, 0, 2);
+        $text = '';
+        foreach ($lines as $i => $line) {
+            $y = 470 + $i * 52;
+            $text .= '<text x="300" y="'.$y.'" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="600" fill="'.$ink.'">'
+                .htmlspecialchars($line, ENT_XML1).'</text>';
+        }
+
+        $svg = <<<SVG
+            <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
+              <rect width="600" height="600" fill="{$background}"/>
+              <g fill="none" stroke="{$ink}" stroke-width="10" stroke-linejoin="round" opacity="0.85">
+                <path d="M300 110 L420 170 L420 310 L300 370 L180 310 L180 170 Z"/>
+                <path d="M180 170 L300 230 L420 170 M300 230 L300 370"/>
+              </g>
+              {$text}
+            </svg>
+            SVG;
+
+        $path = "demo-products/{$product->slug}.svg";
+        Storage::disk('public')->put($path, $svg);
+
+        Media::query()->create([
+            'product_id' => $product->id,
+            'disk' => 'public',
+            'path' => $path,
+            'original_name' => "{$product->slug}.svg",
+            'mime_type' => 'image/svg+xml',
+            'size_bytes' => strlen($svg),
+            'width_px' => 600,
+            'height_px' => 600,
+            'alt_text' => $name,
+            'media_type' => 'image',
+            'position' => 0,
+        ]);
+    }
+
+    /**
+     * @param  array<string, PriceTier>  $tiers
+     * @return array{northgate: Company}
+     */
+    private function seedCompanies(array $tiers): array
+    {
+        $northgate = Company::factory()->create([
             'name' => 'Northgate Wholesale Ltd',
             'price_tier_id' => $tiers['gold']->id,
             'payment_terms' => 'net30',
@@ -518,5 +637,7 @@ class DemoDataSeeder extends Seeder
             'payment_terms' => 'prepay',
             'credit_limit_minor' => 500000,
         ]);
+
+        return ['northgate' => $northgate];
     }
 }
