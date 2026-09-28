@@ -8,7 +8,7 @@
  * codes they never saw.
  */
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ArrowLeft, KeyRound, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, KeyRound, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import { type FormEvent, type ReactNode } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
@@ -17,12 +17,12 @@ import { SaveRecoveryCodes } from '@/components/auth/twoFactor';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import { CompanyUsers, PendingInvitations, type CompanyManagement, type PendingInvitation } from './components/CompanyUsers';
+import { PendingInvitations, type PendingInvitation } from './components/team';
 
 interface AccountProps {
     user: { name: string; email: string; email_verified: boolean };
     company: { name: string; account_code: string } | null;
-    company_management: CompanyManagement | null;
+    team: { members: number; pending_invitations: number } | null;
     invitations: PendingInvitation[];
     two_factor: {
         enabled: boolean;
@@ -34,7 +34,7 @@ interface AccountProps {
     status: string | null;
 }
 
-export default function AccountIndex({ user, company, company_management, invitations, two_factor: tf, status }: AccountProps) {
+export default function AccountIndex({ user, company, team, invitations, two_factor: tf, status }: AccountProps) {
     return (
         <>
             <Head title="Your account" />
@@ -86,9 +86,25 @@ export default function AccountIndex({ user, company, company_management, invita
                         </Card>
                     )}
 
-                    {company_management && company && (
-                        <Card title={`People at ${company.name}`}>
-                            <CompanyUsers management={company_management} />
+                    {team && company && (
+                        <Card title="Team">
+                            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                                <p className="flex items-center gap-2">
+                                    <Users className="size-5 text-muted-foreground" aria-hidden />
+                                    <span>
+                                        {team.members} {team.members === 1 ? 'person' : 'people'} can order for {company.name}
+                                        {team.pending_invitations > 0 && (
+                                            <span className="text-muted-foreground">
+                                                {' '}
+                                                · {team.pending_invitations} invitation{team.pending_invitations === 1 ? '' : 's'} waiting
+                                            </span>
+                                        )}
+                                    </span>
+                                </p>
+                                <Button asChild variant="outline" className="h-11 md:h-9">
+                                    <Link href="/account/team">Manage team</Link>
+                                </Button>
+                            </div>
                         </Card>
                     )}
 

@@ -39,7 +39,7 @@ it('lets an owner change a member\'s role, order limit in pounds and approval, a
 
     $this->actingAs($owner)->patch("/account/companies/{$company->public_id}/members/{$buyer->public_id}", [
         'role' => 'approver', 'order_limit' => '2500.5', 'requires_approval' => true,
-    ])->assertRedirect(route('account'))->assertSessionHasNoErrors();
+    ])->assertRedirect(route('account.team'))->assertSessionHasNoErrors();
 
     $membership = membershipOf($company, $buyer);
     expect($membership->role)->toBe('approver')
@@ -53,16 +53,23 @@ it('lets an owner change a member\'s role, order limit in pounds and approval, a
         ->and($audit->after)->toEqual(['role' => 'approver', 'order_limit_minor' => 250050, 'requires_approval' => true]);
 });
 
-it('shows owners the member list with limits in pounds, and hides it from buyers', function () {
+it('shows owners the team page with limits in pounds, and hides it from buyers', function () {
     $company = Company::factory()->create();
     $owner = memberOf($company, 'owner');
     $buyer = memberOf($company);
     CompanyUser::query()->where('company_id', $company->id)->where('user_id', $buyer->id)->update(['order_limit_minor' => 100050]);
 
+    $this->actingAs($owner)->get('/account/team')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->component('Account/Team', false)
+        ->where('management.members', fn ($members) => collect($members)->contains(fn ($m) => $m['email'] === $buyer->email && $m['order_limit'] === '1000.50')));
     $this->actingAs($owner)->get('/account')->assertInertia(fn (AssertableInertia $page) => $page
-        ->where('company_management.members', fn ($members) => collect($members)->contains(fn ($m) => $m['email'] === $buyer->email && $m['order_limit'] === '1000.50')));
+        ->where('team', ['members' => 2, 'pending_invitations' => 0])
+        ->where('auth.can_manage_team', true));
 
-    $this->actingAs($buyer)->get('/account')->assertInertia(fn (AssertableInertia $page) => $page->where('company_management', null));
+    $this->actingAs($buyer)->get('/account/team')->assertForbidden();
+    $this->actingAs($buyer)->get('/account')->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('team', null)
+        ->where('auth.can_manage_team', false));
 });
 
 it('lets an owner remove a member, and audits it', function () {

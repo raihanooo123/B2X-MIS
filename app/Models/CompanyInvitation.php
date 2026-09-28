@@ -27,6 +27,7 @@ use Illuminate\Support\Carbon;
  * @property string $email
  * @property string $role
  * @property Carbon $expires_at
+ * @property Carbon $created_at
  * @property Carbon|null $accepted_at
  * @property Carbon|null $revoked_at
  */

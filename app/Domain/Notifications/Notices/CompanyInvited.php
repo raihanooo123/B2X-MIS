@@ -36,11 +36,16 @@ final class CompanyInvited extends Notice
         return new MailContent(
             subject: 'Invitation to '.$invitation->company->name,
             heading: 'Hello '.$invitation->first_name.',',
-            paragraphs: ['You have been invited to join '.$invitation->company->name.' as '.$invitation->role.'.',
-                'Sign in with this email address, or create an account, to accept.'],
+            paragraphs: ['You have been invited to order for '.$invitation->company->name.' as '.self::roleWithArticle($invitation->role).'.',
+                'Open the invitation to accept. If you already have an account with this email address, you will be asked to sign in; otherwise you choose a password.'],
             actionLabel: 'View invitation',
             actionUrl: route('company-invitations.show', ['token' => Crypt::decryptString($this->encryptedToken)]),
             closing: ['This link expires in seven days. Only the newest invitation link works.'],
         );
+    }
+
+    private static function roleWithArticle(string $role): string
+    {
+        return (in_array($role[0] ?? '', ['a', 'e', 'i', 'o', 'u'], true) ? 'an ' : 'a ').$role;
     }
 }

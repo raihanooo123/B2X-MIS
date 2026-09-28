@@ -17,7 +17,7 @@ class CompanyMemberController extends Controller
         abort_unless($actor instanceof User, 401);
         $service->update($company, $member, $actor, CompanyMemberSettings::from($request->validated()));
 
-        return redirect()->route('account')->with('status', 'Company member updated.');
+        return redirect()->route('account.team')->with('status', 'Company member updated.');
     }
 
     public function destroy(ManageCompanyMemberRequest $request, Company $company, User $member, CompanyMemberService $service): RedirectResponse
@@ -26,6 +26,6 @@ class CompanyMemberController extends Controller
         abort_unless($actor instanceof User, 401);
         $service->remove($company, $member, $actor);
 
-        return redirect()->route('account')->with('status', 'Company member removed.');
+        return redirect()->route('account.team')->with('status', 'Company member removed.');
     }
 }

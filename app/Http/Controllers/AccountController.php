@@ -34,7 +34,7 @@ class AccountController extends Controller
                 'email_verified' => $user->hasVerifiedEmail(),
             ],
             'company' => $company === null ? null : ['name' => $company->name, 'account_code' => $company->account_code],
-            'company_management' => CompanyUserDirectory::management($user, $company),
+            'team' => CompanyUserDirectory::summary($user, $company),
             'invitations' => CompanyUserDirectory::pending($user),
             'two_factor' => [
                 'enabled' => $user->two_factor_enabled,
@@ -44,6 +44,26 @@ class AccountController extends Controller
                 // A regenerated set awaiting "I have saved these" — the old set still works.
                 'pending_codes' => $user->two_factor_enabled && is_array($pending) ? array_values($pending) : null,
             ],
+            'status' => $request->session()->get('status'),
+        ]);
+    }
+
+    /**
+     * 05.13 §9, 05.2 §10: an owner's team page — members, their roles and
+     * order limits, and invitations. Only for the company being acted for.
+     */
+    public function team(Request $request): Response
+    {
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
+
+        $company = ActingCompany::current($request->session(), $user);
+        $management = CompanyUserDirectory::management($user, $company);
+        abort_if($company === null || $management === null, 403);
+
+        return Inertia::render('Account/Team', [
+            'company' => ['name' => $company->name, 'account_code' => $company->account_code],
+            'management' => $management,
             'status' => $request->session()->get('status'),
         ]);
     }

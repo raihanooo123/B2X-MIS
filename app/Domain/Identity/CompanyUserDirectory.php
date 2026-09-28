@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\CompanyInvitation;
 use App\Models\CompanyUser;
 use App\Models\User;
+use App\Support\DisplayTime;
 
 /** Explicit storefront payloads: no token hashes or account-existence lookups. */
 final class CompanyUserDirectory
@@ -45,7 +46,27 @@ final class CompanyUserDirectory
                     'order_limit' => CompanyMemberSettings::minorToPounds($invitation->order_limit_minor),
                     'state' => $invitation->accepted_at !== null ? 'Accepted' : ($invitation->revoked_at !== null ? 'Revoked' : ($invitation->isOpen() ? 'Invited' : 'Expired')),
                     'manageable' => $invitation->accepted_at === null && $invitation->revoked_at === null,
+                    'sent_at' => DisplayTime::format($invitation->created_at, DisplayTime::DATE),
+                    'expires_at' => DisplayTime::format($invitation->expires_at, DisplayTime::DATE),
                 ])->all(),
+        ];
+    }
+
+    /**
+     * The account page's team card: counts only, for an owner.
+     *
+     * @return array{members: int, pending_invitations: int}|null
+     */
+    public static function summary(User $actor, ?Company $company): ?array
+    {
+        if ($company === null || ! $actor->can('manageMembers', $company)) {
+            return null;
+        }
+
+        return [
+            'members' => CompanyUser::query()->where('company_id', $company->id)->count(),
+            'pending_invitations' => CompanyInvitation::query()->where('company_id', $company->id)
+                ->whereNull('accepted_at')->whereNull('revoked_at')->where('expires_at', '>', now())->count(),
         ];
     }
 

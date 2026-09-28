@@ -104,6 +104,7 @@ Route::middleware('auth')->group(function (): void {
         ->withoutScopedBindings()->name('account.members.destroy');
 
     Route::get('/account', [AccountController::class, 'show'])->name('account');
+    Route::get('/account/team', [AccountController::class, 'team'])->name('account.team');
 
     // 05.5 §4 — goods-in. Reads and writes via /api/v1/warehouse/*.
     Route::get('/warehouse/goods-in', [GoodsInPageController::class, 'show'])->name('warehouse.goods-in');

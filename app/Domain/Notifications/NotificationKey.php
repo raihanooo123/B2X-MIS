@@ -52,6 +52,8 @@ enum NotificationKey: string
         return match ($this) {
             // 02 §25.2: the reviewer's message and the stored re-application date.
             self::ApplicationRejected => '2',
+            // Clearer wording: "as a buyer", and what happens with an existing account.
+            self::CompanyInvitation => '2',
             default => '1',
         };
     }
