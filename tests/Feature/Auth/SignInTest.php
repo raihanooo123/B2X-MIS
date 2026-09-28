@@ -2,6 +2,8 @@
 
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
+use App\Models\Company;
+use App\Models\CompanyUser;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
@@ -38,14 +40,19 @@ function currentTotp(): string
     return Totp::codeAt(UserFactory::TOTP_SECRET, intdiv(now()->getTimestamp(), Totp::PERIOD));
 }
 
-it('signs in with the right password and lands on the order pad', function () {
+it('signs a public customer in to the storefront home, and a trade user to the order pad', function () {
     $user = signInUser();
 
     $this->post('/login', ['email' => strtoupper($user->email), 'password' => SIGN_IN_PASSWORD])
-        ->assertRedirect(route('order-pad'));
+        ->assertRedirect(route('home'));
 
     $this->assertAuthenticatedAs($user);
     expect($user->fresh()->last_login_at)->not->toBeNull();
+
+    $this->post('/logout');
+    $trade = signInUser();
+    CompanyUser::factory()->create(['company_id' => Company::factory()->create()->id, 'user_id' => $trade->id]);
+    $this->post('/login', ['email' => $trade->email, 'password' => SIGN_IN_PASSWORD])->assertRedirect(route('order-pad'));
 });
 
 it('gives one generic message for a wrong password, an unknown email and an inactive account', function () {
@@ -198,7 +205,7 @@ it('asks for the second factor before the session is authenticated', function ()
     $this->post('/two-factor-challenge', ['code' => '000000'])->assertSessionHasErrors('code');
     $this->assertGuest();
 
-    $this->post('/two-factor-challenge', ['code' => currentTotp()])->assertRedirect(route('order-pad'));
+    $this->post('/two-factor-challenge', ['code' => currentTotp()])->assertRedirect(route('home'));
     $this->assertAuthenticatedAs($user);
 });
 
@@ -274,6 +281,6 @@ it('signs out', function () {
     $user = signInUser();
     $this->post('/login', ['email' => $user->email, 'password' => SIGN_IN_PASSWORD]);
 
-    $this->post('/logout')->assertRedirect(route('order-pad'));
+    $this->post('/logout')->assertRedirect(route('home'));
     $this->assertGuest();
 });

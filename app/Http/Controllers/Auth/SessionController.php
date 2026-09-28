@@ -53,7 +53,7 @@ class SessionController extends Controller
     {
         $this->signIn->signOut($request);
 
-        return redirect()->route('order-pad');
+        return redirect()->route('home');
     }
 
     public static function failureMessage(SignInResult $result): string

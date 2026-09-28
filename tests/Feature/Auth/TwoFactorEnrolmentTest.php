@@ -174,7 +174,7 @@ it('does not ask for a second factor at sign-in while enrolment is unfinished', 
     enrolmentProps(); // a pending key now exists
     $this->post('/logout');
 
-    $this->post('/login', ['email' => $user->email, 'password' => ENROL_PASSWORD])->assertRedirect(route('order-pad'));
+    $this->post('/login', ['email' => $user->email, 'password' => ENROL_PASSWORD])->assertRedirect(route('home'));
     $this->assertAuthenticatedAs($user);
 });
 

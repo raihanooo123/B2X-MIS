@@ -173,3 +173,22 @@ it('puts the basket in the storefront shell for guests', function () {
         ->component('Cart/Index', false)
         ->where('shell.cart_count', 0));
 });
+
+it('gives guests and public customers stock labels on the order pad, and trade users the figures', function () {
+    $sku = catalogueProduct('Frying Pan', onHand: 40)->skus()->sole();
+    $url = '/api/v1/stock/availability?sku_ids='.$sku->public_id;
+
+    $guest = $this->getJson($url)->assertOk()->json('data.0');
+    expect($guest['available_base_qty'])->toBeNull()
+        ->and($guest['incoming'])->toBeNull()
+        ->and($guest['stock_label'])->toBe('in_stock');
+
+    $public = User::factory()->create();
+    expect($this->actingAs($public)->getJson($url)->json('data.0.available_base_qty'))->toBeNull();
+
+    $buyer = User::factory()->create();
+    CompanyUser::factory()->create(['company_id' => Company::factory()->create()->id, 'user_id' => $buyer->id]);
+    $trade = $this->actingAs($buyer)->getJson($url)->json('data.0');
+    expect($trade['available_base_qty'])->toBe(40)
+        ->and($trade['stock_label'])->toBe('in_stock');
+});

@@ -158,8 +158,17 @@ function formatEta(isoDate: string): string {
     return month && d && y ? `${Number.parseInt(d, 10)} ${month} ${y}` : isoDate;
 }
 
+/** Label-only stock for guests, public customers and applicants (05.13 §14, 06 §9.4). */
+const LABEL_DISPLAY: Record<'in_stock' | 'low_stock' | 'backorder' | 'out_of_stock', StockDisplay> = {
+    in_stock: { tone: 'in', figure: null, label: 'In stock', detail: null },
+    low_stock: { tone: 'part', figure: null, label: 'Low stock', detail: null },
+    backorder: { tone: 'backorder', figure: null, label: 'On backorder', detail: null },
+    out_of_stock: { tone: 'out', figure: null, label: 'Out of stock', detail: null },
+};
+
 /**
- * 05.1 §4.3, exactly. Exact figures, never banded ("low stock").
+ * 05.1 §4.3, exactly, for trade and staff: exact figures, never banded
+ * ("low stock"). Everyone else gets the server's label and no figure.
  * The back-in-stock signup for "Out of stock" waits on
  * `back_in_stock_subscriptions` (ROADMAP §0.3, not migrated).
  */
@@ -170,6 +179,10 @@ export function stockDisplay(entry: StockAvailabilityEntry | undefined, pack: Pa
 
     if (!entry.is_stock_tracked) {
         return { tone: 'untracked', figure: null, label: 'Not stock-tracked', detail: null };
+    }
+
+    if (entry.available_base_qty === null) {
+        return LABEL_DISPLAY[entry.stock_label];
     }
 
     const available = Math.max(0, entry.available_base_qty);
