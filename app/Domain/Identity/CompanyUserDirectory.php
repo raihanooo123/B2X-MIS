@@ -21,6 +21,12 @@ final class CompanyUserDirectory
         $memberships = CompanyUser::query()->where('company_id', $company->id)->get();
         $users = User::query()->whereIn('id', $memberships->pluck('user_id'))->get()->keyBy('id');
 
+        // ⚑5: a trading company's only active owner can't be removed or
+        // demoted. The server enforces it; this lets the page say so up front.
+        $trading = in_array($company->status, CompanyMemberships::ACTIVE_STATUSES, true);
+        $activeOwners = $memberships->filter(fn (CompanyUser $m): bool => $m->role === 'owner'
+            && ($users->get($m->user_id)?->status === 'active'))->count();
+
         $members = [];
         foreach ($memberships as $membership) {
             $user = $users->get($membership->user_id);
@@ -32,6 +38,7 @@ final class CompanyUserDirectory
                     'order_limit' => CompanyMemberSettings::minorToPounds($membership->order_limit_minor) ?? '',
                     'requires_approval' => $membership->requires_approval,
                     'is_you' => $user->id === $actor->id,
+                    'is_last_owner' => $trading && $activeOwners === 1 && $membership->role === 'owner' && $user->status === 'active',
                 ];
             }
         }

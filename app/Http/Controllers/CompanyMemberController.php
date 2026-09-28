@@ -26,6 +26,9 @@ class CompanyMemberController extends Controller
         abort_unless($actor instanceof User, 401);
         $service->remove($company, $member, $actor);
 
-        return redirect()->route('account.team')->with('status', 'Company member removed.');
+        // Someone who left the company has no team page to come back to.
+        return $member->is($actor)
+            ? redirect()->route('account')->with('status', 'You have left '.$company->name.'.')
+            : redirect()->route('account.team')->with('status', 'Company member removed.');
     }
 }

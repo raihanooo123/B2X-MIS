@@ -5,8 +5,8 @@
  * approved or suspended company keeps one active owner.
  */
 import { router } from '@inertiajs/react';
-import { X } from 'lucide-react';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { MoreHorizontal, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Checkbox, Field } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,8 @@ export interface Member {
     order_limit: string;
     requires_approval: boolean;
     is_you: boolean;
+    /** The only active owner of a trading company: can't be removed or demoted. */
+    is_last_owner: boolean;
 }
 
 export interface Invitation {
@@ -165,12 +167,14 @@ export function MembershipFields({
     requiresApproval,
     errors,
     onChange,
+    roleLocked = false,
 }: {
     role: string;
     orderLimit: string;
     requiresApproval: boolean;
     errors: Partial<Record<string, string>>;
     onChange: (key: 'role' | 'order_limit' | 'requires_approval', value: string | boolean) => void;
+    roleLocked?: boolean;
 }) {
     const roleId = useId();
 
@@ -185,11 +189,20 @@ export function MembershipFields({
                         <label
                             key={r.value}
                             className={cn(
-                                'flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors',
+                                'flex items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors',
                                 role === r.value ? 'border-foreground bg-muted/60' : 'hover:bg-muted/40',
+                                roleLocked && role !== r.value ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : 'cursor-pointer',
                             )}
                         >
-                            <input type="radio" name={`${roleId}-role`} value={r.value} checked={role === r.value} onChange={() => onChange('role', r.value)} className="mt-0.5 accent-primary" />
+                            <input
+                                type="radio"
+                                name={`${roleId}-role`}
+                                value={r.value}
+                                checked={role === r.value}
+                                disabled={roleLocked && role !== r.value}
+                                onChange={() => onChange('role', r.value)}
+                                className="mt-0.5 accent-primary"
+                            />
                             <span>
                                 <span className="block font-medium">{r.label}</span>
                                 <span className="block text-xs text-muted-foreground">{r.help}</span>
@@ -197,6 +210,7 @@ export function MembershipFields({
                         </label>
                     ))}
                 </div>
+                {roleLocked && <p className="text-xs text-muted-foreground">This is the only active owner. Make someone else an owner first to change this role.</p>}
                 {errors.role && <p className="text-xs text-red-700">{errors.role}</p>}
             </fieldset>
             <Field
@@ -227,5 +241,79 @@ export function PendingInvitations({ invitations }: { invitations: PendingInvita
                 </li>
             ))}
         </ul>
+    );
+}
+
+export interface MenuAction {
+    label: string;
+    icon: ReactNode;
+    onSelect: () => void;
+    danger?: boolean;
+    disabled?: boolean;
+    hint?: string;
+}
+
+/** A row's "⋯" menu: opens on click, closes on Escape, outside click or selection. */
+export function RowMenu({ label, actions }: { label: string; actions: MenuAction[] }) {
+    const [open, setOpen] = useState(false);
+    const wrapper = useRef<HTMLDivElement>(null);
+    const menuId = useId();
+
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const onDown = (e: MouseEvent) => wrapper.current && !wrapper.current.contains(e.target as Node) && setOpen(false);
+        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey);
+        wrapper.current?.querySelector<HTMLElement>('[role=menuitem]:not([disabled])')?.focus();
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    return (
+        <div ref={wrapper} className="relative inline-block text-left">
+            <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-controls={menuId}
+                aria-label={label}
+                onClick={() => setOpen((v) => !v)}
+                className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:size-8"
+            >
+                <MoreHorizontal className="size-4" aria-hidden />
+            </button>
+            {open && (
+                <div id={menuId} role="menu" className="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-lg border bg-background p-1 shadow-lg">
+                    {actions.map((action) => (
+                        <button
+                            key={action.label}
+                            type="button"
+                            role="menuitem"
+                            disabled={action.disabled}
+                            title={action.disabled ? action.hint : undefined}
+                            onClick={() => {
+                                setOpen(false);
+                                action.onSelect();
+                            }}
+                            className={cn(
+                                'flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-sm',
+                                action.disabled ? 'cursor-not-allowed text-muted-foreground' : action.danger ? 'text-red-700 hover:bg-red-50' : 'hover:bg-muted',
+                            )}
+                        >
+                            <span className="mt-0.5 shrink-0">{action.icon}</span>
+                            <span>
+                                {action.label}
+                                {action.disabled && action.hint && <span className="block text-xs font-normal">{action.hint}</span>}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }

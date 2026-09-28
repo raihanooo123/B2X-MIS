@@ -7,11 +7,11 @@
  * codes keep working, so abandoning half-way never leaves anyone holding
  * codes they never saw.
  */
-import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ArrowLeft, KeyRound, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { KeyRound, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import { type FormEvent, type ReactNode } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
+import { AccountCard, AccountLayout } from '@/components/account/AccountLayout';
 import { Field } from '@/components/auth/Field';
 import { SaveRecoveryCodes } from '@/components/auth/twoFactor';
 import { Button } from '@/components/ui/button';
@@ -36,93 +36,71 @@ interface AccountProps {
 
 export default function AccountIndex({ user, company, team, invitations, two_factor: tf, status }: AccountProps) {
     return (
-        <>
-            <Head title="Your account" />
-            <div className="mx-auto max-w-2xl px-4 py-4">
-                <header className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                    <div className="flex items-center gap-3">
-                        <Link href="/order-pad" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:min-h-0">
-                            <ArrowLeft className="size-4" aria-hidden /> Order pad
-                        </Link>
-                        <h1 className="text-lg font-semibold tracking-tight">Your account</h1>
-                    </div>
-                    <AccountMenu />
-                </header>
-
-                {status && (
-                    <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                        {status}
-                    </p>
+        <AccountLayout title="Account & security" description="Your details, and how you sign in." status={status}>
+            <div className="space-y-6">
+                {invitations.length > 0 && (
+                    <AccountCard title="Invitations for you" description="Accept to start ordering for that company.">
+                        <div className="px-5 py-4">
+                            <PendingInvitations invitations={invitations} />
+                        </div>
+                    </AccountCard>
                 )}
 
-                <div className="space-y-6">
-                    <Card title="Details">
-                        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-                            <dt className="text-muted-foreground">Name</dt>
-                            <dd>{user.name}</dd>
-                            <dt className="text-muted-foreground">Email</dt>
-                            <dd>
-                                {user.email}
-                                {!user.email_verified && (
-                                    <Link href="/email/verify" className="ml-2 text-xs font-medium text-amber-800 underline">
-                                        Not confirmed — resend link
-                                    </Link>
-                                )}
-                            </dd>
-                            {company && (
-                                <>
-                                    <dt className="text-muted-foreground">Ordering for</dt>
-                                    <dd>
-                                        {company.name} <span className="text-muted-foreground">({company.account_code})</span>
-                                    </dd>
-                                </>
+                <AccountCard title="Details">
+                    <dl className="divide-y text-sm">
+                        <Row label="Name">{user.name}</Row>
+                        <Row label="Email">
+                            {user.email}
+                            {!user.email_verified && (
+                                <Link href="/email/verify" className="ml-2 text-xs font-medium text-amber-800 underline">
+                                    Not confirmed — resend link
+                                </Link>
                             )}
-                        </dl>
-                    </Card>
+                        </Row>
+                        {company && (
+                            <Row label="Ordering for">
+                                {company.name} <span className="text-muted-foreground">· {company.account_code}</span>
+                            </Row>
+                        )}
+                    </dl>
+                </AccountCard>
 
-                    {invitations.length > 0 && (
-                        <Card title="Invitations for you">
-                            <PendingInvitations invitations={invitations} />
-                        </Card>
-                    )}
-
-                    {team && company && (
-                        <Card title="Team">
-                            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                                <p className="flex items-center gap-2">
-                                    <Users className="size-5 text-muted-foreground" aria-hidden />
-                                    <span>
+                {team && company && (
+                    <AccountCard>
+                        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm">
+                            <p className="flex items-center gap-3">
+                                <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
+                                    <Users className="size-4 text-muted-foreground" aria-hidden />
+                                </span>
+                                <span>
+                                    <span className="block font-medium">Team</span>
+                                    <span className="text-muted-foreground">
                                         {team.members} {team.members === 1 ? 'person' : 'people'} can order for {company.name}
-                                        {team.pending_invitations > 0 && (
-                                            <span className="text-muted-foreground">
-                                                {' '}
-                                                · {team.pending_invitations} invitation{team.pending_invitations === 1 ? '' : 's'} waiting
-                                            </span>
-                                        )}
+                                        {team.pending_invitations > 0 && ` · ${team.pending_invitations} invitation${team.pending_invitations === 1 ? '' : 's'} waiting`}
                                     </span>
-                                </p>
-                                <Button asChild variant="outline" className="h-11 md:h-9">
-                                    <Link href="/account/team">Manage team</Link>
-                                </Button>
-                            </div>
-                        </Card>
-                    )}
+                                </span>
+                            </p>
+                            <Button asChild variant="outline" className="h-11 md:h-9">
+                                <Link href="/account/team">Manage team</Link>
+                            </Button>
+                        </div>
+                    </AccountCard>
+                )}
 
-                    <Card title="Two-factor authentication">
-                        {tf.enabled ? <TwoFactorOn tf={tf} /> : <TwoFactorOff required={tf.required} />}
-                    </Card>
-                </div>
+                <AccountCard title="Two-factor authentication" description="A code from your phone, as well as your password.">
+                    <div className="px-5 py-4">{tf.enabled ? <TwoFactorOn tf={tf} /> : <TwoFactorOff required={tf.required} />}</div>
+                </AccountCard>
             </div>
-        </>
+        </AccountLayout>
     );
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+function Row({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <section className="rounded-lg border p-4 sm:p-5">
-            <h2 className="mb-3 text-base font-semibold">{title}</h2>
-            {children}
-        </section>
+        <div className="grid gap-1 px-5 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd>{children}</dd>
+        </div>
     );
 }
 

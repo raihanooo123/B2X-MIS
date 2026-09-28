@@ -62,6 +62,9 @@ it('shows owners the team page with limits in pounds, and hides it from buyers',
     $this->actingAs($owner)->get('/account/team')->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
         ->component('Account/Team', false)
         ->where('management.members', fn ($members) => collect($members)->contains(fn ($m) => $m['email'] === $buyer->email && $m['order_limit'] === '1000.50')));
+    $this->actingAs($owner)->get('/account/team')->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('management.members', fn ($members) => collect($members)->firstWhere('email', $owner->email)['is_last_owner'] === true
+            && collect($members)->firstWhere('email', $buyer->email)['is_last_owner'] === false));
     $this->actingAs($owner)->get('/account')->assertInertia(fn (AssertableInertia $page) => $page
         ->where('team', ['members' => 2, 'pending_invitations' => 0])
         ->where('auth.can_manage_team', true));

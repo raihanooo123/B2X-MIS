@@ -4,11 +4,11 @@
  * Every change goes through the server, which enforces the rules and
  * audits it; this page only presents them.
  */
-import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, Mail, Pencil, RotateCw, Trash2, UserPlus, XCircle } from 'lucide-react';
+import { router, useForm, usePage } from '@inertiajs/react';
+import { ChevronRight, Mail, Pencil, RotateCw, Trash2, UserPlus, XCircle } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
+import { AccountCard, AccountLayout } from '@/components/account/AccountLayout';
 import { Field, FormError } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
 
@@ -16,8 +16,10 @@ import {
     Avatar,
     Dialog,
     MembershipFields,
+    Pill,
     pounds,
     RolePill,
+    RowMenu,
     StatePill,
     type Invitation,
     type Member,
@@ -36,189 +38,172 @@ export default function Team({ company, management, status }: TeamProps) {
     const [editing, setEditing] = useState<Member | null>(null);
     const [removing, setRemoving] = useState<Member | null>(null);
     const [revoking, setRevoking] = useState<Invitation | null>(null);
-    const openInvitations = management.invitations.filter((i) => i.state === 'Invited').length;
+
+    const pending = management.invitations.filter((i) => i.manageable);
+    const history = management.invitations.filter((i) => !i.manageable);
+    const waiting = pending.filter((i) => i.state === 'Invited').length;
     const pageError = errors.role ?? errors.member ?? null;
 
     return (
-        <>
-            <Head title="Team" />
-            <div className="mx-auto max-w-5xl px-4 py-4">
-                <header className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                    <div className="flex items-center gap-3">
-                        <Link href="/account" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:min-h-0">
-                            <ArrowLeft className="size-4" aria-hidden /> Your account
-                        </Link>
-                        <h1 className="text-lg font-semibold tracking-tight">Team</h1>
-                    </div>
-                    <AccountMenu />
-                </header>
-
-                {status && (
-                    <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                        {status}
-                    </p>
-                )}
-                {pageError && !editing && (
-                    <div className="mb-4">
-                        <FormError message={pageError} />
-                    </div>
-                )}
-
-                <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                        <p className="text-sm text-muted-foreground">
-                            {company.name} · {company.account_code}
-                        </p>
-                        <h2 className="text-2xl font-semibold tracking-tight">People who can order</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            {management.members.length} {management.members.length === 1 ? 'person' : 'people'}
-                            {openInvitations > 0 && ` · ${openInvitations} invitation${openInvitations === 1 ? '' : 's'} waiting`}
-                        </p>
-                    </div>
-                    <Button className="h-11 gap-2 md:h-10" onClick={() => setInviting(true)}>
-                        <UserPlus className="size-4" aria-hidden /> Invite member
-                    </Button>
+        <AccountLayout
+            title="Team"
+            eyebrow={`${company.name} · ${company.account_code}`}
+            description="Everyone who can order for this account, their role and their order limit."
+            status={status}
+            actions={
+                <Button className="h-11 gap-2 md:h-10" onClick={() => setInviting(true)}>
+                    <UserPlus className="size-4" aria-hidden /> Invite member
+                </Button>
+            }
+        >
+            {pageError && !editing && (
+                <div className="mb-5">
+                    <FormError message={pageError} />
                 </div>
+            )}
 
-                <section aria-label="Members" className="overflow-hidden rounded-xl border bg-background">
+            <div className="space-y-6">
+                <AccountCard title="Members" description={`${management.members.length} ${management.members.length === 1 ? 'person' : 'people'}`}>
                     <table className="w-full text-sm">
-                        <thead className="hidden bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground md:table-header-group">
+                        <thead className="hidden border-b text-left text-xs text-muted-foreground md:table-header-group">
                             <tr>
-                                <th className="px-4 py-3 font-medium">Name</th>
-                                <th className="px-4 py-3 font-medium">Role</th>
-                                <th className="px-4 py-3 font-medium">Order limit</th>
-                                <th className="px-4 py-3 font-medium">Approval</th>
-                                <th className="px-4 py-3 font-medium">Status</th>
-                                <th className="px-4 py-3">
+                                <th className="px-5 py-2.5 font-medium">Name</th>
+                                <th className="px-3 py-2.5 font-medium">Role</th>
+                                <th className="px-3 py-2.5 text-right font-medium">Order limit</th>
+                                <th className="px-3 py-2.5 font-medium">Approval</th>
+                                <th className="px-3 py-2.5 font-medium">Status</th>
+                                <th className="w-14 px-3 py-2.5">
                                     <span className="sr-only">Actions</span>
                                 </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
                             {management.members.map((member) => (
-                                <tr key={member.id} className="flex flex-col gap-2 px-4 py-3 md:table-row md:p-0">
-                                    <td className="md:px-4 md:py-3">
+                                <tr key={member.id} className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 px-5 py-3.5 hover:bg-muted/30 md:table-row md:p-0">
+                                    <td className="md:px-5 md:py-3.5">
                                         <span className="flex items-center gap-3">
                                             <Avatar name={member.name} />
                                             <span className="min-w-0">
-                                                <span className="block truncate font-medium">
-                                                    {member.name}
-                                                    {member.is_you && <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>}
+                                                <span className="flex items-center gap-1.5 font-medium">
+                                                    <span className="truncate">{member.name}</span>
+                                                    {member.is_you && <span className="rounded bg-muted px-1.5 py-px text-[11px] font-medium text-muted-foreground">You</span>}
                                                 </span>
                                                 <span className="block truncate text-xs text-muted-foreground">{member.email}</span>
                                             </span>
                                         </span>
                                     </td>
-                                    <td className="md:px-4 md:py-3">
-                                        <RolePill role={member.role} />
+                                    <td className="col-start-1 md:px-3 md:py-3.5">
+                                        <span className="flex flex-wrap items-center gap-1.5">
+                                            <RolePill role={member.role} />
+                                            <span className="md:hidden">
+                                                <StatePill state={member.status} />
+                                            </span>
+                                        </span>
                                     </td>
-                                    <td className="tabular-nums md:px-4 md:py-3">
-                                        <span className="text-xs text-muted-foreground md:hidden">Order limit: </span>
+                                    <td className="col-start-1 text-muted-foreground tabular-nums md:px-3 md:py-3.5 md:text-right md:text-foreground">
+                                        <span className="md:hidden">Limit </span>
                                         {pounds(member.order_limit)}
+                                        {member.requires_approval && <span className="md:hidden"> · needs approval</span>}
                                     </td>
-                                    <td className="md:px-4 md:py-3">
-                                        {member.requires_approval ? (
-                                            <span className="text-amber-800">Needs approval</span>
-                                        ) : (
-                                            <span className="text-muted-foreground">Not required</span>
-                                        )}
+                                    <td className="hidden md:table-cell md:px-3 md:py-3.5">
+                                        {member.requires_approval ? <Pill tone="bg-amber-50 text-amber-800 ring-amber-200">Required</Pill> : <span className="text-muted-foreground">—</span>}
                                     </td>
-                                    <td className="md:px-4 md:py-3">
+                                    <td className="hidden md:table-cell md:px-3 md:py-3.5">
                                         <StatePill state={member.status} />
                                     </td>
-                                    <td className="md:px-4 md:py-3 md:text-right">
-                                        <span className="inline-flex gap-1">
-                                            <Button variant="ghost" className="h-11 gap-1.5 md:h-8" onClick={() => setEditing(member)}>
-                                                <Pencil className="size-3.5" aria-hidden /> Edit
-                                                <span className="sr-only"> {member.name}</span>
-                                            </Button>
-                                            <Button variant="ghost" className="h-11 gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800 md:h-8" onClick={() => setRemoving(member)}>
-                                                <Trash2 className="size-3.5" aria-hidden /> Remove
-                                                <span className="sr-only"> {member.name}</span>
-                                            </Button>
-                                        </span>
+                                    <td className="col-start-2 row-span-3 row-start-1 self-start text-right md:px-3 md:py-3.5">
+                                        <RowMenu
+                                            label={`Actions for ${member.name}`}
+                                            actions={[
+                                                { label: 'Edit role and limit', icon: <Pencil className="size-4" aria-hidden />, onSelect: () => setEditing(member) },
+                                                {
+                                                    label: member.is_you ? 'Leave this company' : 'Remove from company',
+                                                    icon: <Trash2 className="size-4" aria-hidden />,
+                                                    danger: true,
+                                                    disabled: member.is_last_owner,
+                                                    hint: 'The only active owner can’t be removed.',
+                                                    onSelect: () => setRemoving(member),
+                                                },
+                                            ]}
+                                        />
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-                </section>
+                </AccountCard>
 
-                <section aria-labelledby="invitations-heading" className="mt-8">
-                    <h2 id="invitations-heading" className="mb-3 text-base font-semibold">
-                        Invitations
-                    </h2>
-                    {management.invitations.length === 0 ? (
-                        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                <AccountCard title="Invitations" description={waiting > 0 ? `${waiting} waiting to be accepted` : 'No invitations waiting'}>
+                    {pending.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2 px-5 py-8 text-center text-sm text-muted-foreground">
                             <Mail className="size-6" aria-hidden />
-                            No invitations yet. Invite colleagues so each person has their own login and limit.
+                            <p>Invite colleagues so each person has their own login, role and order limit.</p>
+                            <Button variant="outline" className="mt-1 h-11 gap-2 md:h-9" onClick={() => setInviting(true)}>
+                                <UserPlus className="size-4" aria-hidden /> Invite member
+                            </Button>
                         </div>
                     ) : (
-                        <div className="overflow-hidden rounded-xl border bg-background">
-                            <table className="w-full text-sm">
-                                <thead className="hidden bg-muted/40 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground md:table-header-group">
-                                    <tr>
-                                        <th className="px-4 py-3 font-medium">Email</th>
-                                        <th className="px-4 py-3 font-medium">Role</th>
-                                        <th className="px-4 py-3 font-medium">Order limit</th>
-                                        <th className="px-4 py-3 font-medium">Status</th>
-                                        <th className="px-4 py-3 font-medium">Sent</th>
-                                        <th className="px-4 py-3">
-                                            <span className="sr-only">Actions</span>
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {management.invitations.map((invitation) => (
-                                        <tr key={invitation.id} className="flex flex-col gap-2 px-4 py-3 md:table-row md:p-0">
-                                            <td className="truncate font-medium md:px-4 md:py-3">{invitation.email}</td>
-                                            <td className="md:px-4 md:py-3">
-                                                <RolePill role={invitation.role} />
-                                            </td>
-                                            <td className="tabular-nums md:px-4 md:py-3">{pounds(invitation.order_limit)}</td>
-                                            <td className="md:px-4 md:py-3">
-                                                <StatePill state={invitation.state} />
-                                            </td>
-                                            <td className="text-muted-foreground md:px-4 md:py-3">
-                                                {invitation.sent_at}
-                                                {invitation.state === 'Invited' && <span className="block text-xs">Expires {invitation.expires_at}</span>}
-                                            </td>
-                                            <td className="md:px-4 md:py-3 md:text-right">
-                                                {invitation.manageable && (
-                                                    <span className="inline-flex gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            className="h-11 gap-1.5 md:h-8"
-                                                            onClick={() => router.post(`/account/invitations/${invitation.id}/resend`, {}, { preserveScroll: true })}
-                                                        >
-                                                            <RotateCw className="size-3.5" aria-hidden /> Resend
-                                                        </Button>
-                                                        <Button variant="ghost" className="h-11 gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800 md:h-8" onClick={() => setRevoking(invitation)}>
-                                                            <XCircle className="size-3.5" aria-hidden /> Revoke
-                                                        </Button>
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                        <ul className="divide-y text-sm">
+                            {pending.map((invitation) => (
+                                <li key={invitation.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5">
+                                    <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
+                                        <Mail className="size-4 text-muted-foreground" aria-hidden />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-medium">{invitation.email}</span>
+                                        <span className="block text-xs text-muted-foreground">
+                                            {invitation.state === 'Expired' ? `Expired ${invitation.expires_at}` : `Sent ${invitation.sent_at} · expires ${invitation.expires_at}`}
+                                        </span>
+                                    </span>
+                                    <RolePill role={invitation.role} />
+                                    <span className="w-28 text-right tabular-nums">{pounds(invitation.order_limit)}</span>
+                                    <StatePill state={invitation.state} />
+                                    <RowMenu
+                                        label={`Actions for the invitation to ${invitation.email}`}
+                                        actions={[
+                                            {
+                                                label: invitation.state === 'Expired' ? 'Send a new invitation' : 'Resend invitation',
+                                                icon: <RotateCw className="size-4" aria-hidden />,
+                                                onSelect: () => router.post(`/account/invitations/${invitation.id}/resend`, {}, { preserveScroll: true }),
+                                            },
+                                            { label: 'Revoke invitation', icon: <XCircle className="size-4" aria-hidden />, danger: true, onSelect: () => setRevoking(invitation) },
+                                        ]}
+                                    />
+                                </li>
+                            ))}
+                        </ul>
                     )}
-                </section>
+                    {history.length > 0 && (
+                        <details className="group border-t">
+                            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 px-5 text-sm text-muted-foreground hover:text-foreground">
+                                <ChevronRight className="size-4 transition-transform group-open:rotate-90" aria-hidden />
+                                Past invitations ({history.length})
+                            </summary>
+                            <ul className="divide-y border-t bg-muted/20 text-sm">
+                                {history.map((invitation) => (
+                                    <li key={invitation.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5 text-muted-foreground">
+                                        <span className="min-w-0 flex-1 truncate">{invitation.email}</span>
+                                        <span>{invitation.sent_at}</span>
+                                        <StatePill state={invitation.state} />
+                                    </li>
+                                ))}
+                            </ul>
+                        </details>
+                    )}
+                </AccountCard>
             </div>
 
             <InviteDialog open={inviting} companyId={management.company_id} onClose={() => setInviting(false)} />
             {editing && <EditDialog member={editing} companyId={management.company_id} onClose={() => setEditing(null)} />}
             <ConfirmDialog
                 open={removing !== null}
-                title={removing?.is_you ? 'Remove yourself?' : `Remove ${removing?.name}?`}
+                title={removing?.is_you ? 'Leave this company?' : `Remove ${removing?.name}?`}
                 description={
                     removing?.is_you
                         ? 'You will no longer be able to order for this company.'
                         : 'They will no longer be able to order for this company. Their login stays, and you can invite them again later.'
                 }
-                confirmLabel="Remove"
+                confirmLabel={removing?.is_you ? 'Leave' : 'Remove'}
                 onClose={() => setRemoving(null)}
                 onConfirm={() => {
                     if (removing) {
@@ -238,7 +223,7 @@ export default function Team({ company, management, status }: TeamProps) {
                     }
                 }}
             />
-        </>
+        </AccountLayout>
     );
 }
 
@@ -300,6 +285,7 @@ function EditDialog({ member, companyId, onClose }: { member: Member; companyId:
                     orderLimit={form.data.order_limit}
                     requiresApproval={form.data.requires_approval}
                     errors={form.errors}
+                    roleLocked={member.is_last_owner}
                     onChange={(key, value) => form.setData(key, value as never)}
                 />
                 <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
