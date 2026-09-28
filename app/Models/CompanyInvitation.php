@@ -10,14 +10,24 @@ use Illuminate\Support\Carbon;
 /**
  * Doc 02 §17.1 — company_invitations. States are derived from the
  * timestamps (open / accepted / revoked / expired), never stored. The
- * invitation flows themselves (05.13 §9) are not built yet; this model
- * exists so the table has one.
+ * flows are implemented by CompanyInvitationService (05.13 §9).
  *
+ * @property-read Company $company
+ * @property string $public_id
+ * @property string $first_name
+ * @property string $last_name
+ * @property string $token_hash
+ * @property int $invited_by_user_id
+ * @property int|null $accepted_by_user_id
+ * @property int|null $revoked_by_user_id
+ * @property int|null $order_limit_minor
+ * @property bool $requires_approval
  * @property int $id
  * @property int $company_id
  * @property string $email
  * @property string $role
  * @property Carbon $expires_at
+ * @property Carbon $created_at
  * @property Carbon|null $accepted_at
  * @property Carbon|null $revoked_at
  */

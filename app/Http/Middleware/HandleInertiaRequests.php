@@ -77,6 +77,8 @@ class HandleInertiaRequests extends Middleware
             ],
             'company' => $company === null ? null : ['id' => $company->public_id, 'name' => $company->name],
             'can_switch_company' => count(CompanyMemberships::ids($user)) > 1,
+            // An owner of the company being acted for sees the Team link.
+            'can_manage_team' => $company !== null && ! $user->isStaff() && Gate::allows('manageMembers', $company),
             'staff_navigation' => [
                 'admin' => Gate::allows('accessAdminPanel', User::class),
                 'goods_in' => Gate::allows('viewAny', GoodsReceipt::class),

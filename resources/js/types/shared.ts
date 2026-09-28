@@ -12,6 +12,8 @@ export interface SharedAuth {
     /** The company being acted for (05.13 §6.3); null for public customers and applicants. */
     company: { id: string; name: string } | null;
     can_switch_company: boolean;
+    /** An owner of the acting company: shows the Team link. */
+    can_manage_team: boolean;
     staff_navigation: {
         admin: boolean;
         goods_in: boolean;

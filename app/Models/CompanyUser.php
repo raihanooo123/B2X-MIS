@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 
 /**
+ * @property int $company_id
+ * @property int $user_id
+ * @property string $role
+ * @property int|null $order_limit_minor
+ * @property bool $requires_approval
+ *
  * Doc 02 §4.4 — company_users. Trade-account (B2B customer-side) role
  * membership — distinct from `Role`/`RoleUser` (02 §14.1), internal staff
  * RBAC. The two are never conflated: a `company_users` row never

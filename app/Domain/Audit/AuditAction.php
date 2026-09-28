@@ -4,6 +4,16 @@ namespace App\Domain\Audit;
 
 enum AuditAction: string
 {
+    case CompanyInvited = 'permission.company_invited';
+
+    case CompanyInvitationRevoked = 'permission.company_invitation_revoked';
+
+    case CompanyInvitationAccepted = 'permission.company_invitation_accepted';
+
+    case CompanyMemberChanged = 'permission.company_member_changed';
+
+    case CompanyMemberRemoved = 'permission.company_member_removed';
+
     case SignInFailed = 'auth.sign_in_failed';
 
     case StaffCreated = 'auth.staff_created';
@@ -53,6 +63,8 @@ enum AuditAction: string
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested,
             self::StaffSuspended, self::StaffReinstated, self::StaffTwoFactorReset,
             self::CustomerSuspended, self::CustomerReinstated => 'auth',
+            self::CompanyInvited, self::CompanyInvitationRevoked, self::CompanyInvitationAccepted,
+            self::CompanyMemberChanged, self::CompanyMemberRemoved,
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested => 'permission',
@@ -65,6 +77,8 @@ enum AuditAction: string
     public function beforeFields(): array
     {
         return match ($this) {
+            self::CompanyInvited, self::CompanyInvitationRevoked, self::CompanyInvitationAccepted => [],
+            self::CompanyMemberChanged, self::CompanyMemberRemoved => ['role', 'order_limit_minor', 'requires_approval'],
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested, self::StaffRoleGranted => [],
             self::StaffRoleRevoked => ['role', 'granted_by_user_id'],
             self::StaffSuspended, self::StaffReinstated,
@@ -82,6 +96,8 @@ enum AuditAction: string
     public function afterFields(): array
     {
         return match ($this) {
+            self::CompanyInvited, self::CompanyMemberChanged => ['role', 'order_limit_minor', 'requires_approval'],
+            self::CompanyInvitationRevoked, self::CompanyInvitationAccepted, self::CompanyMemberRemoved => [],
             self::SignInFailed => ['identifier_fingerprint', 'key_version'],
             self::StaffCreated => ['status'],
             self::StaffOnboardingRequested => ['channel'],

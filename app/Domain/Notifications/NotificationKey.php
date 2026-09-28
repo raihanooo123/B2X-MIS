@@ -5,13 +5,15 @@ namespace App\Domain\Notifications;
 /**
  * The notifications this codebase sends today (05.12 §5). A key is added
  * here when its trigger exists: quotes, returns, back-in-stock,
- * invitations and application withdrawal have none yet.
+ * application withdrawal have none yet.
  *
  * `templateVersion()` is recorded on every log row (05.12 §8.2) and bumped
  * whenever that notification's wording changes.
  */
 enum NotificationKey: string
 {
+    case CompanyInvitation = 'company.invitation';
+    case CompanyInvitationAccepted = 'company.invitation_accepted';
     case OrderConfirmed = 'order.confirmed';
     case PaymentReceived = 'payment.received';
     case ShipmentDispatched = 'shipment.dispatched';
@@ -50,6 +52,8 @@ enum NotificationKey: string
         return match ($this) {
             // 02 §25.2: the reviewer's message and the stored re-application date.
             self::ApplicationRejected => '2',
+            // Clearer wording: "as a buyer", and what happens with an existing account.
+            self::CompanyInvitation => '2',
             default => '1',
         };
     }

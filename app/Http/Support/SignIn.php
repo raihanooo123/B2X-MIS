@@ -3,6 +3,7 @@
 namespace App\Http\Support;
 
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Identity\CompanyUserDirectory;
 use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
@@ -159,6 +160,10 @@ final class SignIn
     {
         if (! $user->two_factor_enabled && $user->isStaff()) {
             return redirect()->route('two-factor.setup');
+        }
+
+        if (! $request->session()->has('url.intended') && CompanyUserDirectory::pending($user) !== []) {
+            $request->session()->put('url.intended', route('account'));
         }
 
         if (ActingCompany::needsChoice($request->session(), $user)) {
