@@ -1375,6 +1375,18 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
 
 ---
 
+## 23A. Public Storefront (B2C) — `docs/05.15-public-storefront.md` (added 2026-09-28)
+
+B2C first, then back to trade (decided 2026-09-28). Decisions: guest checkout yes; public
+prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
+
+- [ ] Sign off 05.15, then amend 02 with §9 A1/A2 in its own commit.
+- [ ] S1 demo seeder · S2 shell/brand/price display/home · S3 category, search, product pages
+- [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
+- [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
+
+---
+
 ## 24. Reporting Suite — `docs/05.14-reporting.md` (added 2026-09-20)
 
 01 §5.1 Phase 4 scope; 02 §1 disclaimed reporting aggregates and materialised views
