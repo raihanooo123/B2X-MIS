@@ -118,7 +118,8 @@ it('records why the system ended a session', function (string $reason) {
             }
             $this->travel(4)->hours();
         })(),
-        'account_inactive' => $user->forceFill(['status' => 'suspended'])->save(),
+        // The signed-in instance: the test keeps the guard's user between requests.
+        'account_inactive' => auth()->user()->forceFill(['status' => 'suspended'])->save(),
     };
     $this->get('/order-pad')->assertRedirect(route('login'));
 
@@ -136,7 +137,7 @@ it('audits a reset request without revealing it, and the completed reset', funct
     $requested = ownEntry('auth.password_reset_requested');
     expect($requested->actor_type)->toBe('anonymous')
         ->and($requested->subject_id)->toBe($user->id)
-        ->and($requested->after)->toEqual([]);
+        ->and($requested->after)->toBeNull();
 
     $token = Queue::pushed(SendNotification::class, fn (SendNotification $job) => $job->notice instanceof PasswordReset)->last()->notice->token;
     $new = 'a-brand-new-passphrase';
@@ -163,7 +164,7 @@ it('audits turning 2FA on, regenerating recovery codes and turning it off', func
 
     expect(authActions())->toBe(['auth.two_factor_enabled', 'auth.recovery_codes_regenerated', 'auth.two_factor_disabled']);
     foreach (AuditLog::query()->get() as $entry) {
-        expect([$entry->actor_user_id, $entry->subject_id, $entry->after])->toEqual([$user->id, $user->id, []])
+        expect([$entry->actor_user_id, $entry->subject_id, $entry->after])->toEqual([$user->id, $user->id, null])
             ->and(json_encode($entry->after))->not->toContain($secret);
     }
 });
