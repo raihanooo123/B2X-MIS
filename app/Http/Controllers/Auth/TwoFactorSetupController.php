@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Audit\AuditAction;
+use App\Domain\Audit\AuditLogger;
 use App\Domain\Identity\RecoveryCodes;
 use App\Domain\Identity\Totp;
 use App\Domain\Notifications\Notices\TwoFactorChanged;
@@ -97,6 +99,7 @@ class TwoFactorSetupController extends Controller
         DB::transaction(function () use ($user, $codes) {
             $user->forceFill(['two_factor_enabled' => true])->save();
             RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
+            (new AuditLogger)->ownAuthEvent(AuditAction::TwoFactorEnabled, $user->id);
         });
 
         (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::ENABLED), $user);
@@ -135,7 +138,10 @@ class TwoFactorSetupController extends Controller
             return redirect()->route('account');
         }
 
-        RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
+        DB::transaction(function () use ($user, $codes) {
+            RecoveryCodes::replace($user, array_values(array_map('strval', $codes)));
+            (new AuditLogger)->ownAuthEvent(AuditAction::RecoveryCodesRegenerated, $user->id);
+        });
         $request->session()->forget(self::REGENERATED_CODES);
 
         return redirect()->route('account')->with('status', 'Your new recovery codes are active. The old ones no longer work.');
@@ -158,6 +164,7 @@ class TwoFactorSetupController extends Controller
         DB::transaction(function () use ($user) {
             $user->forceFill(['two_factor_secret' => null, 'two_factor_enabled' => false])->save();
             $user->recoveryCodes()->delete();
+            (new AuditLogger)->ownAuthEvent(AuditAction::TwoFactorDisabled, $user->id);
         });
 
         (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::DISABLED), $user);

@@ -49,6 +49,11 @@ final class AuditLogger
             AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
+            AuditAction::LockedOut => $this->validateLockout($entry),
+            AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
+            AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
+            AuditAction::TwoFactorEnabled, AuditAction::TwoFactorDisabled,
+            AuditAction::RecoveryCodesRegenerated, AuditAction::RecoveryCodeUsed => $this->validateOwnAuthEvent($entry),
         };
 
         DB::table('audit_log')->insert([
@@ -70,6 +75,55 @@ final class AuditLogger
 
     public function failedSignIn(string $identifier, ?string $ip, ?string $userAgent): void
     {
+        $this->record(new AuditEntry(
+            action: AuditAction::SignInFailed,
+            actorType: 'anonymous',
+            after: $this->fingerprint($identifier),
+            ip: $ip,
+            userAgent: $userAgent,
+        ));
+    }
+
+    /**
+     * 05.13 §6.2, §15: an identifier has just been locked out. Keyed
+     * fingerprint only, as for a failed sign-in (02 §15.3 ⚑2).
+     */
+    public function lockedOut(string $identifier, int $lockedSeconds, ?string $ip, ?string $userAgent): void
+    {
+        $this->record(new AuditEntry(
+            action: AuditAction::LockedOut,
+            actorType: 'anonymous',
+            after: [...$this->fingerprint($identifier), 'locked_seconds' => $lockedSeconds],
+            ip: $ip,
+            userAgent: $userAgent,
+        ));
+    }
+
+    /**
+     * 05.13 §15: a person's own authentication event, recorded with them as
+     * both actor and subject (a reset request is anonymous: the requester
+     * is not signed in). IP and user agent come from the request.
+     *
+     * @param  array<string, int|string>  $after
+     */
+    public function ownAuthEvent(AuditAction $action, int $userId, array $after = [], bool $anonymous = false): void
+    {
+        $context = app(AuditContext::class);
+        $this->record(new AuditEntry(
+            action: $action,
+            actorType: $anonymous ? 'anonymous' : 'user',
+            actorUserId: $anonymous ? null : $userId,
+            subjectType: 'user',
+            subjectId: $userId,
+            after: $after,
+            ip: $context->ip,
+            userAgent: $context->userAgent,
+        ));
+    }
+
+    /** @return array{identifier_fingerprint: string, key_version: string} */
+    private function fingerprint(string $identifier): array
+    {
         $identifier = mb_strtolower(trim($identifier));
         if ($identifier === '') {
             throw new InvalidArgumentException('A failed sign-in requires an identifier.');
@@ -81,16 +135,38 @@ final class AuditLogger
             throw new RuntimeException('Audit identifier key and version must be configured.');
         }
 
-        $this->record(new AuditEntry(
-            action: AuditAction::SignInFailed,
-            actorType: 'anonymous',
-            after: [
-                'identifier_fingerprint' => hash_hmac('sha256', $identifier, $key),
-                'key_version' => $version,
-            ],
-            ip: $ip,
-            userAgent: $userAgent,
-        ));
+        return ['identifier_fingerprint' => hash_hmac('sha256', $identifier, $key), 'key_version' => $version];
+    }
+
+    private function validateLockout(AuditEntry $entry): void
+    {
+        $seconds = $entry->after['locked_seconds'] ?? null;
+        if ($entry->actorType !== 'anonymous' || $entry->subjectType !== null || $entry->reason !== null
+            || $entry->companyId !== null || count($entry->after) !== 3
+            || preg_match('/^[a-f0-9]{64}$/', (string) ($entry->after['identifier_fingerprint'] ?? '')) !== 1
+            || ! is_string($entry->after['key_version'] ?? null)
+            || ! is_int($seconds) || $seconds < 1) {
+            throw new InvalidArgumentException('Invalid lockout audit entry.');
+        }
+    }
+
+    private function validateOwnAuthEvent(AuditEntry $entry): void
+    {
+        $anonymous = $entry->action === AuditAction::PasswordResetRequested;
+        $after = $entry->after;
+        $afterValid = match ($entry->action) {
+            AuditAction::SignedIn => count($after) === 1 && in_array($after['method'] ?? null, ['password', 'two_factor', 'recovery_code', 'invitation'], true),
+            AuditAction::SessionExpired => count($after) === 1 && in_array($after['reason'] ?? null, ['idle', 'absolute', 'account_inactive'], true),
+            AuditAction::RecoveryCodeUsed => count($after) === 1 && is_int($after['remaining'] ?? null) && $after['remaining'] >= 0,
+            default => $after === [],
+        };
+
+        if (! $afterValid || $entry->before !== [] || $entry->reason !== null
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null
+            || $entry->subjectType !== 'user' || $entry->subjectId === null
+            || ($anonymous ? $entry->actorType !== 'anonymous' : ($entry->actorType !== 'user' || $entry->actorUserId !== $entry->subjectId))) {
+            throw new InvalidArgumentException('Invalid authentication audit entry.');
+        }
     }
 
     /**

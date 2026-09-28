@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Audit\AuditAction;
+use App\Domain\Audit\AuditLogger;
 use App\Domain\Notifications\Notices\PasswordChanged;
 use App\Domain\Notifications\Notices\PasswordReset as PasswordResetNotice;
 use App\Domain\Notifications\Notifications;
@@ -66,6 +68,8 @@ class PasswordResetController extends Controller
         $tokens = $this->tokens();
 
         if ($user !== null && ! $tokens->recentlyCreatedToken($user)) {
+            // Audited, never shown: the response is the same either way.
+            (new AuditLogger)->ownAuthEvent(AuditAction::PasswordResetRequested, $user->id, anonymous: true);
             (new Notifications)->toUser(new PasswordResetNotice($user->id, $tokens->create($user)), $user);
         }
 
@@ -100,6 +104,8 @@ class PasswordResetController extends Controller
             }
             $user->forceFill($changes)->save();
             $tokens->delete($user);
+            // The token proved who they are, so the user is the actor.
+            (new AuditLogger)->ownAuthEvent(AuditAction::PasswordResetCompleted, $user->id);
         });
 
         UserSessions::endAll($user);

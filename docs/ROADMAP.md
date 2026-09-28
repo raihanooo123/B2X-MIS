@@ -1223,6 +1223,10 @@ retention operations still need delivery.
 - [x] Every staff (`actor_type = user`) entry records the client IP and user agent from the
       request (`AuditContext`, a scoped binding; honours trusted proxies; empty in console
       and queue runs). 2026-09-28, pending verification.
+- [x] 05.13 §15 own-account events: sign-in success (with method), sign-out, session expiry
+      (idle / absolute / account inactive), lockout, password reset requested and completed,
+      2FA enabled and disabled, recovery codes regenerated, recovery code used. 05.13 §15
+      implementation note. No migration needed. 2026-09-28, pending verification.
 - [ ] Yearly partition creation, default-partition monitoring and seven-year retention job.
 
 ---
@@ -1353,7 +1357,8 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       "Application compliance".
 - [ ] 05.13 §20 "not built yet": applicant status page and signed-in
       application form, `application_pending`/unverified-email checkout blockers, admin 2FA
-      reset for trade users (staff reset done; blocked on ⚑9), remaining §15 audit events.
+      reset for trade users (staff reset done; blocked on ⚑9). §15 audit events are done except
+      for flows not built yet (password change, email change, account closure).
       Customer suspension is done.
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
