@@ -491,7 +491,10 @@ GET /api/v1/stock/availability?sku_ids=01J8A,01J8B
 with no company and no staff role (a guest, public customer or applicant) receives
 `"available_base_qty": null`, `"incoming": null` and a `stock_label` of `in_stock`, `low_stock`,
 `backorder` or `out_of_stock` (Inventory's `StockLabels`). Trade and staff callers receive the
-figures, and the label as well.
+figures, and the label as well. Every caller also receives `stock_left`: the figure when it is 10
+or fewer, else null (05.15 §5.3). A shortage blocker from `/checkout/preview` or `/checkout`
+follows the same rule for a public caller: `meta.available_base_qty` is null above 10, and the
+message has no figure.
 
 Batch and serial detail are **not** exposed to customer-facing callers. Which batch a customer will receive is an internal allocation decision (04 §5), and exposing it invites cherry-picking.
 
