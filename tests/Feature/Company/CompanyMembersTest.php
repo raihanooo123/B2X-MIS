@@ -139,3 +139,16 @@ it('converts pounds to pence with integer arithmetic only', function () {
     expect(fn () => CompanyMemberSettings::from(['role' => 'buyer', 'order_limit' => '1.234', 'requires_approval' => false]))
         ->toThrow(ValidationException::class);
 });
+
+it('returns not found for a user who is not a member of the company', function () {
+    $company = Company::factory()->create();
+    $owner = memberOf($company, 'owner');
+    $outsider = memberOf(Company::factory()->create());
+
+    $this->actingAs($owner)->patch("/account/companies/{$company->public_id}/members/{$outsider->public_id}", [
+        'role' => 'viewer', 'order_limit' => '', 'requires_approval' => false,
+    ])->assertNotFound();
+    $this->actingAs($owner)->delete("/account/companies/{$company->public_id}/members/{$outsider->public_id}")->assertNotFound();
+
+    expect(membershipOf(Company::query()->whereKeyNot($company->id)->sole(), $outsider)->role)->toBe('buyer');
+});

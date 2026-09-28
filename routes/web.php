@@ -95,8 +95,13 @@ Route::middleware('auth')->group(function (): void {
         ->middleware('throttle:10,1')->name('account.invitations.resend');
     Route::delete('/account/invitations/{invitation:public_id}', [CompanyInvitationController::class, 'revoke'])->name('account.invitations.revoke');
     Route::post('/account/invitations/{invitation:public_id}/accept', [CompanyInvitationController::class, 'acceptFromAccount'])->name('account.invitations.accept');
-    Route::patch('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'update'])->name('account.members.update');
-    Route::delete('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'destroy'])->name('account.members.destroy');
+    // The member is a user, not a relation of the company: CompanyMemberService
+    // resolves the membership itself (and 404s if there is none), so Laravel's
+    // implicit parent-child scoping must not look for Company::members().
+    Route::patch('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'update'])
+        ->withoutScopedBindings()->name('account.members.update');
+    Route::delete('/account/companies/{company:public_id}/members/{member:public_id}', [CompanyMemberController::class, 'destroy'])
+        ->withoutScopedBindings()->name('account.members.destroy');
 
     Route::get('/account', [AccountController::class, 'show'])->name('account');
 
