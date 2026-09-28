@@ -45,7 +45,7 @@ class StockController extends Controller
             ->groupBy('sku_id')
             ->get()
             ->keyBy(fn ($row) => (int) $row->sku_id);
-        $labels = (new StockLabels)->forSkus(array_values($internalIds));
+        $stock = (new StockLabels)->detailed(array_values($internalIds));
 
         $data = [];
         foreach ($publicIds as $publicId) {
@@ -70,7 +70,9 @@ class StockController extends Controller
             $data[] = [
                 'sku_id' => $publicId,
                 'available_base_qty' => $figures ? $availableBaseQty : null,
-                'stock_label' => $labels[(int) $sku->id] ?? StockLabels::OUT_OF_STOCK,
+                'stock_label' => $stock[(int) $sku->id]['label'] ?? StockLabels::OUT_OF_STOCK,
+                // "Only 7 left": a figure the public may see, 10 or fewer (05.15 §5.3).
+                'stock_left' => $stock[(int) $sku->id]['left'] ?? null,
                 'is_stock_tracked' => (bool) $sku->is_stock_tracked,
                 'allow_backorder' => (bool) $sku->allow_backorder,
                 // `expected_on` has no source column anywhere in the

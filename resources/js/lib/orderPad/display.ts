@@ -182,7 +182,8 @@ export function stockDisplay(entry: StockAvailabilityEntry | undefined, pack: Pa
     }
 
     if (entry.available_base_qty === null) {
-        return LABEL_DISPLAY[entry.stock_label];
+        const shown = LABEL_DISPLAY[entry.stock_label];
+        return entry.stock_label === 'low_stock' && entry.stock_left !== null ? { ...shown, label: `Only ${entry.stock_left} left` } : shown;
     }
 
     const available = Math.max(0, entry.available_base_qty);

@@ -58,7 +58,7 @@ final class ProductDetail
         $skuIds = array_values($skus->map(fn ($s) => (int) $s->id)->all());
         $packs = $this->packs($skuIds);
         $resolution = $this->prices->resolveMany($skuIds, $companyId, 1, self::COUNTRY);
-        $labels = $this->stock->forSkus($skuIds);
+        $stock = $this->stock->detailed($skuIds);
 
         $variants = [];
         foreach ($skus as $sku) {
@@ -80,7 +80,8 @@ final class ProductDetail
                     'tax_rate_bp' => $price->taxRateBp,
                     'breaks' => array_map(fn (PriceBreak $b) => ['min_base_qty' => $b->minBaseQty, 'unit_net_e4' => $b->unitPriceE4], $resolution->breaks[$skuId] ?? []),
                 ],
-                'stock' => $labels[$skuId] ?? StockLabels::OUT_OF_STOCK,
+                'stock' => $stock[$skuId]['label'] ?? StockLabels::OUT_OF_STOCK,
+                'stock_left' => $stock[$skuId]['left'] ?? null,
             ];
         }
 

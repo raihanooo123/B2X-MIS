@@ -1,10 +1,13 @@
 /**
  * A storefront grid card (05.15 §5.1): image, brand, name, the "from" price
- * inc or ex VAT, and a stock label — never a stock figure (§12 Q2).
+ * inc or ex VAT, a stock label ("Only N left" at 10 or fewer, never a larger
+ * figure, §5.3) and, where one tap is enough, quick add (§5.3a).
  */
-import { Link } from '@inertiajs/react';
-import { ImageOff } from 'lucide-react';
+import { Link, router } from '@inertiajs/react';
+import { Check, ImageOff, Plus } from 'lucide-react';
+import { useState } from 'react';
 
+import { useAddCartLine } from '@/lib/api/orderPad';
 import { vatLabel, type DisplayMode } from '@/lib/cart/display';
 import { storefrontLinks } from '@/lib/storefront/links';
 import { shelfPrice } from '@/lib/storefront/price';
@@ -20,6 +23,10 @@ export interface ProductCardData {
     thumbnail_url: string | null;
     price: { unit_net_e4: number; tax_rate_bp: number; varies: boolean } | null;
     stock: StockLabel;
+    /** 1–10 only: "Only N left" (05.15 §5.3). Never a larger figure. */
+    stock_left: number | null;
+    /** One tap adds the default pack (05.15 §5.3a); null means "choose on the product page". */
+    quick_add: { sku_id: string; pack_code: string } | null;
 }
 
 const STOCK: Record<StockLabel, { label: string; dot: string; text: string }> = {
@@ -29,14 +36,15 @@ const STOCK: Record<StockLabel, { label: string; dot: string; text: string }> = 
     out_of_stock: { label: 'Out of stock', dot: 'bg-slate-400', text: 'text-muted-foreground' },
 };
 
-export function StockBadge({ stock }: { stock: StockLabel }) {
+export function StockBadge({ stock, left = null }: { stock: StockLabel; left?: number | null }) {
     const s = STOCK[stock];
+    const label = stock === 'low_stock' && left !== null ? `Only ${left} left` : s.label;
 
     // Label and dot together: never colour alone (07 §8).
     return (
         <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', s.text)}>
             <span aria-hidden className={cn('size-2 rounded-full', s.dot)} />
-            {s.label}
+            {label}
         </span>
     );
 }
@@ -70,9 +78,52 @@ export function ProductCard({ card, mode }: { card: ProductCardData; mode: Displ
                     ) : (
                         <p className="text-sm text-muted-foreground">Price on request</p>
                     )}
-                    <StockBadge stock={card.stock} />
+                    <StockBadge stock={card.stock} left={card.stock_left} />
                 </div>
+                {card.quick_add && <QuickAdd item={card.quick_add} name={card.name} />}
             </div>
         </li>
+    );
+}
+
+/** 05.15 §5.3a: add one default pack without leaving the grid. */
+function QuickAdd({ item, name }: { item: { sku_id: string; pack_code: string }; name: string }) {
+    const add = useAddCartLine();
+    const [done, setDone] = useState(false);
+
+    const onClick = () => {
+        add.mutate(
+            { sku_id: item.sku_id, pack_code: item.pack_code, pack_qty: 1 },
+            {
+                onSuccess: () => {
+                    setDone(true);
+                    router.reload({ only: ['shell'] });
+                    window.setTimeout(() => setDone(false), 2000);
+                },
+            },
+        );
+    };
+
+    return (
+        <div className="relative z-10 mt-3">
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={add.isPending}
+                aria-label={`Add ${name} to basket`}
+                className={cn(
+                    'inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-60',
+                    done ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground',
+                )}
+            >
+                {done ? <Check className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}
+                {done ? 'Added' : add.isPending ? 'Adding…' : 'Add'}
+            </button>
+            {add.isError && (
+                <p role="alert" className="mt-1 text-xs text-red-700">
+                    {add.error.message || 'Could not add. Please try again.'}
+                </p>
+            )}
+        </div>
     );
 }

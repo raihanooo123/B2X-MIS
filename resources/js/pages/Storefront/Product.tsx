@@ -9,7 +9,7 @@
  */
 import { Link, router, usePage } from '@inertiajs/react';
 import { Check, ChevronRight, ImageOff, Minus, Plus, ShoppingBag } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ProductCard, StockBadge, type ProductCardData, type StockLabel } from '@/components/storefront/ProductCard';
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
@@ -18,6 +18,7 @@ import { unitPriceE4, vatLabel, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor, lineNetMinor, multiplyInts } from '@/lib/money';
 import { storefrontLinks } from '@/lib/storefront/links';
 import { shelfPrice } from '@/lib/storefront/price';
+import { recordRecentlyViewed } from '@/lib/storefront/recentlyViewed';
 import { cn } from '@/lib/utils';
 import type { SharedProps } from '@/types/shared';
 
@@ -32,6 +33,7 @@ interface Variant {
     default_pack_code: string | null;
     price: { unit_net_e4: number; tax_rate_bp: number; breaks: { min_base_qty: number; unit_net_e4: number }[] } | null;
     stock: StockLabel;
+    stock_left: number | null;
 }
 
 interface ProductData {
@@ -54,6 +56,10 @@ interface ProductData {
 export default function ProductPage({ shell, product }: { shell: ShellProps; product: ProductData }) {
     const { price_display } = usePage<SharedProps>().props;
     const mode = price_display.mode;
+
+    useEffect(() => {
+        recordRecentlyViewed({ slug: product.slug, name: product.name, thumbnail_url: product.images[0]?.url ?? null });
+    }, [product.slug, product.name, product.images]);
 
     return (
         <StorefrontLayout title={product.meta_title ?? product.name} description={product.meta_description ?? product.short_description ?? undefined} shell={shell}>
@@ -207,6 +213,17 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
         setAdded(false);
     };
 
+    // 05.15 §5.3a: on small screens, a sticky bar once the main button scrolls away.
+    const mainButton = useRef<HTMLButtonElement>(null);
+    const [mainVisible, setMainVisible] = useState(true);
+    useEffect(() => {
+        const el = mainButton.current;
+        if (!el || typeof IntersectionObserver === 'undefined') return;
+        const observer = new IntersectionObserver(([entry]) => setMainVisible(entry.isIntersecting));
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
     const submit = () => {
         if (!pack || unavailable) return;
         setAdded(false);
@@ -244,7 +261,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                             <p className="text-sm text-muted-foreground">each, {vatLabel(mode)}</p>
                             {product.rrp_minor !== null && <p className="mt-1 text-sm text-muted-foreground">RRP {formatMinor(product.rrp_minor)}</p>}
                         </div>
-                        <StockBadge stock={variant.stock} />
+                        <StockBadge stock={variant.stock} left={variant.stock_left} />
                     </div>
                 ) : (
                     <p className="text-muted-foreground">This item is not available to buy online. Please contact us.</p>
@@ -315,6 +332,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                             </button>
                         </div>
                         <button
+                            ref={mainButton}
                             type="button"
                             onClick={submit}
                             disabled={unavailable || add.isPending}
@@ -323,6 +341,29 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                             <ShoppingBag className="size-5" aria-hidden />
                             {variant.stock === 'out_of_stock' ? 'Out of stock' : add.isPending ? 'Adding…' : 'Add to basket'}
                         </button>
+                    </div>
+                )}
+
+                {variant.price && pack && !mainVisible && (
+                    <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur lg:hidden">
+                        <div className="mx-auto flex max-w-7xl items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                                <p className="line-clamp-1 text-sm font-medium">{product.name}</p>
+                                <p className="text-sm font-semibold tabular-nums">
+                                    {shelfPrice(unitAt(variant.price, baseQty), variant.price.tax_rate_bp, mode)}{' '}
+                                    <span className="text-xs font-normal text-muted-foreground">each, {vatLabel(mode)}</span>
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={submit}
+                                disabled={unavailable || add.isPending}
+                                className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
+                            >
+                                <ShoppingBag className="size-5" aria-hidden />
+                                {added ? 'Added' : add.isPending ? 'Adding…' : 'Add'}
+                            </button>
+                        </div>
                     </div>
                 )}
 

@@ -71,6 +71,7 @@ final class ProductCards
             ->keyBy(fn ($p) => (int) $p->id);
 
         $skusByProduct = [];
+        $skuRows = [];
         DB::table('skus')
             ->whereIn('product_id', $productIds)
             ->where('status', 'active')
@@ -78,15 +79,21 @@ final class ProductCards
             ->orderBy('product_id')
             ->orderBy('position')
             ->orderBy('id')
-            ->get(['id', 'product_id'])
-            ->each(function ($sku) use (&$skusByProduct) {
+            ->get(['id', 'public_id', 'product_id', 'default_pack_id', 'moq_base_qty'])
+            ->each(function ($sku) use (&$skusByProduct, &$skuRows) {
                 $skusByProduct[(int) $sku->product_id][] = (int) $sku->id;
+                $skuRows[(int) $sku->id] = [
+                    'public_id' => (string) $sku->public_id,
+                    'default_pack_id' => $sku->default_pack_id === null ? null : (int) $sku->default_pack_id,
+                    'moq_base_qty' => (int) $sku->moq_base_qty,
+                ];
             });
 
         $skuIds = array_merge(...array_values($skusByProduct ?: [[]]));
         $resolution = $this->prices->resolveMany($skuIds, $companyId, 1, self::COUNTRY);
-        $labels = $this->stock->forSkus($skuIds);
+        $stock = $this->stock->detailed($skuIds);
         $thumbs = $this->thumbnails->lookup($skuIds, $productIds);
+        $packs = $this->defaultPacks($skuRows);
 
         $cards = [];
         foreach ($productIds as $productId) {
@@ -120,10 +127,74 @@ final class ProductCards
                     'tax_rate_bp' => $from->taxRateBp,
                     'varies' => count($skus) > 1,
                 ],
-                'stock' => StockLabels::best(array_values(array_intersect_key($labels, array_flip($skus)))),
+                'stock' => StockLabels::best(array_map(fn (int $id) => $stock[$id]['label'] ?? StockLabels::OUT_OF_STOCK, $skus)),
+                // "Only N left" for a single-SKU product; a range shows the label.
+                'stock_left' => count($skus) === 1 ? ($stock[$skus[0]]['left'] ?? null) : null,
+                'quick_add' => $this->quickAdd($skus, $skuRows, $packs, $from !== null, $stock),
             ];
         }
 
         return $cards;
+    }
+
+    /**
+     * 05.15 §5.3a: one tap adds one default pack. Only for a single-SKU
+     * product, priced, not out of stock, whose default pack alone meets
+     * the MOQ; anything else needs the product page's choices.
+     *
+     * @param  list<int>  $skus
+     * @param  array<int, array{public_id: string, default_pack_id: int|null, moq_base_qty: int}>  $skuRows
+     * @param  array<int, array{code: string, base_units: int}>  $packs
+     * @param  array<int, array{label: string, left: int|null}>  $stock
+     * @return array{sku_id: string, pack_code: string}|null
+     */
+    private function quickAdd(array $skus, array $skuRows, array $packs, bool $priced, array $stock): ?array
+    {
+        if (count($skus) !== 1 || ! $priced) {
+            return null;
+        }
+        $skuId = $skus[0];
+        $pack = $packs[$skuId] ?? null;
+        $label = $stock[$skuId]['label'] ?? StockLabels::OUT_OF_STOCK;
+        $moq = $skuRows[$skuId]['moq_base_qty'];
+
+        if ($pack === null || $label === StockLabels::OUT_OF_STOCK || $pack['base_units'] < $moq) {
+            return null;
+        }
+
+        return ['sku_id' => $skuRows[$skuId]['public_id'], 'pack_code' => $pack['code']];
+    }
+
+    /**
+     * Each SKU's default sell pack, in the cart's order (CartItemResolver):
+     * `skus.default_pack_id`, then `is_default_sell`, then the smallest.
+     *
+     * @param  array<int, array{public_id: string, default_pack_id: int|null, moq_base_qty: int}>  $skuRows
+     * @return array<int, array{code: string, base_units: int}>
+     */
+    private function defaultPacks(array $skuRows): array
+    {
+        if ($skuRows === []) {
+            return [];
+        }
+
+        $bySku = [];
+        DB::table('packs')->whereIn('sku_id', array_keys($skuRows))->where('is_sellable', true)
+            ->orderBy('sku_id')->orderBy('base_units')
+            ->get(['id', 'sku_id', 'code', 'base_units', 'is_default_sell'])
+            ->each(function ($p) use (&$bySku) {
+                $bySku[(int) $p->sku_id][] = $p;
+            });
+
+        $defaults = [];
+        foreach ($bySku as $skuId => $packs) {
+            $defaultId = $skuRows[$skuId]['default_pack_id'];
+            $chosen = collect($packs)->first(fn ($p) => (int) $p->id === $defaultId)
+                ?? collect($packs)->first(fn ($p) => (bool) $p->is_default_sell)
+                ?? $packs[0];
+            $defaults[$skuId] = ['code' => (string) $chosen->code, 'base_units' => (int) $chosen->base_units];
+        }
+
+        return $defaults;
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Domain\Catalogue\CategoryClosureMaintainer;
 use App\Domain\Catalogue\CategoryPath;
+use App\Domain\Inventory\StockLabels;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Company;
@@ -191,4 +192,64 @@ it('gives guests and public customers stock labels on the order pad, and trade u
     $trade = $this->actingAs($buyer)->getJson($url)->json('data.0');
     expect($trade['available_base_qty'])->toBe(40)
         ->and($trade['stock_label'])->toBe('in_stock');
+});
+
+it('shows the public a stock figure only at 10 or fewer, as marketplaces do', function () {
+    $few = catalogueProduct('Few Pans', onHand: 7)->skus()->sole();
+    $many = catalogueProduct('Many Pans', onHand: 40)->skus()->sole();
+    $reorder = catalogueProduct('Reorder Pans', onHand: 40)->skus()->sole();
+    StockLevel::query()->where('sku_id', $reorder->id)->update(['reorder_point_base_qty' => 50]);
+
+    expect((new StockLabels)->detailed([$few->id, $many->id, $reorder->id]))->toBe([
+        $few->id => ['label' => 'low_stock', 'left' => 7],
+        $many->id => ['label' => 'in_stock', 'left' => null],
+        $reorder->id => ['label' => 'low_stock', 'left' => null],
+    ]);
+
+    $guest = collect($this->getJson("/api/v1/stock/availability?sku_ids={$few->public_id},{$many->public_id}")->json('data'))->keyBy('sku_id');
+    expect($guest[$few->public_id]['stock_left'])->toBe(7)
+        ->and($guest[$many->public_id]['stock_left'])->toBeNull()
+        ->and($guest[$many->public_id]['available_base_qty'])->toBeNull();
+
+    $this->get('/p/few-pans')->assertInertia(fn (AssertableInertia $page) => $page->where('product.variants.0.stock_left', 7));
+});
+
+it('reports a shortage to the public without a figure above 10, and with one at 10 or fewer', function () {
+    $many = catalogueProduct('Many Pans', onHand: 40)->skus()->sole();
+    $few = catalogueProduct('Few Pans', onHand: 7)->skus()->sole();
+    $public = User::factory()->create();
+
+    $this->actingAs($public)->postJson('/api/v1/cart/lines', ['sku_id' => $many->public_id, 'pack_qty' => 500])->assertSuccessful();
+    $this->actingAs($public)->postJson('/api/v1/cart/lines', ['sku_id' => $few->public_id, 'pack_qty' => 9])->assertSuccessful();
+    $blockers = collect($this->actingAs($public)->postJson('/api/v1/checkout/preview', [])->json('data.blockers'))
+        ->where('code', 'insufficient_stock')->keyBy(fn ($b) => $b['meta']['sku_id']);
+
+    expect($blockers[$many->public_id]['meta']['available_base_qty'])->toBeNull()
+        ->and($blockers[$many->public_id]['message'])->not->toContain('40')
+        ->and($blockers[$few->public_id]['meta']['available_base_qty'])->toBe(7)
+        ->and($blockers[$few->public_id]['message'])->toBe('Only 7 left.');
+
+    // A trade buyer is told the figure.
+    $buyer = User::factory()->create();
+    CompanyUser::factory()->create(['company_id' => Company::factory()->create()->id, 'user_id' => $buyer->id]);
+    $this->actingAs($buyer)->postJson('/api/v1/cart/lines', ['sku_id' => $many->public_id, 'pack_qty' => 500])->assertSuccessful();
+    $trade = collect($this->actingAs($buyer)->postJson('/api/v1/checkout/preview', [])->json('data.blockers'))->firstWhere('code', 'insufficient_stock');
+    expect($trade['meta']['available_base_qty'])->toBe(40);
+});
+
+it('offers quick add only when one tap is enough, and suggests products as the buyer types', function () {
+    catalogueProduct('Frying Pan');
+    $moq = catalogueProduct('Bulk Pan')->skus()->sole();
+    $moq->update(['moq_base_qty' => 6]);
+    catalogueProduct('Sold Out Pan', onHand: 0);
+
+    $cards = collect($this->get('/search?q=pan')->viewData('page')['props']['products'])->keyBy('name');
+    expect($cards['Frying Pan']['quick_add']['pack_code'])->toBe('EACH')
+        ->and($cards['Bulk Pan']['quick_add'])->toBeNull()
+        ->and($cards['Sold Out Pan']['quick_add'])->toBeNull();
+
+    $suggest = $this->getJson('/search/suggest?q=pan')->assertOk()->json('data');
+    expect(collect($suggest)->pluck('name')->all())->toBe(['Bulk Pan', 'Frying Pan', 'Sold Out Pan'])
+        ->and(array_keys($suggest[0]))->toBe(['name', 'slug', 'thumbnail_url', 'price'])
+        ->and($this->getJson('/search/suggest?q=p')->json('data'))->toBe([]);
 });
