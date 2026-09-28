@@ -31,6 +31,7 @@ class HomeController extends Controller
         return Inertia::render('Storefront/Home', [
             'shell' => $this->shell->props($owner),
             'products' => $this->cards->homepage($owner?->companyId),
+            'departments' => $this->shell->departments(),
         ]);
     }
 }

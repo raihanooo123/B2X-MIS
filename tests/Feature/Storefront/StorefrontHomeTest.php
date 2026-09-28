@@ -45,7 +45,8 @@ beforeEach(function () {
 /** An active, base-priced, GB-taxed product with one SKU and a cost row (so "no cost" is not vacuous). */
 function storefrontProduct(string $name, int $unitPriceE4 = 10000, int $onHand = 500, array $productAttributes = [], array $stockAttributes = []): Product
 {
-    $product = Product::factory()->create(['name' => $name, 'slug' => Str::slug($name)] + $productAttributes);
+    // No factory category: it would add a random department to the menu.
+    $product = Product::factory()->create(['name' => $name, 'slug' => Str::slug($name)] + $productAttributes + ['primary_category_id' => null]);
     $sku = Sku::factory()->create(['product_id' => $product->id, 'tax_class_id' => test()->taxClass->id]);
     Pack::factory()->for($sku)->create(['base_units' => 1]);
     PriceListItem::factory()->for(test()->baseList, 'priceList')->for($sku)->create(['min_base_qty' => 1, 'unit_price_e4' => $unitPriceE4]);

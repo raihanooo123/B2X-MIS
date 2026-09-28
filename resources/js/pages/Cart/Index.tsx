@@ -3,7 +3,7 @@
  * Features clear price transparency, security trust signals, inline item validation,
  * and high-density line editing designed for wholesale efficiency.
  */
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import { 
     AlertCircle, 
     ArrowLeft, 
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
+import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +32,9 @@ import { useCart, useRemoveCartLine, useUpdateCartLine, type CartLine } from '@/
 import { lineTotalMinor, packPrice, totalsRows, vatLabel, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor } from '@/lib/money';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
+import { storefrontLinks } from '@/lib/storefront/links';
 import { cn } from '@/lib/utils';
+import type { SharedProps } from '@/types/shared';
 
 const MAX_PACK_QTY = 1_000_000;
 const IDENTITY_BLOCKERS = new Set(['sign_in_required', 'application_pending', 'email_unverified', 'not_permitted_to_order']);
@@ -41,9 +43,11 @@ interface CartPageProps {
     display_mode: DisplayMode;
     estimate_country: { code: string; name: string };
     estimate_postcode: string | null;
+    shell: ShellProps;
 }
 
-export default function CartIndex({ display_mode: mode, estimate_country: country, estimate_postcode: estimatePostcode }: CartPageProps) {
+export default function CartIndex({ display_mode: mode, estimate_country: country, estimate_postcode: estimatePostcode, shell }: CartPageProps) {
+    const isTrade = usePage<SharedProps>().props.auth?.company != null;
     const cart = useCart();
     const lines = cart.data?.lines ?? [];
     // The account's default delivery postcode, when there is one, lets the
@@ -56,20 +60,12 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
     const orderBlockers = (preview.data?.blockers ?? []).filter((b) => !IDENTITY_BLOCKERS.has(b.code) && lineIdsOf(b).length === 0 && b.code !== 'cart_empty');
 
     return (
-        <div className="min-h-screen bg-slate-100/70 pb-20 font-sans text-slate-900 antialiased">
-            <Head title="Shopping Cart — Order Review" />
-
-            {/* Baymard Benchmark Header with Order Progress Indicator */}
-            <header className="border-b border-slate-200 bg-white shadow-2xs">
-                <div className="mx-auto flex max-w-[1240px] items-center justify-between px-4 py-3.5 sm:px-6">
-                    <Link 
-                        href="/order-pad" 
-                        className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-                    >
-                        <ArrowLeft className="size-4" aria-hidden /> Return to Order Pad
+        <StorefrontLayout title="Your basket" shell={shell}>
+            <div className="bg-slate-100/70 pb-20 text-slate-900">
+            <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-4 px-4 pt-6 sm:px-6">
+                    <Link href={storefrontLinks.continueShopping(isTrade)} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-slate-600 transition-colors hover:text-slate-900">
+                        <ArrowLeft className="size-4" aria-hidden /> Continue shopping
                     </Link>
-
-                    {/* Step Progress Bar */}
                     <ol className="hidden md:flex items-center gap-3 text-xs font-medium text-slate-400">
                         <li className="flex items-center gap-1.5 text-slate-900 font-bold">
                             <span className="flex size-5 items-center justify-center rounded-full bg-slate-900 text-[10px] text-white">1</span>
@@ -86,12 +82,9 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
                             Payment & Confirm
                         </li>
                     </ol>
+            </div>
 
-                    <AccountMenu />
-                </div>
-            </header>
-
-            <main className="mx-auto max-w-[1240px] px-4 pt-8 sm:px-6">
+            <div className="mx-auto max-w-[1240px] px-4 pt-6 sm:px-6">
                 <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4 border-b border-slate-200 pb-4">
                     <div>
                         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Your Cart Overview</h1>
@@ -122,7 +115,7 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
                         </Button>
                     </div>
                 ) : lines.length === 0 ? (
-                    <EmptyCart />
+                    <EmptyCart isTrade={isTrade} />
                 ) : (
                     <div className="grid gap-8 lg:grid-cols-[1fr_380px] lg:items-start">
                         {/* Cart Items List Area */}
@@ -200,15 +193,17 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
                             mode={mode} 
                             country={country.name} 
                             orderBlockers={orderBlockers} 
+                            isTrade={isTrade}
                         />
                     </div>
                 )}
-            </main>
-        </div>
+            </div>
+            </div>
+        </StorefrontLayout>
     );
 }
 
-function EmptyCart() {
+function EmptyCart({ isTrade }: { isTrade: boolean }) {
     return (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-20 text-center shadow-2xs">
             <div className="flex size-16 items-center justify-center rounded-full bg-slate-100 text-slate-500">
@@ -216,10 +211,10 @@ function EmptyCart() {
             </div>
             <h2 className="mt-4 text-xl font-bold tracking-tight text-slate-900">Your cart is currently empty</h2>
             <p className="mt-1 max-w-sm text-xs text-slate-500">
-                You haven't added any product packs yet. Use your order pad or SKU search to compile your order.
+                You haven't added anything yet. Browse the catalogue and add items to your basket.
             </p>
             <Button asChild size="lg" className="mt-6 rounded-lg px-6 font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-2xs">
-                <Link href="/order-pad">Go to Order Pad</Link>
+                <Link href={storefrontLinks.continueShopping(isTrade)}>{isTrade ? 'Go to the order pad' : 'Start shopping'}</Link>
             </Button>
         </div>
     );
@@ -488,7 +483,7 @@ function RemoveButton({ line }: { line: CartLine }) {
     );
 }
 
-function CartSummary({ preview, loading, error, mode, country, orderBlockers }: { preview: CheckoutPreview | undefined; loading: boolean; error: boolean; mode: DisplayMode; country: string; orderBlockers: PreviewBlocker[] }) {
+function CartSummary({ preview, loading, error, mode, country, orderBlockers, isTrade }: { preview: CheckoutPreview | undefined; loading: boolean; error: boolean; mode: DisplayMode; country: string; orderBlockers: PreviewBlocker[]; isTrade: boolean }) {
     return (
         <aside className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs lg:sticky lg:top-8" aria-label="Order summary">
             <h2 className="text-lg font-bold text-slate-900 border-b border-slate-200 pb-3">Order Summary</h2>
@@ -563,7 +558,7 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers }: 
                 </Button>
                 
                 <Button asChild variant="outline" size="lg" className="w-full h-11 text-xs font-semibold text-slate-700 border-slate-300 hover:bg-slate-50 rounded-lg">
-                    <Link href="/order-pad">Continue Shopping</Link>
+                    <Link href={storefrontLinks.continueShopping(isTrade)}>Continue shopping</Link>
                 </Button>
             </div>
 

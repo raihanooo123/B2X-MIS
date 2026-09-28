@@ -1,13 +1,16 @@
 /**
- * Where storefront links point (05.15 §5.1). Category, search and product
- * pages arrive in slice S3. Until then they open the catalogue (the order
- * pad) filtered the same way, so every link works today and S3 changes only
- * this file.
+ * Where storefront links point (05.15 §5.1). One place, so a route change
+ * is one edit.
  */
 export const storefrontLinks = {
     home: () => '/',
-    search: (q: string) => `/order-pad?q=${encodeURIComponent(q)}`,
-    category: (slug: string) => `/order-pad?category=${encodeURIComponent(slug)}`,
-    product: (card: { name: string }) => `/order-pad?q=${encodeURIComponent(card.name)}`,
+    search: (q: string) => `/search?q=${encodeURIComponent(q)}`,
+    category: (slug: string) => `/c/${encodeURIComponent(slug)}`,
+    product: (card: { slug: string }) => `/p/${encodeURIComponent(card.slug)}`,
     cart: () => '/cart',
+    /**
+     * "Continue shopping": a trade buyer goes back to the order pad, their
+     * working tool; everyone else to the storefront.
+     */
+    continueShopping: (isTrade: boolean) => (isTrade ? '/order-pad' : '/'),
 };

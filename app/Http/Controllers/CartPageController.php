@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Pricing\DeliveryCountries;
+use App\Domain\Storefront\StorefrontShell;
 use App\Http\Support\ActingCompany;
+use App\Http\Support\CartContext;
 use App\Http\Support\PriceDisplay;
 use App\Models\Address;
 use App\Models\User;
@@ -32,6 +34,8 @@ class CartPageController extends Controller
             'display_mode' => PriceDisplay::mode($request),
             'estimate_country' => ['code' => $country, 'name' => DeliveryCountries::name($country)],
             'estimate_postcode' => $address?->getAttribute('postcode'),
+            // 05.15 §5.4: the basket sits in the storefront shell.
+            'shell' => fn () => (new StorefrontShell)->props((new CartContext)->owner($request, createGuestToken: false)),
         ]);
     }
 
