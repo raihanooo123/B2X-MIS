@@ -198,7 +198,7 @@ it('resets the password once per link and signs in on this device', function () 
 
     $new = 'a-brand-new-passphrase';
     $this->post('/reset-password', ['token' => $token, 'email' => $user->email, 'password' => $new, 'password_confirmation' => $new])
-        ->assertRedirect(route('order-pad'));
+        ->assertRedirect(route('home'));
 
     $this->assertAuthenticatedAs($user);
     expect(Hash::check($new, (string) $user->fresh()->password_hash))->toBeTrue();

@@ -491,6 +491,7 @@ beforeEach(function () {
     DB::table('stock_movements')->insert($recallHistory);
 
     $GLOBALS['__hot_path_recall_batch_id'] = $recallBatchId;
+    $GLOBALS['__hot_path_big_company_id'] = $bigCompanyId;
 
     // ANALYZE's default statistics target (100) samples a fixed ~30,000
     // rows regardless of table size, so two runs over identical data can
@@ -577,7 +578,12 @@ it('Q5: resolves sellable packs for a SKU via an Index Only Scan with zero heap 
 // Q6 — "my orders", page N (keyset)
 // -----------------------------------------------------------------
 it('Q6: paginates a company\'s orders via an Index Scan with no separate sort', function () {
-    $companyId = DB::table('orders')->where('order_number', 'like', 'PERF-SO-%')->value('company_id');
+    // The company with a real order history (every 7th order, ~2,900
+    // rows): the case this index exists for. An unordered `value()` used
+    // to pick whichever company the first row read belonged to, often one
+    // with a handful of orders, where Postgres rightly sorts them instead
+    // of walking the index, and the test failed on a correct plan.
+    $companyId = $GLOBALS['__hot_path_big_company_id'];
 
     $plan = hotPathExplain(
         'select id, order_number, status, placed_at from orders where company_id = ? and placed_at is not null order by placed_at desc, id limit 20',

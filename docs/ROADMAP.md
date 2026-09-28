@@ -1388,6 +1388,9 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] S3 category (`/c/{slug}`), search (`/search`) and product (`/p/{slug}`) pages, add to
       basket, home page redesign (hero mosaic, department tiles), basket in the storefront shell,
       "continue shopping" to the storefront for the public. 2026-09-28, pending verification.
+- [x] Stock labels (no figures) on the order pad for guests, public customers and applicants
+      (06 §9.4); public sign-in and every sign-out land on the storefront home. 2026-09-28,
+      pending verification.
 - [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
 - [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 

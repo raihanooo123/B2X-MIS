@@ -4,6 +4,7 @@ namespace App\Http\Support;
 
 use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Identity\CompanyMemberships;
 use App\Domain\Identity\CompanyUserDirectory;
 use App\Domain\Identity\LoginThrottle;
 use App\Domain\Identity\RecoveryCodes;
@@ -175,7 +176,13 @@ final class SignIn
             return redirect()->route('company.choose');
         }
 
-        return redirect()->intended(route($user->isStaff() ? 'filament.admin.pages.dashboard' : 'order-pad'));
+        // 05.13 §6.1 step 10: a trade user's tool is the order pad; a public
+        // customer or applicant shops the storefront.
+        return redirect()->intended(route(match (true) {
+            $user->isStaff() => 'filament.admin.pages.dashboard',
+            CompanyMemberships::ids($user) !== [] => 'order-pad',
+            default => 'home',
+        }));
     }
 
     /**

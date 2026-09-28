@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Inventory\StockLabels;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StockAvailabilityRequest;
+use App\Http\Support\StockVisibility;
 use App\Models\Sku;
 use App\Models\StockLevel;
 use Illuminate\Http\JsonResponse;
@@ -15,12 +17,18 @@ use Illuminate\Http\JsonResponse;
  * `incoming_base_qty` are summed across every location and batch for
  * the SKU, collapsing that detail before it ever reaches a response
  * array.
+ *
+ * Figures go to trade users and staff only (StockVisibility). A guest,
+ * public customer or applicant gets `available_base_qty: null`, no
+ * incoming quantity, and the `stock_label` (06 §9.4, 05.15 §12 Q2). The
+ * label is sent to everyone.
  */
 class StockController extends Controller
 {
     public function availability(StockAvailabilityRequest $request): JsonResponse
     {
         $publicIds = $request->skuPublicIds();
+        $figures = StockVisibility::exactFigures($request);
 
         $skusByPublicId = Sku::query()
             ->whereIn('public_id', $publicIds)
@@ -37,6 +45,7 @@ class StockController extends Controller
             ->groupBy('sku_id')
             ->get()
             ->keyBy(fn ($row) => (int) $row->sku_id);
+        $labels = (new StockLabels)->forSkus(array_values($internalIds));
 
         $data = [];
         foreach ($publicIds as $publicId) {
@@ -60,7 +69,8 @@ class StockController extends Controller
 
             $data[] = [
                 'sku_id' => $publicId,
-                'available_base_qty' => $availableBaseQty,
+                'available_base_qty' => $figures ? $availableBaseQty : null,
+                'stock_label' => $labels[(int) $sku->id] ?? StockLabels::OUT_OF_STOCK,
                 'is_stock_tracked' => (bool) $sku->is_stock_tracked,
                 'allow_backorder' => (bool) $sku->allow_backorder,
                 // `expected_on` has no source column anywhere in the
@@ -68,7 +78,7 @@ class StockController extends Controller
                 // associated date) — returned honestly as null rather
                 // than fabricated. Flagged in the session report as a
                 // doc 06 §9.4 / doc 02 gap worth an amendment.
-                'incoming' => $incomingBaseQty > 0
+                'incoming' => $figures && $incomingBaseQty > 0
                     ? ['base_qty' => $incomingBaseQty, 'expected_on' => null]
                     : null,
             ];
