@@ -221,7 +221,7 @@ it('reports a shortage to the public without a figure above 10, and with one at 
 
     $this->actingAs($public)->postJson('/api/v1/cart/lines', ['sku_id' => $many->public_id, 'pack_qty' => 500])->assertSuccessful();
     $this->actingAs($public)->postJson('/api/v1/cart/lines', ['sku_id' => $few->public_id, 'pack_qty' => 9])->assertSuccessful();
-    $blockers = collect($this->actingAs($public)->postJson('/api/v1/checkout/preview', [])->json('data.blockers'))
+    $blockers = collect($this->actingAs($public)->postJson('/api/v1/checkout/preview', [])->json('blockers'))
         ->where('code', 'insufficient_stock')->keyBy(fn ($b) => $b['meta']['sku_id']);
 
     expect($blockers[$many->public_id]['meta']['available_base_qty'])->toBeNull()
@@ -233,7 +233,7 @@ it('reports a shortage to the public without a figure above 10, and with one at 
     $buyer = User::factory()->create();
     CompanyUser::factory()->create(['company_id' => Company::factory()->create()->id, 'user_id' => $buyer->id]);
     $this->actingAs($buyer)->postJson('/api/v1/cart/lines', ['sku_id' => $many->public_id, 'pack_qty' => 500])->assertSuccessful();
-    $trade = collect($this->actingAs($buyer)->postJson('/api/v1/checkout/preview', [])->json('data.blockers'))->firstWhere('code', 'insufficient_stock');
+    $trade = collect($this->actingAs($buyer)->postJson('/api/v1/checkout/preview', [])->json('blockers'))->firstWhere('code', 'insufficient_stock');
     expect($trade['meta']['available_base_qty'])->toBe(40);
 });
 
