@@ -1360,9 +1360,36 @@ not the B2B-specific **flows**: guest-cart merge at login, whether an unapproved
       reset for trade users (staff reset done; blocked on ⚑9). §15 audit events are done except
       for flows not built yet (password change, email change, account closure).
       Customer suspension is done.
+- [ ] **Parked 2026-09-28 — user management, resume after the storefront.** Deliberately
+      deferred, not forgotten:
+      1. Applicant status page and "information requested" reply form (05.13 §7, 05.2 §5.5).
+      2. Change email address, with notices to the old and new address (05.13 §15).
+      3. Password change while signed in (05.13 §15).
+      4. Admin 2FA reset for trade users — needs the ⚑9 identity-check decision
+         (recommended: call-back to the company phone on file, or confirmation by another owner).
+      5. Follow-ups: staff-entered applications, inviting into a chosen company when an owner
+         has several, a "my companies" list, closing a user account (§4.2).
 - [ ] Reconciles with `carts.company_id`/`carts.user_id` both being nullable (02 §14.3,
       DRAFT) — guest-cart merge is exactly the transition that resolves those columns from
       NULL, so this flow and that table's design are the same piece of work.
+
+---
+
+## 23A. Public Storefront (B2C) — `docs/05.15-public-storefront.md` (added 2026-09-28)
+
+B2C first, then back to trade (decided 2026-09-28). Decisions: guest checkout yes; public
+prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
+
+- [x] 05.15 signed off 2026-09-28.
+- [ ] Amend 02 with 05.15 §9 A1–A3 (and the §19/§21.2 guest-customer note), and 05.6 with A4, each in its own signed-off commit, before S4/S5.
+- [x] S1 demo seeder (branding, images, featured, stock variety, trade and public sign-ins) and
+      S2 shell, branding settings, price display switch, home page, error pages. 2026-09-28,
+      pending verification.
+- [x] S3 category (`/c/{slug}`), search (`/search`) and product (`/p/{slug}`) pages, add to
+      basket, home page redesign (hero mosaic, department tiles), basket in the storefront shell,
+      "continue shopping" to the storefront for the public. 2026-09-28, pending verification.
+- [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
+- [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 
 ---
 

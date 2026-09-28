@@ -49,6 +49,7 @@ final class AuditLogger
             AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
+            AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
             AuditAction::LockedOut => $this->validateLockout($entry),
             AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
             AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
@@ -301,6 +302,17 @@ final class AuditLogger
             || $entry->subjectType !== 'terms_version' || $entry->subjectId === null
             || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid terms version audit entry.');
+        }
+    }
+
+    /** Staff-made, no subject, the same changed keys on both sides. */
+    private function validateStorefrontSettings(AuditEntry $entry): void
+    {
+        if ($entry->after === [] || array_keys($entry->before) !== array_keys($entry->after)
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== null || $entry->reason !== null
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid storefront settings audit entry.');
         }
     }
 

@@ -8,6 +8,7 @@ import { Head, Link, usePage } from '@inertiajs/react';
 import { CheckCircle2 } from 'lucide-react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { storefrontLinks } from '@/lib/storefront/links';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { PaymentMethod } from '@/lib/api/checkout';
@@ -112,7 +113,7 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
 }
 
 export default function Confirmation({ display_mode: mode, order }: ConfirmationProps) {
-    const { display_timezone: timeZone } = usePage<SharedProps>().props;
+    const { display_timezone: timeZone, auth } = usePage<SharedProps>().props;
 
     const address = order.delivery_address;
 
@@ -211,7 +212,7 @@ export default function Confirmation({ display_mode: mode, order }: Confirmation
 
                         <div className="flex flex-col gap-2">
                             <Button asChild className="h-11">
-                                <Link href="/order-pad">Continue shopping</Link>
+                                <Link href={storefrontLinks.continueShopping(auth?.company != null)}>Continue shopping</Link>
                             </Button>
                         </div>
                     </aside>

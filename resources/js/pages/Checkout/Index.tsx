@@ -74,7 +74,7 @@ const PAYMENT_HELP: Record<PaymentMethod, string> = {
 const BLOCKER_LINKS: Record<string, { href: string; label: string }> = {
     email_unverified: { href: '/email/verify', label: 'Resend the link' },
     sign_in_required: { href: '/login', label: 'Sign in' },
-    cart_empty: { href: '/order-pad', label: 'Go to the order pad' },
+    cart_empty: { href: '/', label: 'Continue shopping' },
 };
 
 interface PriceChange {

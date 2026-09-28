@@ -30,7 +30,7 @@ class OrderConfirmationController extends Controller
         $address = $model->addresses->firstWhere('address_type', 'delivery');
 
         return Inertia::render('Orders/Confirmation', [
-            'display_mode' => PriceDisplay::mode($request),
+            'display_mode' => PriceDisplay::checkoutMode($request),
             'order' => [
                 'id' => $model->public_id,
                 'order_number' => $model->order_number,
