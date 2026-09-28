@@ -37,16 +37,17 @@ final class EnforceSessionPolicy
         $lastActivityAt = $session->get(SignIn::LAST_ACTIVITY_AT);
 
         if ($user->status !== 'active') {
-            return $this->end($request, 'Your account is not active. Please contact us if you think this is wrong.');
+            return $this->end($request, 'account_inactive', 'Your account is not active. Please contact us if you think this is wrong.');
         }
 
         if (! is_int($signedInAt)) {
             // A session authenticated without SignIn (Auth::login in a
             // console command or test): start its clocks now.
             $session->put(SignIn::SIGNED_IN_AT, $now);
-        } elseif ($now - $signedInAt > SessionPolicy::ABSOLUTE_SECONDS
-            || (is_int($lastActivityAt) && $now - $lastActivityAt > SessionPolicy::idleSecondsFor($user))) {
-            return $this->end($request, 'Your session has expired. Please sign in again.');
+        } elseif ($now - $signedInAt > SessionPolicy::ABSOLUTE_SECONDS) {
+            return $this->end($request, 'absolute', 'Your session has expired. Please sign in again.');
+        } elseif (is_int($lastActivityAt) && $now - $lastActivityAt > SessionPolicy::idleSecondsFor($user)) {
+            return $this->end($request, 'idle', 'Your session has expired. Please sign in again.');
         }
 
         $session->put(SignIn::LAST_ACTIVITY_AT, $now);
@@ -54,9 +55,10 @@ final class EnforceSessionPolicy
         return $next($request);
     }
 
-    private function end(Request $request, string $message): Response
+    /** @param  'idle'|'absolute'|'account_inactive'  $reason */
+    private function end(Request $request, string $reason, string $message): Response
     {
-        (new SignIn)->signOut($request);
+        (new SignIn)->signOut($request, $reason);
 
         if ($request->is('api/*')) {
             return ApiException::envelope($request, 401, 'session_expired', $message);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Support;
 
+use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Identity\CompanyUserDirectory;
 use App\Domain\Identity\LoginThrottle;
@@ -25,6 +26,10 @@ use Illuminate\Support\Facades\Hash;
  *   5. second factor, if enabled, before the session is authenticated
  *   6–7. Auth::login (fires `Login` → guest cart merge), session clocks,
  *        last_login_at, clear the identifier's failure count
+ *
+ * Every outcome is audited (§15): a failure and the lockout it may start
+ * as a keyed fingerprint of the identifier, a success and a sign-out
+ * against the user, with how they signed in or why the session ended.
  *
  * The company choice (§6.3) comes after this and is the caller's redirect.
  */
@@ -63,10 +68,7 @@ final class SignIn
         $passwordMatches = Hash::check($password, $hash ?? (self::$dummyHash ??= Hash::make(bin2hex(random_bytes(16)))));
 
         if ($user === null || $hash === null || ! $passwordMatches || $user->status !== 'active') {
-            $lock = $this->throttle->recordFailure($ip, $email);
-            $this->audit->failedSignIn($email, $ip, $request->userAgent());
-
-            return $lock > 0 ? SignInResult::locked($lock) : SignInResult::failed();
+            return $this->failed($request, $email);
         }
 
         if (Hash::needsRehash($hash)) {
@@ -119,23 +121,24 @@ final class SignIn
         $recoveryUsed = ! $totpValid && RecoveryCodes::consume($user, $code);
 
         if (! $totpValid && ! $recoveryUsed) {
-            $lock = $this->throttle->recordFailure($ip, $user->email);
-            $this->audit->failedSignIn($user->email, $ip, $request->userAgent());
-
-            return $lock > 0 ? SignInResult::locked($lock) : SignInResult::failed();
+            return $this->failed($request, $user->email);
         }
 
-        $this->complete($request, $user);
+        $this->complete($request, $user, $recoveryUsed ? 'recovery_code' : 'two_factor');
 
         if ($recoveryUsed) {
             // 05.13 §12: using a recovery code is audited and notified.
+            $this->audit->ownAuthEvent(AuditAction::RecoveryCodeUsed, $user->id, ['remaining' => RecoveryCodes::remaining($user)]);
             (new Notifications)->toUser(new TwoFactorChanged($user->id, TwoFactorChanged::RECOVERY_CODE_USED), $user);
         }
 
         return SignInResult::signedIn();
     }
 
-    public function complete(Request $request, User $user): void
+    /**
+     * @param  'password'|'two_factor'|'recovery_code'|'invitation'  $method  how the user proved who they are, for the audit
+     */
+    public function complete(Request $request, User $user, string $method = 'password'): void
     {
         $request->session()->forget([self::PENDING_2FA_USER, self::PENDING_2FA_STARTED]);
 
@@ -149,6 +152,8 @@ final class SignIn
 
         $user->forceFill(['last_login_at' => now()])->save();
         $this->throttle->clearIdentifier($user->email);
+
+        $this->audit->ownAuthEvent(AuditAction::SignedIn, $user->id, ['method' => $method]);
     }
 
     /**
@@ -173,10 +178,39 @@ final class SignIn
         return redirect()->intended(route($user->isStaff() ? 'filament.admin.pages.dashboard' : 'order-pad'));
     }
 
-    public function signOut(Request $request): void
+    /**
+     * Ends the session. `$expired` is why the system ended it
+     * (EnforceSessionPolicy); null is the user signing out.
+     *
+     * @param  'idle'|'absolute'|'account_inactive'|null  $expired
+     */
+    public function signOut(Request $request, ?string $expired = null): void
     {
+        $user = Auth::guard('web')->user();
+        if ($user instanceof User) {
+            $expired === null
+                ? $this->audit->ownAuthEvent(AuditAction::SignedOut, $user->id)
+                : $this->audit->ownAuthEvent(AuditAction::SessionExpired, $user->id, ['reason' => $expired]);
+        }
+
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+    }
+
+    /** A wrong password or code: counted, audited, and a lockout it starts audited too (§6.2). */
+    private function failed(Request $request, string $identifier): SignInResult
+    {
+        $ip = (string) $request->ip();
+        $lock = $this->throttle->recordFailure($ip, $identifier);
+        $this->audit->failedSignIn($identifier, $ip, $request->userAgent());
+
+        if ($lock > 0) {
+            $this->audit->lockedOut($identifier, $lock, $ip, $request->userAgent());
+
+            return SignInResult::locked($lock);
+        }
+
+        return SignInResult::failed();
     }
 }

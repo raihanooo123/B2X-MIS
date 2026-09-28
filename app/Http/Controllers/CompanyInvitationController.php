@@ -78,7 +78,7 @@ class CompanyInvitationController extends Controller
             return redirect()->route('login')->with('status', 'Sign in to continue with your invitation.');
         }
         if ($actor === null) {
-            $signIn->complete($request, $user);
+            $signIn->complete($request, $user, 'invitation');
         }
 
         return $this->accepted($request, $user);

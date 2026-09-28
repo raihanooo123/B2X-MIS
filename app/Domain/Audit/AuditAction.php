@@ -35,6 +35,31 @@ enum AuditAction: string
     case CustomerReinstated = 'auth.customer_reinstated';
 
     /*
+     * 05.13 §15: a person's own authentication events. The actor is the
+     * person (or anonymous, before they are known); nothing secret — no
+     * password, code, token or raw identifier — is ever recorded.
+     */
+    case SignedIn = 'auth.signed_in';
+
+    case SignedOut = 'auth.signed_out';
+
+    case SessionExpired = 'auth.session_expired';
+
+    case LockedOut = 'auth.locked_out';
+
+    case PasswordResetRequested = 'auth.password_reset_requested';
+
+    case PasswordResetCompleted = 'auth.password_reset_completed';
+
+    case TwoFactorEnabled = 'auth.two_factor_enabled';
+
+    case TwoFactorDisabled = 'auth.two_factor_disabled';
+
+    case RecoveryCodesRegenerated = 'auth.recovery_codes_regenerated';
+
+    case RecoveryCodeUsed = 'auth.recovery_code_used';
+
+    /*
      * 05.2 §4: every application transition, with actor and time. 07 §6.5
      * has no application family; review decides who may buy on trade
      * terms, so these sit under `permission`.
@@ -62,7 +87,11 @@ enum AuditAction: string
         return match ($this) {
             self::SignInFailed, self::StaffCreated, self::StaffOnboardingRequested,
             self::StaffSuspended, self::StaffReinstated, self::StaffTwoFactorReset,
-            self::CustomerSuspended, self::CustomerReinstated => 'auth',
+            self::CustomerSuspended, self::CustomerReinstated,
+            self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
+            self::PasswordResetRequested, self::PasswordResetCompleted,
+            self::TwoFactorEnabled, self::TwoFactorDisabled,
+            self::RecoveryCodesRegenerated, self::RecoveryCodeUsed => 'auth',
             self::CompanyInvited, self::CompanyInvitationRevoked, self::CompanyInvitationAccepted,
             self::CompanyMemberChanged, self::CompanyMemberRemoved,
             self::StaffRoleGranted, self::StaffRoleRevoked,
@@ -89,6 +118,10 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => [],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => [],
+            self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
+            self::PasswordResetRequested, self::PasswordResetCompleted,
+            self::TwoFactorEnabled, self::TwoFactorDisabled,
+            self::RecoveryCodesRegenerated, self::RecoveryCodeUsed => [],
         };
     }
 
@@ -113,6 +146,12 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => ['checks'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
+            self::SignedIn => ['method'],
+            self::SessionExpired => ['reason'],
+            self::LockedOut => ['identifier_fingerprint', 'key_version', 'locked_seconds'],
+            self::RecoveryCodeUsed => ['remaining'],
+            self::SignedOut, self::PasswordResetRequested, self::PasswordResetCompleted,
+            self::TwoFactorEnabled, self::TwoFactorDisabled, self::RecoveryCodesRegenerated => [],
         };
     }
 }
