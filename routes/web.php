@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', HomeController::class)->name('home');
 Route::get('/c/{slug}', [CatalogueController::class, 'category'])->where('slug', '[A-Za-z0-9-]+')->name('storefront.category');
 Route::get('/search', [CatalogueController::class, 'search'])->name('storefront.search');
+Route::get('/search/suggest', [CatalogueController::class, 'suggest'])->middleware('throttle:60,1')->name('storefront.suggest');
 Route::get('/p/{slug}', [ProductController::class, 'show'])->where('slug', '[A-Za-z0-9-]+')->name('storefront.product');
 Route::post('/price-display', PriceDisplayController::class)->middleware('throttle:30,1')->name('price-display');
 

@@ -28,6 +28,7 @@ use App\Http\Requests\Api\V1\PlaceOrderRequest;
 use App\Http\Resources\Api\V1\CheckoutPreviewResource;
 use App\Http\Support\CartContext;
 use App\Http\Support\Idempotency;
+use App\Http\Support\StockDisclosure;
 use App\Models\Address;
 use App\Models\Cart;
 use App\Models\Company;
@@ -139,7 +140,7 @@ class CheckoutController extends Controller
         // the account may have changed since.
         $preview = $this->previewService->preview($cart, $companyId, $address->countryCode, 'delivery', user: $user, checkIdentity: true, destination: new DeliveryDestination($address->postcode, $address->countryCode));
         if ($preview->blockers !== []) {
-            throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => $b->toArray(), $preview->blockers));
+            throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
 
         try {
@@ -177,8 +178,8 @@ class CheckoutController extends Controller
             throw new ApiException(409, 'insufficient_stock', 'Some items sold out while you were checking out. Nothing has been placed.', array_map(fn ($s) => [
                 'field' => null,
                 'code' => 'insufficient_stock',
-                'message' => "Only {$s->availableBaseQty} units of ".($codes[$s->skuId] ?? 'an item').' are available.',
-                'meta' => ['sku_code' => $codes[$s->skuId] ?? null, 'requested_base_qty' => $s->requestedBaseQty, 'available_base_qty' => $s->availableBaseQty],
+                'message' => StockDisclosure::shortfall($s->availableBaseQty, $codes[$s->skuId] ?? 'an item', $request),
+                'meta' => ['sku_code' => $codes[$s->skuId] ?? null, 'requested_base_qty' => $s->requestedBaseQty, 'available_base_qty' => StockDisclosure::available($s->availableBaseQty, $request)],
             ], $e->shortfalls));
         } catch (NoEligibleBatchException $e) {
             $code = Sku::query()->whereKey($e->skuId)->value('sku_code');
@@ -241,7 +242,7 @@ class CheckoutController extends Controller
 
         $preview = $this->previewService->preview($cart, $owner->companyId, $request->deliveryCountryCode(), 'delivery', user: $user, checkIdentity: true, destination: $request->destination());
         if ($preview->blockers !== []) {
-            throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => $b->toArray(), $preview->blockers));
+            throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
         if ($preview->totalGrossMinor !== $request->expectedTotalGrossMinor()) {
             throw $this->priceChanged($request->expectedTotalGrossMinor(), $preview->totalGrossMinor);

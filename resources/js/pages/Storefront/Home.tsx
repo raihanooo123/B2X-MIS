@@ -7,12 +7,13 @@
  */
 import { Link, router, usePage } from '@inertiajs/react';
 import { ArrowRight, BadgePercent, ImageOff, Search, ShieldCheck, Truck } from 'lucide-react';
-import { useId, useRef, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { ProductCard, type ProductCardData } from '@/components/storefront/ProductCard';
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { storefrontLinks } from '@/lib/storefront/links';
 import { shelfPrice } from '@/lib/storefront/price';
+import { readRecentlyViewed, type RecentlyViewedItem } from '@/lib/storefront/recentlyViewed';
 import type { SharedProps } from '@/types/shared';
 
 interface Department {
@@ -135,6 +136,8 @@ export default function Home({ shell, products, departments }: HomeProps) {
                 )}
             </section>
 
+            <RecentlyViewed />
+
             {/* Guests and public customers only: not trade users or staff. */}
             {price_display.can_switch && (
                 <section className="mx-auto max-w-7xl px-4 pt-12">
@@ -210,5 +213,39 @@ function TrustPoint({ icon, title, text }: { icon: ReactNode; title: string; tex
                 <span className="block text-muted-foreground">{text}</span>
             </span>
         </li>
+    );
+}
+
+/** 05.15 §5.3a: this browser's last product pages. Nothing is shown until there are some. */
+function RecentlyViewed() {
+    const [items, setItems] = useState<RecentlyViewedItem[]>([]);
+    useEffect(() => setItems(readRecentlyViewed()), []);
+
+    if (items.length === 0) {
+        return null;
+    }
+
+    return (
+        <section aria-labelledby="recently-viewed" className="mx-auto max-w-7xl px-4 pt-12">
+            <SectionHeading id="recently-viewed" title="Recently viewed" />
+            <ul className="mt-5 flex gap-3 overflow-x-auto pb-2 sm:gap-4">
+                {items.map((item) => (
+                    <li key={item.slug} className="w-36 shrink-0 sm:w-40">
+                        <Link href={storefrontLinks.product(item)} className="group block">
+                            <div className="aspect-square overflow-hidden rounded-xl border bg-muted/40">
+                                {item.thumbnail_url ? (
+                                    <img src={item.thumbnail_url} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                ) : (
+                                    <div className="flex size-full items-center justify-center text-muted-foreground">
+                                        <ImageOff className="size-6" aria-hidden />
+                                    </div>
+                                )}
+                            </div>
+                            <p className="mt-2 line-clamp-2 text-sm font-medium group-hover:text-primary">{item.name}</p>
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+        </section>
     );
 }

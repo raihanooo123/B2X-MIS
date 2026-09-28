@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\StorefrontListingRequest;
 use App\Http\Support\CartContext;
 use App\Models\Category;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -55,6 +56,29 @@ class CatalogueController extends Controller
     public function search(StorefrontListingRequest $request): Response
     {
         return $this->listing($request, $request->filters(), ['category' => null]);
+    }
+
+    /**
+     * 05.15 §5.3a: up to 6 matches while the buyer types, from the same
+     * search as the grid. JSON, not a page.
+     */
+    public function suggest(StorefrontListingRequest $request): JsonResponse
+    {
+        $filters = $request->filters();
+        if ($filters->search === null || mb_strlen($filters->search) < 2) {
+            return response()->json(['data' => []]);
+        }
+
+        $owner = $this->cartContext->owner($request, createGuestToken: false);
+        $page = $this->catalogue->page($filters, null, 6);
+        $cards = $this->cards->cards($page['product_ids'], $owner?->companyId);
+
+        return response()->json(['data' => array_map(fn (array $c) => [
+            'name' => $c['name'],
+            'slug' => $c['slug'],
+            'thumbnail_url' => $c['thumbnail_url'],
+            'price' => $c['price'],
+        ], $cards)]);
     }
 
     /** @param  array<string, mixed>  $extra */

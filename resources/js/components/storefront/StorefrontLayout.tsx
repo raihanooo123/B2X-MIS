@@ -13,6 +13,7 @@ import { ChevronDown, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lu
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 
 import { storefrontLinks } from '@/lib/storefront/links';
+import { shelfPrice } from '@/lib/storefront/price';
 import { cn } from '@/lib/utils';
 import type { SharedBrand, SharedProps } from '@/types/shared';
 
@@ -172,11 +173,29 @@ function VatSwitch({ mode }: { mode: 'net' | 'gross' }) {
     );
 }
 
-function SearchBox({ className }: { className?: string }) {
-    const inputId = useId();
-    const input = useRef<HTMLInputElement>(null);
+interface Suggestion {
+    name: string;
+    slug: string;
+    thumbnail_url: string | null;
+    price: { unit_net_e4: number; tax_rate_bp: number; varies: boolean } | null;
+}
 
-    // 05.15 §3.2: "/" focuses search, as on the order pad (05.1 §8.1).
+/**
+ * Header search with suggestions as the buyer types (05.15 §5.3a): an ARIA
+ * combobox. ↑/↓ move through the list, Enter opens the highlighted product
+ * or runs the search, Escape closes. "/" focuses it, as on the order pad.
+ */
+function SearchBox({ className }: { className?: string }) {
+    const { price_display } = usePage<SharedProps>().props;
+    const inputId = useId();
+    const listId = useId();
+    const input = useRef<HTMLInputElement>(null);
+    const wrapper = useRef<HTMLFormElement>(null);
+    const [q, setQ] = useState('');
+    const [results, setResults] = useState<Suggestion[]>([]);
+    const [open, setOpen] = useState(false);
+    const [active, setActive] = useState(-1);
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement | null;
@@ -186,20 +205,73 @@ function SearchBox({ className }: { className?: string }) {
                 input.current?.focus();
             }
         };
+        const onDown = (e: MouseEvent) => wrapper.current && !wrapper.current.contains(e.target as Node) && setOpen(false);
         document.addEventListener('keydown', onKey);
-        return () => document.removeEventListener('keydown', onKey);
+        document.addEventListener('mousedown', onDown);
+        return () => {
+            document.removeEventListener('keydown', onKey);
+            document.removeEventListener('mousedown', onDown);
+        };
     }, []);
+
+    // Debounced, and a stale answer never replaces a newer one.
+    useEffect(() => {
+        const term = q.trim();
+        if (term.length < 2) {
+            setResults([]);
+            return;
+        }
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => {
+            fetch(`/search/suggest?q=${encodeURIComponent(term)}`, { headers: { Accept: 'application/json' }, signal: controller.signal })
+                .then((r) => (r.ok ? r.json() : { data: [] }))
+                .then((body: { data: Suggestion[] }) => {
+                    setResults(body.data);
+                    setActive(-1);
+                    setOpen(true);
+                })
+                .catch(() => undefined);
+        }, 200);
+        return () => {
+            window.clearTimeout(timer);
+            controller.abort();
+        };
+    }, [q]);
+
+    const go = (url: string) => {
+        setOpen(false);
+        router.visit(url);
+    };
 
     const submit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        const q = input.current?.value.trim() ?? '';
-        if (q !== '') {
-            router.visit(storefrontLinks.search(q));
+        if (open && active >= 0 && results[active]) {
+            go(storefrontLinks.product(results[active]));
+            return;
+        }
+        const term = q.trim();
+        if (term !== '') {
+            go(storefrontLinks.search(term));
         }
     };
 
+    const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'ArrowDown' && results.length > 0) {
+            e.preventDefault();
+            setOpen(true);
+            setActive((i) => (i + 1) % results.length);
+        } else if (e.key === 'ArrowUp' && results.length > 0) {
+            e.preventDefault();
+            setActive((i) => (i <= 0 ? results.length - 1 : i - 1));
+        } else if (e.key === 'Escape') {
+            setOpen(false);
+        }
+    };
+
+    const showList = open && q.trim().length >= 2;
+
     return (
-        <form role="search" onSubmit={submit} className={cn('relative w-full max-w-2xl', className)}>
+        <form ref={wrapper} role="search" onSubmit={submit} className={cn('relative w-full max-w-2xl', className)}>
             <label htmlFor={inputId} className="sr-only">
                 Search products
             </label>
@@ -209,10 +281,61 @@ function SearchBox({ className }: { className?: string }) {
                 id={inputId}
                 type="search"
                 name="q"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onFocus={() => results.length > 0 && setOpen(true)}
+                onKeyDown={onKeyDown}
+                role="combobox"
+                aria-expanded={showList}
+                aria-controls={listId}
+                aria-autocomplete="list"
+                aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
                 placeholder="Search products or SKU codes"
                 autoComplete="off"
                 className="h-11 w-full rounded-lg border bg-muted/40 pl-9 pr-4 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/30 md:h-10 md:text-sm"
             />
+            {showList && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-background shadow-lg">
+                    {results.length === 0 ? (
+                        <p className="px-4 py-3 text-sm text-muted-foreground">No matching products. Press Enter to search anyway.</p>
+                    ) : (
+                        <ul id={listId} role="listbox" aria-label="Suggestions" className="max-h-96 overflow-y-auto py-1">
+                            {results.map((item, i) => (
+                                <li
+                                    key={item.slug}
+                                    id={`${listId}-${i}`}
+                                    role="option"
+                                    aria-selected={i === active}
+                                    onMouseEnter={() => setActive(i)}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        go(storefrontLinks.product(item));
+                                    }}
+                                    className={cn('flex cursor-pointer items-center gap-3 px-3 py-2 text-sm', i === active && 'bg-muted')}
+                                >
+                                    <span className="size-10 shrink-0 overflow-hidden rounded-md bg-muted/50">
+                                        {item.thumbnail_url && <img src={item.thumbnail_url} alt="" className="size-full object-cover" />}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+                                    {item.price && (
+                                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                                            {item.price.varies ? 'from ' : ''}
+                                            {shelfPrice(item.price.unit_net_e4, item.price.tax_rate_bp, price_display.mode)}
+                                        </span>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    <button
+                        type="submit"
+                        onMouseDown={() => setActive(-1)}
+                        className="flex w-full items-center gap-2 border-t px-4 py-2.5 text-left text-sm font-medium text-primary hover:bg-muted"
+                    >
+                        <Search className="size-4" aria-hidden /> See all results for “{q.trim()}”
+                    </button>
+                </div>
+            )}
         </form>
     );
 }

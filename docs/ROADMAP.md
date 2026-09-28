@@ -1391,6 +1391,9 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] Stock labels (no figures) on the order pad for guests, public customers and applicants
       (06 §9.4); public sign-in and every sign-out land on the storefront home. 2026-09-28,
       pending verification.
+- [x] Marketplace stock disclosure ("Only N left" at 10 or fewer; shortage messages without a
+      figure above 10) and shopping aids: quick add, search suggestions, recently viewed, sticky
+      mobile add-to-basket (05.15 §5.3, §5.3a). 2026-09-28, pending verification.
 - [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
 - [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 

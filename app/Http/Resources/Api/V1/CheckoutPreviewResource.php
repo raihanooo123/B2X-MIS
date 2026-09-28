@@ -4,6 +4,7 @@ namespace App\Http\Resources\Api\V1;
 
 use App\Domain\Ordering\CheckoutBlocker;
 use App\Domain\Ordering\CheckoutPreview;
+use App\Http\Support\StockDisclosure;
 use App\Models\CartLine;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -68,7 +69,8 @@ class CheckoutPreviewResource extends JsonResource
             ],
             'minimum_order_net_minor' => $preview->minimumOrderNetMinor,
             'lines' => array_map(fn (CartLine $line) => $this->line($preview, $line), $preview->cartLines),
-            'blockers' => array_map(fn (CheckoutBlocker $b) => $b->toArray(), $preview->blockers),
+            // 05.15 §5.3: a shortage figure only for trade and staff, or when small.
+            'blockers' => array_map(fn (CheckoutBlocker $b) => StockDisclosure::blocker($b, $request), $preview->blockers),
         ];
     }
 

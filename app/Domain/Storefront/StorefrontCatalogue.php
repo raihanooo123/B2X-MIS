@@ -32,14 +32,14 @@ final class StorefrontCatalogue
     /**
      * @return array{product_ids: list<int>, next_cursor: string|null}
      */
-    public function page(StorefrontFilters $filters, ?string $cursor): array
+    public function page(StorefrontFilters $filters, ?string $cursor, int $pageSize = self::PAGE_SIZE): array
     {
         $query = DB::table('products as p')
             ->where('p.status', 'active')
             ->whereNull('p.deleted_at')
             ->whereExists(fn (Builder $q) => $q->selectRaw('1')->from('skus as s')
                 ->whereColumn('s.product_id', 'p.id')->where('s.status', 'active')->whereNull('s.deleted_at'))
-            ->limit(self::PAGE_SIZE + 1)
+            ->limit($pageSize + 1)
             ->select(['p.id', 'p.name', 'p.published_at']);
 
         $this->applyFilters($query, $filters);
@@ -63,8 +63,8 @@ final class StorefrontCatalogue
         }
 
         $rows = $query->get();
-        $hasMore = $rows->count() > self::PAGE_SIZE;
-        $rows = $rows->take(self::PAGE_SIZE)->values();
+        $hasMore = $rows->count() > $pageSize;
+        $rows = $rows->take($pageSize)->values();
         $last = $rows->last();
 
         return [

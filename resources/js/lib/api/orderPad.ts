@@ -66,6 +66,8 @@ export type StockAvailabilityEntry =
           /** null for guests, public customers and applicants: they get the label only (06 §9.4). */
           available_base_qty: number | null;
           stock_label: 'in_stock' | 'low_stock' | 'backorder' | 'out_of_stock';
+          /** The figure when it is 10 or fewer, for anyone ("Only 7 left", 05.15 §5.3). */
+          stock_left: number | null;
           is_stock_tracked: boolean;
           allow_backorder: boolean;
           incoming: { base_qty: number; expected_on: string | null } | null;
