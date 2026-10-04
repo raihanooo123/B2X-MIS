@@ -11,6 +11,7 @@ use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
 use App\Domain\Delivery\DeliveryQuoter;
 use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
+use App\Domain\Delivery\ReturnCostEstimator;
 use App\Domain\Inventory\AllocationLine;
 use App\Domain\Inventory\AllocationService;
 use App\Domain\Inventory\DeadlockRetryPolicy;
@@ -109,6 +110,7 @@ final class CheckoutService
         private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
         private readonly InvoiceService $invoiceService = new InvoiceService,
         private readonly Notifications $notifications = new Notifications,
+        private readonly ReturnCostEstimator $returnCosts = new ReturnCostEstimator,
     ) {}
 
     /**
@@ -196,8 +198,13 @@ final class CheckoutService
 
         $defaultLocation = Location::query()->where('is_default', true)->where('is_sellable', true)->firstOrFail();
 
+        // 02 §27: rated before any lock, from the same inputs preview used.
+        $returnCost = $request->companyId === null && ReturnCostEstimator::isPallet($delivery) && $delivery !== null
+            ? $this->returnCosts->estimateGrossMinor($delivery, $request->deliveryCountryCode)
+            : null;
+
         try {
-            return $this->place($request, $strategy, $cart, $pricing, $defaultLocation, $delivery);
+            return $this->place($request, $strategy, $cart, $pricing, $defaultLocation, $delivery, $returnCost);
         } catch (InsufficientCreditException $e) {
             // 05.2 §11: accounts hear about a refused on-account order. Nothing
             // was committed; the notification is queued outside any transaction.
@@ -207,11 +214,11 @@ final class CheckoutService
         }
     }
 
-    private function place(CheckoutRequest $request, CheckoutStrategy $strategy, Cart $cart, OrderPricingResult $pricing, Location $defaultLocation, ?DeliveryQuote $delivery): Order
+    private function place(CheckoutRequest $request, CheckoutStrategy $strategy, Cart $cart, OrderPricingResult $pricing, Location $defaultLocation, ?DeliveryQuote $delivery, ?int $returnCost): Order
     {
         return (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation, $delivery) {
-                $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request), $delivery);
+            fn () => DB::transaction(function () use ($request, $strategy, $cart, $pricing, $defaultLocation, $delivery, $returnCost) {
+                $order = $this->createDraftOrder($request, $pricing, $strategy->paymentStatus($request), $delivery, $returnCost);
 
                 if ($request->deliveryAddress !== null) {
                     OrderAddress::create(['order_id' => $order->id, 'address_type' => 'delivery'] + $request->deliveryAddress->toSnapshot());
@@ -293,7 +300,7 @@ final class CheckoutService
         return $pricing->shippingNetMinor;
     }
 
-    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery): Order
+    private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery, ?int $returnCost = null): Order
     {
         return Order::create([
             // Placeholder, unique and syntactically valid — overwritten
@@ -316,6 +323,8 @@ final class CheckoutService
             'subtotal_net_minor' => $pricing->subtotalNetMinor,
             'shipping_net_minor' => $pricing->shippingNetMinor,
             'standard_shipping_net_minor' => $this->standardShippingNetMinor($request, $pricing, $delivery),
+            // 02 §27: what returning this pallet would cost the consumer, as they were told.
+            'return_cost_estimate_gross_minor' => $returnCost,
             // 02 §20.2: the carriage snapshot, never re-resolved (05.6 §8).
             'shipping_tax_minor' => $pricing->shippingTaxMinor,
             'shipping_tax_rate_bp' => $pricing->shippingTaxRateBp,

@@ -11,10 +11,12 @@ use App\Domain\Notifications\Notices\OrderCancelled;
 use App\Domain\Notifications\Notices\OrderConfirmed;
 use App\Domain\Notifications\Notices\PaymentReceived;
 use App\Domain\Notifications\Notices\RefundFailed;
+use App\Domain\Notifications\Notices\RmaApproved;
 use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\Rma;
 use App\Models\Shipment;
 use App\Models\User;
 use App\Support\DisplayTime;
@@ -62,6 +64,16 @@ final class Notifications
         $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id', 'guest_email']);
         if ($order !== null) {
             $this->dispatcher->send(new OrderCancelled($orderId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.12 §5.1 `rma.approved`: to the order's customer (05.4 §7.2, §13.3). */
+    public function rmaApproved(int $rmaId): void
+    {
+        $rma = Rma::query()->find($rmaId, ['id', 'order_id']);
+        $order = $rma === null ? null : Order::query()->find($rma->order_id, ['id', 'user_id', 'company_id', 'guest_email']);
+        if ($order !== null) {
+            $this->dispatcher->send(new RmaApproved($rmaId), $this->recipients->orderCustomer($order));
         }
     }
 

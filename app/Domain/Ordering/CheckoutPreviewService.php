@@ -7,6 +7,7 @@ use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
 use App\Domain\Delivery\DeliveryQuoter;
+use App\Domain\Delivery\ReturnCostEstimator;
 use App\Domain\Delivery\ThresholdEvaluator;
 use App\Domain\Inventory\BatchEligibility;
 use App\Domain\Pricing\BulkPriceResolver;
@@ -78,6 +79,7 @@ final class CheckoutPreviewService
         private readonly BulkPriceResolver $bulkPriceResolver = new BulkPriceResolver,
         private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
         private readonly ThresholdEvaluator $thresholds = new ThresholdEvaluator,
+        private readonly ReturnCostEstimator $returnCosts = new ReturnCostEstimator,
     ) {}
 
     public function preview(
@@ -192,6 +194,9 @@ final class CheckoutPreviewService
             }
         }
 
+        // 02 §27: a consumer is told what returning a pallet would cost, before paying.
+        $palletReturn = $companyId === null && ReturnCostEstimator::isPallet($delivery);
+
         return new CheckoutPreview(
             cartLines: $cartLines,
             pricedLines: $pricedLines,
@@ -209,6 +214,8 @@ final class CheckoutPreviewService
             creditAvailableMinor: $this->creditAvailableMinor($companyId),
             minimumOrderNetMinor: $minimumNetMinor,
             blockers: [...$blockers, ...$identityBlockers],
+            palletReturn: $palletReturn,
+            returnCostEstimateGrossMinor: $palletReturn && $delivery !== null ? $this->returnCosts->estimateGrossMinor($delivery, $deliveryCountryCode, $at) : null,
         );
     }
 

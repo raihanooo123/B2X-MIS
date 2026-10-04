@@ -1406,7 +1406,10 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] S6 spec: 05.4 §13 (consumers), 05.15 §9 A5–A8, 02 §14.5.3 (A8), 05.12 keys `order.cancelled`,
       `rma.refund_due_soon`, `refund.failed`. Signed off 2026-10-04. Q13 (pallet return cost, A9) open.
 - [x] S6a cancel before dispatch (05.4 §13.2; A8, `2026_10_17_090100`). 2026-10-04, pending verification.
-- [ ] S6b cancellation request after dispatch (05.4 §13.3; A6, A7) — blocked on Q13 for pallet orders
+- [x] A9 `orders.return_cost_estimate_gross_minor` (02 §27), signed off 2026-10-04 (Q13).
+- [x] S6b cancellation request after dispatch (05.4 §13.3; A6, A7, A9): `2026_10_18_090100` (A9),
+      `2026_10_18_090200` (`rmas`, `rma_lines`, `credit_notes.rma_id` FK, `rma_number` and `credit_note_number`
+      series). 2026-10-04, pending verification.
 - [ ] S6c sending back and the refund deadline (05.4 §13.5)
 - [ ] S6d inspection and refund (05.4 §13.5–13.6)
 - [ ] S6e faulty goods and staff entry (05.4 §13.4)

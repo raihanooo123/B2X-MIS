@@ -4,9 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\OrderCancellationService;
+use App\Domain\Returns\ConsumerCancellations;
+use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
+use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,6 +34,7 @@ class OrderConfirmationController extends Controller
             'order' => OrderPageProps::for($model),
             'guest' => null,
             'cancel_url' => OrderPageProps::canCancel($model) && Gate::allows('cancel', $model) ? route('orders.cancel', ['order' => $model->public_id]) : null,
+            'cancel_items_url' => Gate::allows('cancel', $model) ? route('orders.cancel-items', ['order' => $model->public_id]) : null,
         ]);
     }
 
@@ -46,5 +51,20 @@ class OrderConfirmationController extends Controller
         }
 
         return back()->with('status', 'Your order is cancelled. We have emailed you a confirmation.');
+    }
+
+    /** 05.4 §13.3: a signed-in consumer cancels items of a dispatched order. */
+    public function cancelItems(CancellationItemsRequest $request, string $order): RedirectResponse
+    {
+        $model = Order::query()->where('public_id', $order)->firstOrFail();
+        Gate::authorize('cancel', $model);
+
+        try {
+            $rma = (new ConsumerCancellations)->request($model->id, $request->packQtyByLineNo(), CarbonImmutable::now(), $request->user()?->getAuthIdentifier());
+        } catch (CancellationRequestRejectedException $e) {
+            return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
     }
 }

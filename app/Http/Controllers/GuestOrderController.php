@@ -9,11 +9,15 @@ use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\OrderCancellationService;
+use App\Domain\Returns\ConsumerCancellations;
+use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
+use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Requests\Web\GuestAccountRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -59,6 +63,7 @@ class GuestOrderController extends Controller
             'cancel_url' => OrderPageProps::canCancel($model)
                 ? route('orders.guest.cancel', ['order' => $order, 'expires' => $expires, 'signature' => $signature])
                 : null,
+            'cancel_items_url' => route('orders.guest.cancel-items', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
         ]);
     }
 
@@ -96,6 +101,23 @@ class GuestOrderController extends Controller
         }
 
         return back()->with('status', self::SAVED);
+    }
+
+    /** 05.4 §13.3: a guest cancels items of a dispatched order, by their order link. */
+    public function cancelItems(CancellationItemsRequest $request, string $order, int $expires, string $signature): RedirectResponse
+    {
+        $model = $this->linkedOrder($order, $expires, $signature);
+        if ($model === null) {
+            return redirect()->route('orders.lookup')->with('status', self::INVALID);
+        }
+
+        try {
+            $rma = (new ConsumerCancellations)->request($model->id, $request->packQtyByLineNo(), CarbonImmutable::now());
+        } catch (CancellationRequestRejectedException $e) {
+            return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
     }
 
     private function linkedOrder(string $publicId, int $expires, string $signature): ?Order

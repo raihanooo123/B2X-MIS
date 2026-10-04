@@ -4,6 +4,7 @@ namespace App\Http\Resources\Api\V1;
 
 use App\Domain\Ordering\CheckoutBlocker;
 use App\Domain\Ordering\CheckoutPreview;
+use App\Domain\Storefront\PreContractInformation;
 use App\Http\Support\StockDisclosure;
 use App\Models\CartLine;
 use Illuminate\Http\Request;
@@ -59,6 +60,11 @@ class CheckoutPreviewResource extends JsonResource
                 'shortfall_to_next_minor' => null,
             ],
             'delivery' => $this->delivery($preview),
+            // 02 §27: a consumer's pallet consignment — the return cost they are told before paying.
+            'return_estimate' => $preview->palletReturn ? [
+                'estimate_gross_minor' => $preview->returnCostEstimateGrossMinor,
+                'statement' => PreContractInformation::palletReturnStatement($preview->returnCostEstimateGrossMinor),
+            ] : null,
             'tax_minor' => $preview->taxMinor,
             'total_gross_minor' => $preview->totalGrossMinor,
             'account_credit_applied_minor' => $preview->accountCreditAppliedMinor,

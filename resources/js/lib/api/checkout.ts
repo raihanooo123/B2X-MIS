@@ -57,6 +57,8 @@ export interface CheckoutPreview {
     subtotal_net_minor: number;
     spend_break: { code: string; name: string; discount_minor: number } | null;
     delivery: DeliveryPreview | null;
+    /** 02 §27: a consumer's pallet consignment — what returning it would cost, in the server's own words. */
+    return_estimate: { estimate_gross_minor: number | null; statement: string } | null;
     tax_minor: number;
     total_gross_minor: number;
     account_credit_applied_minor: number;

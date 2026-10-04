@@ -47,7 +47,7 @@ beforeEach(function () {
 
     NumberSequence::factory()->forSeries('order_number', 'SO-')->create();
     NumberSequence::factory()->forSeries('receipt_number', 'RCP-')->create();
-    NumberSequence::factory()->forSeries('credit_note_number', 'CN-')->create();
+    // credit_note_number is created by migration 2026_10_18_090200.
     $this->location = Location::factory()->default()->create();
     $baseList = PriceList::factory()->create(['scope' => 'base']);
     $taxClass = TaxClass::factory()->create();
