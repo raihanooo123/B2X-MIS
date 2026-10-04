@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Accounts\TermsKind;
+use App\Domain\Ordering\ConsumerCheckout;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
+use App\Domain\Storefront\Branding;
+use App\Domain\Storefront\PreContractInformation;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
 use App\Models\Address;
 use App\Models\Company;
+use App\Models\TermsVersion;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,6 +27,11 @@ use Inertia\Response;
  * Saved addresses are offered to prefill the form and are sent back
  * inline — they cannot be referenced by id (`addresses` has no public_id,
  * 02 §4.5), and the order snapshots them anyway (02 §8.4).
+ *
+ * A public buyer (05.15 §6.1) is offered GB only (rule G), reads and
+ * accepts the terms of sale in force (step 4), and sees the pre-contract
+ * information before the pay button (§7.1). A trade buyer sees none of
+ * these: their terms of trade were accepted with their application.
  */
 class CheckoutPageController extends Controller
 {
@@ -30,6 +41,7 @@ class CheckoutPageController extends Controller
         abort_unless($user instanceof User, 401);
 
         $company = ActingCompany::current($request->session(), $user);
+        $terms = $company === null ? TermsVersion::current(TermsKind::Sale) : null;
 
         return Inertia::render('Checkout/Index', [
             'display_mode' => PriceDisplay::checkoutMode($request),
@@ -40,7 +52,15 @@ class CheckoutPageController extends Controller
                 'phone' => $user->getAttribute('phone'),
             ],
             'addresses' => $company === null ? [] : $this->savedAddresses($company),
-            'countries' => DeliveryCountries::available(),
+            'countries' => $company === null
+                ? array_values(array_filter(DeliveryCountries::available(), fn (array $c) => ConsumerCheckout::servesCountry($c['code'])))
+                : DeliveryCountries::available(),
+            'terms_of_sale' => $terms === null ? null : [
+                'id' => $terms->id,
+                'version' => $terms->version,
+                'html' => Str::markdown($terms->body_markdown, ['html_input' => 'escape', 'allow_unsafe_links' => false]),
+            ],
+            'pre_contract' => $company === null ? PreContractInformation::build(Branding::current(), $terms)->toArray() : null,
             'payment_methods' => array_map(
                 fn (PaymentMethod $m) => ['value' => $m->value, 'label' => $m->label()],
                 $this->paymentMethods($company),

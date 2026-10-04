@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Accounts\AcceptedTerms;
 use App\Domain\Billing\CardIntent;
 use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\DeclineMessages;
@@ -16,9 +17,11 @@ use App\Domain\Ordering\CartService;
 use App\Domain\Ordering\CheckoutPreviewService;
 use App\Domain\Ordering\CheckoutRequest;
 use App\Domain\Ordering\CheckoutService;
+use App\Domain\Ordering\ConsumerCheckout;
 use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Ordering\Exceptions\BatchTrackedCheckoutNotSupportedException;
 use App\Domain\Ordering\Exceptions\PriceChangedException;
+use App\Domain\Ordering\Exceptions\TermsOfSaleChangedException;
 use App\Domain\Ordering\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Exceptions\ApiException;
@@ -57,6 +60,12 @@ use Throwable;
  * with the preview's own blockers while any exist, and 409 `price_changed`
  * — with both totals — when the server's re-resolution disagrees with the
  * total the buyer confirmed. Nothing is committed in either case.
+ *
+ * A public buyer (no company) is delivered to GB only — 422
+ * `country_not_served` on preview, card intent and checkout (05.15 §6.1
+ * rule G) — and must accept the terms of sale in force to place an order
+ * (§6.1 step 4): 422 `terms_not_accepted` without them, 409
+ * `terms_changed` when the version accepted is no longer current.
  */
 class CheckoutController extends Controller
 {
@@ -97,6 +106,15 @@ class CheckoutController extends Controller
         $this->assertPaymentMethodAllowed($method, $companyId);
 
         $address = $request->deliveryAddress();
+        $this->assertCountryServed($address->countryCode, $companyId, 'delivery_address.country_code');
+        $saleTerms = $request->saleTerms();
+        if ($companyId === null && $saleTerms === null) {
+            throw new ApiException(422, 'terms_not_accepted', 'Please read and accept our terms of sale to place your order.', [[
+                'field' => 'terms_version_id',
+                'code' => 'terms_not_accepted',
+                'message' => 'Accept the terms of sale to continue.',
+            ]]);
+        }
 
         // Card (07 §6.4, 04 §4.4): the browser has already authorised the
         // amount through Stripe Elements. Verify that authorisation before
@@ -105,7 +123,7 @@ class CheckoutController extends Controller
         $card = $method === PaymentMethod::Card ? $this->authorisedCard($request, $user, $cart) : null;
 
         try {
-            $order = $this->commitOrder($request, $user, $cart, $companyId, $method, $address, $card);
+            $order = $this->commitOrder($request, $user, $cart, $companyId, $method, $address, $card, $companyId === null ? $saleTerms : null);
         } catch (Throwable $e) {
             if ($card !== null && ! ($e instanceof ApiException && $e->errorCode === 'payment_already_used')) {
                 $this->releaseAuthorisation($card->id);
@@ -133,7 +151,7 @@ class CheckoutController extends Controller
      * The preview's checks, then the order itself (CheckoutService). A card
      * authorisation, when given, is recorded in the order's transaction.
      */
-    private function commitOrder(PlaceOrderRequest $request, User $user, Cart $cart, ?int $companyId, PaymentMethod $method, DeliveryAddress $address, ?CardIntent $card): Order
+    private function commitOrder(PlaceOrderRequest $request, User $user, Cart $cart, ?int $companyId, PaymentMethod $method, DeliveryAddress $address, ?CardIntent $card, ?AcceptedTerms $saleTerms): Order
     {
         // The same checks preview reports — the button the buyer pressed was
         // only enabled because there were none, but the cart, the stock or
@@ -154,6 +172,7 @@ class CheckoutController extends Controller
                 customerReference: $request->customerReference(),
                 deliveryAddress: $address,
                 cardAuthorisation: $card,
+                saleTerms: $saleTerms,
             ));
         } catch (PriceChangedException $e) {
             throw new ApiException(409, 'price_changed', 'Prices have changed since you reviewed your order. Nothing has been placed.', [[
@@ -164,6 +183,13 @@ class CheckoutController extends Controller
                     'expected_total_gross_minor' => $e->expectedTotalGrossMinor,
                     'actual_total_gross_minor' => $e->actualTotalGrossMinor,
                 ],
+            ]]);
+        } catch (TermsOfSaleChangedException $e) {
+            throw new ApiException(409, 'terms_changed', 'Our terms of sale have been updated since you opened this page. Nothing has been placed.', [[
+                'field' => 'terms_version_id',
+                'code' => 'terms_changed',
+                'message' => 'Please read the new version and accept it to continue.',
+                'meta' => ['accepted_terms_version_id' => $e->acceptedTermsVersionId, 'current_terms_version_id' => $e->currentTermsVersionId],
             ]]);
         } catch (InsufficientCreditException $e) {
             throw new ApiException(422, 'insufficient_credit', 'This order is more than your available credit. Pay by card or bank transfer instead.', [[
@@ -239,6 +265,7 @@ class CheckoutController extends Controller
             throw new ApiException(422, 'cart_empty', 'Your cart is empty.');
         }
         Gate::authorize('checkout', $cart);
+        $this->assertCountryServed($request->deliveryCountryCode(), $owner->companyId, 'delivery_country_code');
 
         $preview = $this->previewService->preview($cart, $owner->companyId, $request->deliveryCountryCode(), 'delivery', user: $user, checkIdentity: true, destination: $request->destination());
         if ($preview->blockers !== []) {
@@ -406,6 +433,24 @@ class CheckoutController extends Controller
     }
 
     /**
+     * 05.15 §6.1 rule G: public delivery is GB only, enforced here and not
+     * only by the page's country selector. A trade order is unaffected.
+     */
+    private function assertCountryServed(string $countryCode, ?int $companyId, string $field): void
+    {
+        if ($companyId !== null || ConsumerCheckout::servesCountry($countryCode)) {
+            return;
+        }
+
+        throw new ApiException(422, 'country_not_served', 'We deliver to Great Britain only.', [[
+            'field' => $field,
+            'code' => 'country_not_served',
+            'message' => 'Choose a delivery address in Great Britain (England, Scotland or Wales).',
+            'meta' => ['country_code' => $countryCode],
+        ]]);
+    }
+
+    /**
      * 05.2 §8.1: on-account needs a company on credit terms; a company on
      * `prepay` terms, and every public customer, pays by card or BACS.
      */
@@ -447,6 +492,7 @@ class CheckoutController extends Controller
                 'message' => 'Send delivery_country_code, or set a default delivery address on the account.',
             ]]);
         }
+        $this->assertCountryServed($countryCode, $companyId, 'delivery_country_code');
 
         $preview = $this->previewService->preview(
             $cart,

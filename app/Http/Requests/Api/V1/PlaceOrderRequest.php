@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Domain\Accounts\AcceptedTerms;
 use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Ordering\PaymentMethod;
 use Illuminate\Foundation\Http\FormRequest;
@@ -20,6 +21,11 @@ use Illuminate\Validation\Rule;
  * saved addresses at all. The address's country sets the VAT (03 §10).
  *
  * Only delivery is built (collection slots are not, 05.6).
+ *
+ * `terms_version_id` is the terms of sale version a public buyer accepted
+ * (05.15 §6.1 step 4). Whether it is required depends on who is buying,
+ * which the controller knows and this request does not, so it is
+ * optional here and required there.
  */
 class PlaceOrderRequest extends FormRequest
 {
@@ -54,6 +60,7 @@ class PlaceOrderRequest extends FormRequest
             // through Stripe Elements (07 §6.4). Never card details.
             'payment_intent_id' => ['required_if:payment_method,card', 'prohibited_unless:payment_method,card', 'nullable', 'string', 'regex:/^pi_[A-Za-z0-9]{8,64}$/'],
             'customer_reference' => ['nullable', 'string', 'max:64'],
+            'terms_version_id' => ['sometimes', 'nullable', 'integer'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],
             'apply_account_credit' => ['sometimes', 'boolean'],
             'delivery_address_id' => ['prohibited'],
@@ -92,6 +99,14 @@ class PlaceOrderRequest extends FormRequest
         $ref = $this->validated('customer_reference');
 
         return is_string($ref) && trim($ref) !== '' ? trim($ref) : null;
+    }
+
+    /** The terms of sale accepted, with where they were accepted from (02 §25.1). */
+    public function saleTerms(): ?AcceptedTerms
+    {
+        $id = $this->validated('terms_version_id');
+
+        return $id === null ? null : new AcceptedTerms((int) $id, $this->ip(), $this->userAgent());
     }
 
     public function deliveryAddress(): DeliveryAddress

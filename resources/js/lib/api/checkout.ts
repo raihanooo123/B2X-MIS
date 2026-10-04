@@ -103,6 +103,8 @@ export interface PlaceOrderInput {
     delivery_address: DeliveryAddressInput;
     /** Card only: the PaymentIntent the browser has authorised (07 §6.4). */
     payment_intent_id?: string;
+    /** Public buyers: the terms of sale version accepted (05.15 §6.1 step 4). */
+    terms_version_id?: number;
 }
 
 export interface CardIntent {

@@ -9,10 +9,11 @@ use Illuminate\Support\Carbon;
 /**
  * 02 §25.1 — terms_acceptances. Append-only: the trigger rejects UPDATE,
  * and a row is deleted only with its application (ON DELETE CASCADE).
+ * `user_id` is NULL only for a guest's checkout acceptance (02 §26.2).
  *
  * @property int $id
  * @property int $terms_version_id
- * @property int $user_id
+ * @property int|null $user_id
  * @property int|null $b2b_application_id
  * @property int|null $order_id
  * @property string $source

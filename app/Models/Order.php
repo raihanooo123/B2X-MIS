@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
  * @property int $subtotal_net_minor
  * @property int $discount_net_minor
  * @property int $shipping_net_minor
+ * @property int|null $standard_shipping_net_minor
  * @property int $tax_minor
  * @property int $total_gross_minor
  * @property int $spend_break_discount_minor
@@ -66,6 +67,7 @@ class Order extends Model
         'subtotal_net_minor',
         'discount_net_minor',
         'shipping_net_minor',
+        'standard_shipping_net_minor',
         'tax_minor',
         'total_gross_minor',
         'total_cost_minor',
@@ -90,6 +92,7 @@ class Order extends Model
             'subtotal_net_minor' => 'integer',
             'discount_net_minor' => 'integer',
             'shipping_net_minor' => 'integer',
+            'standard_shipping_net_minor' => 'integer',
             'shipping_tax_minor' => 'integer',
             'shipping_tax_rate_bp' => 'integer',
             'tax_minor' => 'integer',

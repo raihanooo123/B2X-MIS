@@ -3,7 +3,8 @@
 namespace App\Domain\Accounts;
 
 /**
- * 02 §25.1: what an applicant accepted, and from where. `ip` is the
+ * 02 §25.1: what an applicant (terms of trade) or a public buyer at
+ * checkout (terms of sale) accepted, and from where. `ip` is the
  * client address as the request resolves it, which honours the trusted
  * proxies in `config/trustedproxy.php`.
  */
