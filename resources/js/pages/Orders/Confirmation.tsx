@@ -8,9 +8,9 @@
  * may save their details as an account (§6.3). The offer reads the same
  * whether or not the email already has one.
  */
-import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import type { FormEvent } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { useState, type FormEvent } from 'react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
 import { Checkbox, Field } from '@/components/auth/Field';
@@ -48,6 +48,10 @@ interface ConfirmationProps {
         order_number: string;
         placed_at: string | null;
         status: string;
+        /** 05.4 §13.2: a consumer order not yet dispatched. */
+        can_cancel: boolean;
+        cancelled_at: string | null;
+        refunds: { amount_minor: number; method: 'card' | 'bank_transfer'; status: 'refunded' | 'in_progress' }[];
         payment_status: string;
         /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
         payment_method: PaymentMethod | 'prepay' | null;
@@ -81,6 +85,8 @@ interface ConfirmationProps {
         account_url: string;
         status: string | null;
     } | null;
+    /** Where "Cancel order" posts, when this viewer may cancel (05.4 §13.2). */
+    cancel_url: string | null;
 }
 
 const BRANDS: Record<string, string> = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', maestro: 'Maestro', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay' };
@@ -94,6 +100,18 @@ function cardDescription(card: NonNullable<ConfirmationProps['order']['card_paym
 
 /** What the buyer should expect, by how they chose to pay. */
 function nextSteps(order: ConfirmationProps['order']): string[] {
+    if (order.status === 'cancelled') {
+        if (order.refunds.length === 0) {
+            return [order.card_payment ? 'The payment held on your card has been released. You have not been charged.' : 'No payment was taken for this order.'];
+        }
+
+        return order.refunds.map((r) =>
+            r.method === 'card'
+                ? `${formatMinor(r.amount_minor)} ${r.status === 'refunded' ? 'refunded' : 'being refunded'} to your card. Your bank may take a few days to show it.`
+                : `${formatMinor(r.amount_minor)} will be refunded by bank transfer within 14 days. We will contact you for your bank details.`,
+        );
+    }
+
     const common = 'We will email you when your order is dispatched.';
 
     if (order.payment_status === 'paid' && order.card_payment) {
@@ -127,8 +145,10 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     return ['Your order is confirmed and your stock is reserved.', 'Payment is due before dispatch unless you have account terms.', common];
 }
 
-export default function Confirmation({ display_mode: mode, order, guest }: ConfirmationProps) {
-    const { display_timezone: timeZone, auth } = usePage<SharedProps>().props;
+export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl }: ConfirmationProps) {
+    const { display_timezone: timeZone, auth, flash } = usePage<SharedProps>().props;
+    const cancelled = order.status === 'cancelled';
+    const status = guest ? guest.status : (flash?.status ?? null);
 
     const address = order.delivery_address;
 
@@ -141,15 +161,21 @@ export default function Confirmation({ display_mode: mode, order, guest }: Confi
                 </header>
 
                 <section className="mb-8 flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-8 shrink-0 text-emerald-600" aria-hidden />
+                    {cancelled ? (
+                        <XCircle className="mt-0.5 size-8 shrink-0 text-muted-foreground" aria-hidden />
+                    ) : (
+                        <CheckCircle2 className="mt-0.5 size-8 shrink-0 text-emerald-600" aria-hidden />
+                    )}
                     <div>
-                        <h1 className="text-xl font-semibold tracking-tight">{guest ? `Your order ${order.order_number}` : 'Thank you — your order is placed'}</h1>
+                        <h1 className="text-xl font-semibold tracking-tight">
+                            {cancelled ? `Order ${order.order_number} is cancelled` : guest ? `Your order ${order.order_number}` : 'Thank you — your order is placed'}
+                        </h1>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Order number <strong className="font-mono text-foreground">{order.order_number}</strong>
                             {order.placed_at && <> · {formatDateTime(order.placed_at, timeZone)}</>}
                             {order.customer_reference && <> · Your reference {order.customer_reference}</>}
                         </p>
-                        {order.payment_status === 'paid' && (
+                        {order.payment_status === 'paid' && !cancelled && (
                             <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
                                 <CheckCircle2 className="size-3.5" aria-hidden /> Paid{order.card_payment && ` · ${cardDescription(order.card_payment)}`}
                             </p>
@@ -202,7 +228,7 @@ export default function Confirmation({ display_mode: mode, order, guest }: Confi
 
                     <aside className="space-y-6 text-sm">
                         <section>
-                            <h2 className="mb-2 font-semibold">What happens next</h2>
+                            <h2 className="mb-2 font-semibold">{cancelled ? 'Your money' : 'What happens next'}</h2>
                             <ol className="list-decimal space-y-1.5 pl-5 text-muted-foreground">
                                 {nextSteps(order).map((step) => (
                                     <li key={step}>{step}</li>
@@ -210,13 +236,15 @@ export default function Confirmation({ display_mode: mode, order, guest }: Confi
                             </ol>
                         </section>
 
-                        {guest?.status && (
+                        {status && (
                             <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900">
-                                {guest.status}
+                                {status}
                             </p>
                         )}
 
                         {guest?.can_save_details && !guest.status && <SaveDetails guest={guest} />}
+
+                        {cancelUrl && order.can_cancel && <CancelOrder orderNumber={order.order_number} url={cancelUrl} />}
 
                         {address && (
                             <section>
@@ -282,6 +310,43 @@ function SaveDetails({ guest }: { guest: NonNullable<ConfirmationProps['guest']>
                     Save my details
                 </Button>
             </form>
+        </section>
+    );
+}
+
+/**
+ * 05.4 §13.2: cancel the whole order before it is dispatched. Two steps, so
+ * a stray tap does not cancel it; the server re-checks that nothing has
+ * been dispatched meanwhile.
+ */
+function CancelOrder({ orderNumber, url }: { orderNumber: string; url: string }) {
+    const [confirming, setConfirming] = useState(false);
+    const [processing, setProcessing] = useState(false);
+
+    const cancel = () => {
+        setProcessing(true);
+        router.post(url, {}, { preserveScroll: true, onFinish: () => setProcessing(false) });
+    };
+
+    return (
+        <section className="space-y-2 rounded-md border p-4">
+            <h2 className="font-semibold">Changed your mind?</h2>
+            <p className="text-muted-foreground">You can cancel this order until we send it. You will get a full refund.</p>
+            {confirming ? (
+                <div className="flex flex-col gap-2">
+                    <p className="font-medium">Cancel order {orderNumber}?</p>
+                    <Button type="button" variant="destructive" className="h-11" disabled={processing} onClick={cancel}>
+                        Yes, cancel my order
+                    </Button>
+                    <Button type="button" variant="outline" className="h-11" disabled={processing} onClick={() => setConfirming(false)}>
+                        Keep my order
+                    </Button>
+                </div>
+            ) : (
+                <Button type="button" variant="outline" className="h-11 w-full" onClick={() => setConfirming(true)}>
+                    Cancel order
+                </Button>
+            )}
         </section>
     );
 }

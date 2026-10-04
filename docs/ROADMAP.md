@@ -1403,7 +1403,14 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
       `2026_10_16_090100`). 2026-10-04, pending verification.
 - [ ] S5b public collection — split from S5 on 2026-10-04: collection slots (05.6 §7) are not built for anyone yet,
       so it ships with that work. Until then public checkout offers delivery only, as 05.15 §6.1 already says.
-- [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
+- [x] S6 spec: 05.4 §13 (consumers), 05.15 §9 A5–A8, 02 §14.5.3 (A8), 05.12 keys `order.cancelled`,
+      `rma.refund_due_soon`, `refund.failed`. Signed off 2026-10-04. Q13 (pallet return cost, A9) open.
+- [x] S6a cancel before dispatch (05.4 §13.2; A8, `2026_10_17_090100`). 2026-10-04, pending verification.
+- [ ] S6b cancellation request after dispatch (05.4 §13.3; A6, A7) — blocked on Q13 for pallet orders
+- [ ] S6c sending back and the refund deadline (05.4 §13.5)
+- [ ] S6d inspection and refund (05.4 §13.5–13.6)
+- [ ] S6e faulty goods and staff entry (05.4 §13.4)
+- [ ] S7 legal pages, sitemap (with 05.11)
 
 ---
 

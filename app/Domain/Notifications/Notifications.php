@@ -7,8 +7,10 @@ use App\Domain\Notifications\Notices\CreditLimitWarning;
 use App\Domain\Notifications\Notices\InvoiceDueSoon;
 use App\Domain\Notifications\Notices\InvoiceIssued;
 use App\Domain\Notifications\Notices\InvoiceOverdue;
+use App\Domain\Notifications\Notices\OrderCancelled;
 use App\Domain\Notifications\Notices\OrderConfirmed;
 use App\Domain\Notifications\Notices\PaymentReceived;
+use App\Domain\Notifications\Notices\RefundFailed;
 use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
@@ -52,6 +54,21 @@ final class Notifications
         if ($order !== null) {
             $this->dispatcher->send(new OrderConfirmed($orderId), $this->recipients->orderCustomer($order));
         }
+    }
+
+    /** 05.12 §5.1 `order.cancelled`: a consumer's cancellation, acknowledged (05.4 §13.2). */
+    public function orderCancelled(int $orderId): void
+    {
+        $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id', 'guest_email']);
+        if ($order !== null) {
+            $this->dispatcher->send(new OrderCancelled($orderId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.12 §5.1 `refund.failed`: accounts repay by bank transfer (05.4 §13.6). */
+    public function refundFailed(int $refundPaymentId): void
+    {
+        $this->dispatcher->send(new RefundFailed($refundPaymentId), $this->recipients->role('accounts'));
     }
 
     /** 05.12 §5.1 `shipment.dispatched`: every shipment, full or partial (05.5 §7.2). */

@@ -25,4 +25,14 @@ final class OrderPolicy
 
         return $order->user_id === $user->id;
     }
+
+    /**
+     * 05.4 §13.2: a consumer cancels their own order before dispatch. A
+     * trade order is amended through 05.10, not here (05.15 §12 Q11).
+     * Whether it can still be cancelled is OrderCancellationService's.
+     */
+    public function cancel(User $user, Order $order): bool
+    {
+        return $order->company_id === null && $this->view($user, $order);
+    }
 }

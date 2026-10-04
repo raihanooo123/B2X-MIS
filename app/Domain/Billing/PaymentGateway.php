@@ -29,4 +29,13 @@ interface PaymentGateway
 
     /** Releases an authorisation the order will not use. @throws PaymentGatewayException */
     public function cancel(string $intentId): void;
+
+    /**
+     * Refunds `amountMinor` of a captured payment to the same card (CCR
+     * reg. 34(7), 05.4 §13.6). Called after the order's transaction has
+     * committed, never inside it. Returns the gateway's refund reference.
+     *
+     * @throws PaymentGatewayException
+     */
+    public function refund(string $intentId, int $amountMinor, string $idempotencyKey): string;
 }

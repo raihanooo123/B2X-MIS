@@ -41,6 +41,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $placed_at
  * @property string $fulfilment_type
  * @property Carbon|null $dispatched_at
+ * @property Carbon|null $cancelled_at
  */
 class Order extends Model
 {

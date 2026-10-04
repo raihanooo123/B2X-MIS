@@ -2600,7 +2600,7 @@ CREATE TABLE credit_notes (
   id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   public_id            text        NOT NULL,
   credit_note_number   text        NOT NULL,
-  company_id           bigint      NOT NULL REFERENCES companies (id),
+  company_id           bigint      REFERENCES companies (id),   -- NULL = a receipt's credit note (amended 2026-10-04, 05.15 §9 A8)
   order_id             bigint      REFERENCES orders (id),
   invoice_id           bigint      REFERENCES invoices (id),
   rma_id               bigint      REFERENCES rmas (id),
@@ -2618,9 +2618,12 @@ CREATE TABLE credit_notes (
   CONSTRAINT credit_notes_number_uq    UNIQUE (credit_note_number),
   CONSTRAINT credit_notes_public_id_uq UNIQUE (public_id),
   CONSTRAINT credit_notes_reason_chk CHECK (reason IN
-    ('return','goodwill','pricing_correction','other')),
+    ('return','goodwill','pricing_correction','cancellation','other')),
   CONSTRAINT credit_notes_status_chk CHECK (status IN ('issued','void')),
-  CONSTRAINT credit_notes_totals_chk CHECK (total_gross_minor >= 0)
+  CONSTRAINT credit_notes_totals_chk CHECK (total_gross_minor >= 0),
+  -- amended 2026-10-04 (05.15 §9 A8): every credit note has an owner, like payments_owner_chk (§19)
+  CONSTRAINT credit_notes_owner_chk CHECK (
+    company_id IS NOT NULL OR order_id IS NOT NULL OR invoice_id IS NOT NULL)
 );
 
 CREATE INDEX credit_notes_company_issued_idx ON credit_notes (company_id, issued_at DESC);
@@ -2634,7 +2637,8 @@ CREATE INDEX credit_notes_rma_idx     ON credit_notes (rma_id)     WHERE rma_id 
 - `rma_id`, `invoice_id` and `order_id` are all **nullable**. Most credit notes originate from an RMA resolution (05.4 §7.5: "Create `credit_notes` row + lines, referencing the original invoice"), but `account_credit_movements`' own type comment (05.4 §7.5A) lists `credit_note` movements caused by "returns, goodwill, pricing correction" — a goodwill or pricing-correction credit note has no originating RMA and may predate any invoice.
 - `reason` is a closed list rather than free text, matching the same three (plus `other`) causes already named in the `account_credit_movements` comment, so the two tables agree on vocabulary without one deriving the other.
 - No `credit_note_lines` table, for the identical reason invoices has no `invoice_lines`: an RMA-originated credit note's line-level detail (goods value, fee, refund net, refund tax, per SKU) already exists, immutably snapshotted, on `rma_lines` (05.4 §5.2) — joined via `rma_id` when present. A goodwill or pricing-correction credit note with no RMA has no natural "lines" to begin with; its `subtotal_net_minor`/`tax_minor`/`total_gross_minor` are the whole of what there is to record.
-- Every credit note still creates an `account_credit_movements` row per 05.4 §7.5A regardless of `reason` — that ledger, not this table, is the source of truth for the running `account_balance_minor` projection. `credit_notes` is the customer-facing document; `account_credit_movements` is the append-only accounting fact.
+- Every credit note still creates an `account_credit_movements` row per 05.4 §7.5A regardless of `reason` — that ledger, not this table, is the source of truth for the running `account_balance_minor` projection. `credit_notes` is the customer-facing document; `account_credit_movements` is the append-only accounting fact. **Amended 2026-10-04 (05.15 §9 A8):** except a credit note with `company_id IS NULL`, which writes no movement — there is no company to hold a balance, and the consumer's refund goes back to the original payment method (05.4 §13.6).
+- **Amended 2026-10-04 (05.15 §9 A8, signed off) — receipts.** A public order's receipt has no company (§21.2), so the credit note crediting it has none either. `credit_notes_owner_chk` makes an ownerless credit note impossible to persist: a trade credit note has its company, a receipt's names the order or receipt (`invoice_id`) it credits, and that order names the customer (§26.1). Reason `cancellation` is a consumer order cancelled before dispatch after its receipt was issued (05.4 §13.2). `credit_notes_company_issued_idx` holds the NULL rows but is only queried for a company. The table is not migrated, so this is part of its `CREATE TABLE`.
 - Once this section exists, `rmas.credit_note_id` (05.4 §5.1, already written against a table that didn't exist) becomes enforceable as a real foreign key.
 
 #### 14.5.4 `payment_allocations` — cash application

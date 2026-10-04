@@ -56,6 +56,28 @@ final class StripeGateway implements PaymentGateway
     }
 
     /**
+     * A refund to the same card (05.4 §13.6). Stripe answers `pending` or
+     * `succeeded` for an accepted refund; `failed` or `canceled` is refused.
+     */
+    public function refund(string $intentId, int $amountMinor, string $idempotencyKey): string
+    {
+        try {
+            $refund = $this->client->refunds->create(
+                ['payment_intent' => $intentId, 'amount' => $amountMinor],
+                ['idempotency_key' => $idempotencyKey],
+            );
+        } catch (ApiErrorException $e) {
+            throw new PaymentGatewayException($e->getMessage(), 0, $e);
+        }
+
+        if ($refund->status === 'failed' || $refund->status === 'canceled') {
+            throw new PaymentGatewayException("Refund {$refund->id} for {$intentId} was {$refund->status}.");
+        }
+
+        return (string) $refund->id;
+    }
+
+    /**
      * @param  callable(): PaymentIntent  $request
      */
     private function call(callable $request): CardIntent
