@@ -22,6 +22,9 @@ enum NotificationKey: string
     case RmaProofRejected = 'rma.proof_rejected';
     case RmaRefundDueSoon = 'rma.refund_due_soon';
     case RmaNotReceived = 'rma.not_received';
+    case RmaRequested = 'rma.requested';
+    case RmaRejected = 'rma.rejected';
+    case RmaResolved = 'rma.resolved';
     case PaymentReceived = 'payment.received';
     case ShipmentDispatched = 'shipment.dispatched';
     case InvoiceIssued = 'invoice.issued';

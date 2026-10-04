@@ -12,10 +12,12 @@ use App\Domain\Ordering\OrderCancellationService;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
+use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Requests\Web\GuestAccountRequest;
 use App\Http\Requests\Web\ProofOfSendingRequest;
+use App\Http\Requests\Web\ReportProblemRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
@@ -68,6 +70,7 @@ class GuestOrderController extends Controller
                 ? route('orders.guest.cancel', ['order' => $order, 'expires' => $expires, 'signature' => $signature])
                 : null,
             'cancel_items_url' => route('orders.guest.cancel-items', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
+            'problems_url' => route('orders.guest.problems', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
             'returns_url' => route('orders.guest', ['order' => $order, 'expires' => $expires, 'signature' => $signature]).'/returns',
         ]);
     }
@@ -123,6 +126,23 @@ class GuestOrderController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.4 §13.4: a guest reports faulty, damaged or wrong goods, by their order link. */
+    public function reportProblem(ReportProblemRequest $request, string $order, int $expires, string $signature): RedirectResponse
+    {
+        $model = $this->linkedOrder($order, $expires, $signature);
+        if ($model === null) {
+            return redirect()->route('orders.lookup')->with('status', self::INVALID);
+        }
+
+        try {
+            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), null);
+        } catch (CancellationRequestRejectedException $e) {
+            return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', "Thank you — we have your report {$rma->rma_number} and will be in touch.");
     }
 
     /** 05.4 §13.5: a guest uploads proof of sending, by their order link. */

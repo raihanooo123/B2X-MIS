@@ -7,6 +7,7 @@ use App\Domain\Notifications\Notice;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\Recipient;
 use App\Domain\Ordering\GuestOrderLink;
+use App\Domain\Returns\FaultReports;
 use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\PreContractInformation;
 use App\Models\Order;
@@ -45,10 +46,29 @@ final class RmaApproved extends Notice
         $address = $seller->addressLines === [] ? 'the address on our website' : implode(', ', $seller->addressLines);
         $hygiene = Sku::query()->whereIn('id', $rma->lines->pluck('sku_id'))->where('non_refundable_reason', 'hygiene')->exists();
 
-        $paragraphs = ["We have received your cancellation of these items from order {$order->order_number}:"];
+        $fault = $rma->return_reason !== 'consumer_cancellation';
+        $paragraphs = [$fault
+            ? "We have accepted your report about these items from order {$order->order_number}:"
+            : "We have received your cancellation of these items from order {$order->order_number}:"];
         foreach ($rma->lines as $line) {
             /** @var RmaLine $line */
             $paragraphs[] = "• {$line->requested_pack_qty} × {$line->sku_code_snapshot} {$line->name_snapshot}";
+        }
+
+        if ($fault) {
+            $paragraphs[] = 'We will contact you to collect them, at our cost.';
+            $paragraphs[] = FaultReports::withinRejectPeriod($rma)
+                ? 'Once we have them back, we refund you in full, including the delivery charge if you return the whole order.'
+                : 'Once we have checked them, we will repair or replace them, or refund you.';
+
+            return new MailContent(
+                subject: "Return {$rma->rma_number} for order {$order->order_number}",
+                heading: 'We have accepted your report',
+                paragraphs: $paragraphs,
+                facts: [['label' => 'Return number', 'value' => $rma->rma_number], ['label' => 'Order', 'value' => $order->order_number]],
+                actionLabel: 'View your order',
+                actionUrl: GuestOrderLink::customerUrl($order),
+            );
         }
 
         if ($rma->return_method === 'collection') {

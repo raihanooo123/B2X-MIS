@@ -59,6 +59,12 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/returns/lookup', [ReturnController::class, 'lookup']);
         Route::post('/returns/{id}/receive', [ReturnController::class, 'receive'])->whereUlid('id');
         Route::post('/returns/{id}/reject-proof', [ReturnController::class, 'rejectProof'])->whereUlid('id');
+        Route::post('/returns/{id}/inspect', [ReturnController::class, 'inspect'])->whereUlid('id');
+        Route::post('/returns/{id}/resolve', [ReturnController::class, 'resolve'])->whereUlid('id');
+        Route::post('/returns/{id}/approve', [ReturnController::class, 'approve'])->whereUlid('id');
+        Route::post('/returns/{id}/reject', [ReturnController::class, 'reject'])->whereUlid('id');
+        Route::post('/returns/{id}/bank-refund', [ReturnController::class, 'bankRefund'])->whereUlid('id');
+        Route::post('/returns/cancellations', [ReturnController::class, 'recordCancellation']);
 
         // 05.5 §8, 02 §24: stocktake. StocktakePolicy decides who.
         Route::post('/stocktakes', [StocktakeController::class, 'store']);

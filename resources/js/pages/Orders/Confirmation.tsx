@@ -54,6 +54,8 @@ interface ConfirmationProps {
         refunds: { amount_minor: number; method: 'card' | 'bank_transfer'; status: 'refunded' | 'in_progress' }[];
         /** 05.4 §13.3: what may be cancelled on a dispatched consumer order; null otherwise. */
         cancellation: CancellationView | null;
+        /** 05.4 §13.4: what may be reported as faulty, damaged or wrong; null otherwise. */
+        problem: ProblemView | null;
         returns: ReturnView[];
         payment_status: string;
         /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
@@ -94,6 +96,13 @@ interface ConfirmationProps {
     cancel_items_url: string | null;
     /** Proof of sending posts to `{returns_url}/{return id}/proof` (05.4 §13.5). */
     returns_url: string | null;
+    /** Where "Report a problem" posts (05.4 §13.4). */
+    problems_url: string | null;
+}
+
+interface ProblemView {
+    reasons: { value: string; label: string }[];
+    lines: { line_no: number; sku_code: string; name: string; pack_label: string; reportable_pack_qty: number }[];
 }
 
 interface CancellationView {
@@ -114,6 +123,9 @@ interface ReturnView {
     received_at: string | null;
     refund_due_on: string | null;
     accepts_proof: boolean;
+    is_problem_report: boolean;
+    resolution_type: string | null;
+    refund_gross_minor: number;
     lines: { sku_code: string; name: string; pack_qty: number }[];
 }
 
@@ -173,7 +185,7 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     return ['Your order is confirmed and your stock is reserved.', 'Payment is due before dispatch unless you have account terms.', common];
 }
 
-export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl, returns_url: returnsUrl }: ConfirmationProps) {
+export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl, returns_url: returnsUrl, problems_url: problemsUrl }: ConfirmationProps) {
     const { display_timezone: timeZone, auth, flash } = usePage<SharedProps>().props;
     const cancelled = order.status === 'cancelled';
     const status = guest ? guest.status : (flash?.status ?? null);
@@ -277,6 +289,8 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                         {order.returns.length > 0 && <Returns returns={order.returns} returnsUrl={returnsUrl} />}
 
                         {cancelItemsUrl && order.cancellation && <CancelItems cancellation={order.cancellation} url={cancelItemsUrl} />}
+
+                        {problemsUrl && order.problem && <ReportProblem problem={order.problem} url={problemsUrl} />}
 
                         {address && (
                             <section>
@@ -391,6 +405,7 @@ function longDate(ymd: string): string {
 }
 
 const RETURN_STATUS: Record<string, string> = {
+    requested: 'We are reviewing your report',
     awaiting_goods: 'Waiting for your return',
     received: 'Received — being checked',
     inspected: 'Checked — refund on its way',
@@ -405,7 +420,7 @@ const RETURN_STATUS: Record<string, string> = {
 function Returns({ returns, returnsUrl }: { returns: ReturnView[]; returnsUrl: string | null }) {
     return (
         <section className="space-y-3">
-            <h2 className="font-semibold">Your cancellations</h2>
+            <h2 className="font-semibold">Your cancellations and returns</h2>
             {returns.map((r) => (
                 <div key={r.rma_number} className="rounded-md border p-3">
                     <p className="font-medium">
@@ -425,6 +440,9 @@ function Returns({ returns, returnsUrl }: { returns: ReturnView[]; returnsUrl: s
                     )}
                     {r.status === 'awaiting_goods' && r.return_method === 'collection' && <p className="mt-1 text-xs text-muted-foreground">We will contact you to collect them.</p>}
                     {r.proof_sent_at && <p className="mt-1 text-xs text-emerald-800">We have your proof of sending.</p>}
+                    {r.resolution_type === 'credit_note' && r.refund_gross_minor > 0 && <p className="mt-1 text-xs text-emerald-800">Refund of {formatMinor(r.refund_gross_minor)}.</p>}
+                    {r.resolution_type === 'repair' && <p className="mt-1 text-xs text-muted-foreground">We are repairing the items and will send them back.</p>}
+                    {r.resolution_type === 'replacement' && <p className="mt-1 text-xs text-muted-foreground">We are sending you replacements.</p>}
                     {r.refund_due_on && !['resolved', 'partially_resolved'].includes(r.status) && (
                         <p className="mt-1 text-xs text-muted-foreground">We will refund you by {longDate(r.refund_due_on)}.</p>
                     )}
@@ -548,5 +566,97 @@ function ProofUpload({ url, hasProof }: { url: string; hasProof: boolean }) {
                 Upload proof
             </Button>
         </form>
+    );
+}
+
+/**
+ * 05.15 §7.3 "Report a problem" (05.4 §13.4): faulty, damaged or wrong
+ * goods. Never limited by the 14-day cancellation period. A handler reviews
+ * it; within 30 days of delivery it is refunded in full.
+ */
+function ReportProblem({ problem, url }: { problem: ProblemView; url: string }) {
+    const [open, setOpen] = useState(false);
+    const form = useForm<{ reason: string; detail: string; lines: { line_no: number; pack_qty: number }[]; photos: File[] }>({
+        reason: problem.reasons[0]?.value ?? 'faulty',
+        detail: '',
+        lines: problem.lines.map((l) => ({ line_no: l.line_no, pack_qty: 0 })),
+        photos: [],
+    });
+    const errors = form.errors as Record<string, string | undefined>;
+    const chosen = form.data.lines.some((l) => l.pack_qty > 0);
+
+    const submit = (e: FormEvent) => {
+        e.preventDefault();
+        form.post(url, { forceFormData: true, preserveScroll: true, onSuccess: () => { form.reset(); setOpen(false); } });
+    };
+
+    if (!open) {
+        return (
+            <section className="space-y-1">
+                <Button type="button" variant="outline" className="h-11 w-full" onClick={() => setOpen(true)}>
+                    Report a problem
+                </Button>
+                <p className="text-xs text-muted-foreground">Faulty, damaged or not what you ordered? Tell us, at any time.</p>
+            </section>
+        );
+    }
+
+    return (
+        <section className="space-y-3 rounded-md border p-4">
+            <h2 className="font-semibold">Report a problem</h2>
+            <form onSubmit={submit} className="space-y-3" noValidate>
+                <div className="space-y-1">
+                    <label htmlFor="problem-reason" className="block font-medium">
+                        What is wrong?
+                    </label>
+                    <select id="problem-reason" value={form.data.reason} onChange={(e) => form.setData('reason', e.target.value)} className="h-10 w-full rounded-md border border-input bg-transparent px-2">
+                        {problem.reasons.map((r) => (
+                            <option key={r.value} value={r.value}>
+                                {r.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {problem.lines.map((l) => (
+                    <div key={l.line_no} className="flex items-start justify-between gap-3">
+                        <label htmlFor={`problem-line-${l.line_no}`} className="min-w-0">
+                            <span className="block font-medium leading-tight">{l.name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                                <span className="font-mono">{l.sku_code}</span> · {l.pack_label}
+                            </span>
+                        </label>
+                        <select
+                            id={`problem-line-${l.line_no}`}
+                            value={form.data.lines.find((x) => x.line_no === l.line_no)?.pack_qty ?? 0}
+                            onChange={(e) => form.setData('lines', form.data.lines.map((x) => (x.line_no === l.line_no ? { ...x, pack_qty: Number(e.target.value) } : x)))}
+                            className="h-10 shrink-0 rounded-md border border-input bg-transparent px-2"
+                        >
+                            {Array.from({ length: l.reportable_pack_qty + 1 }, (_, n) => (
+                                <option key={n} value={n}>
+                                    {n}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ))}
+                {errors.lines && <p className="text-xs text-red-700">{errors.lines}</p>}
+                <div className="space-y-1">
+                    <label htmlFor="problem-detail" className="block font-medium">
+                        Tell us what happened
+                    </label>
+                    <textarea id="problem-detail" value={form.data.detail} onChange={(e) => form.setData('detail', e.target.value)} rows={3} maxLength={2000} className="w-full rounded-md border border-input bg-transparent p-2" />
+                    {errors.detail && <p className="text-xs text-red-700">{errors.detail}</p>}
+                </div>
+                <div className="space-y-1">
+                    <label htmlFor="problem-photos" className="block font-medium">
+                        Photos (optional, up to 5)
+                    </label>
+                    <input id="problem-photos" type="file" multiple accept=".jpg,.jpeg,.png,.webp" onChange={(e) => form.setData('photos', Array.from(e.target.files ?? []).slice(0, 5))} className="block w-full text-xs" />
+                </div>
+                <Button type="submit" className="h-11 w-full" disabled={!chosen || form.data.detail.trim().length < 5 || form.processing}>
+                    Send report
+                </Button>
+            </form>
+        </section>
     );
 }

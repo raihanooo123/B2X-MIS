@@ -54,6 +54,9 @@ Route::middleware('auth')->group(function (): void {
     // 05.4 §13.3: cancel items of a dispatched order.
     Route::post('/orders/{order}/cancel-items', [OrderConfirmationController::class, 'cancelItems'])
         ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel-items');
+    // 05.4 §13.4: report faulty, damaged or wrong goods.
+    Route::post('/orders/{order}/problems', [OrderConfirmationController::class, 'reportProblem'])
+        ->whereUlid('order')->middleware('throttle:10,1')->name('orders.problems');
     // 05.4 §13.5: proof of sending a cancelled item back.
     Route::post('/orders/{order}/returns/{rma}/proof', [OrderConfirmationController::class, 'uploadProof'])
         ->whereUlid('order')->whereUlid('rma')->middleware('throttle:10,1')->name('orders.returns.proof');
@@ -76,6 +79,9 @@ Route::post('/orders/{order}/guest/{expires}/{signature}/cancel-items', [GuestOr
 Route::post('/orders/{order}/guest/{expires}/{signature}/returns/{rma}/proof', [GuestOrderController::class, 'uploadProof'])
     ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')->whereUlid('rma')
     ->middleware('throttle:10,1')->name('orders.guest.returns.proof');
+Route::post('/orders/{order}/guest/{expires}/{signature}/problems', [GuestOrderController::class, 'reportProblem'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->middleware('throttle:10,1')->name('orders.guest.problems');
 Route::get('/orders/lookup', [OrderLookupController::class, 'show'])->name('orders.lookup');
 Route::post('/orders/lookup', [OrderLookupController::class, 'send'])->name('orders.lookup.send');
 

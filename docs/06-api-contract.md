@@ -502,6 +502,16 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - Customer proof of sending, web routes behind the order page: `POST /orders/{id}/returns/{rma}/proof` (signed in) and `POST /orders/{id}/guest/{expires}/{signature}/returns/{rma}/proof`, multipart `proof` (JPG, PNG, WebP or PDF, 10 MB), 10 a minute. The upload time is `goods_sent_at`.
 - Staff view proof at `GET /warehouse/returns/{rma}/proof/{attachment}` (RmaPolicy `view`); files are on the private default disk, never public.
 
+**As built (2026-10-04, 05.15 slices S6d and S6e) — inspection, refund, faulty goods and staff entry (05.4 §13.3–13.6):**
+
+- `POST /api/v1/warehouse/returns/{id}/inspect` (admin, warehouse; Idempotency-Key): `{ "lines": [{ "line_no", "restock", "quarantine", "write_off", "diminished_value_minor"?, "diminished_value_reason"?, "disposition_reason"? }] }`, base units and pence. Only `restock` moves stock (`return_in`).
+- `POST /api/v1/warehouse/returns/{id}/resolve` (admin, accounts; Idempotency-Key): `{ "resolution_type"? }` — required (`repair`, `replacement`, `credit_note`) only for faulty goods reported more than 30 days after possession. A refund is a credit note on the receipt and a refund to the original payment, the card refund made after commit; never an account balance. From `awaiting_goods` too, when the customer gave proof of sending.
+- `POST /api/v1/warehouse/returns/{id}/approve` and `/reject` `{ "reason" }` (admin, accounts): a problem report.
+- `POST /api/v1/warehouse/returns/{id}/bank-refund` `{ "reference" }` (admin, accounts): a BACS refund paid, or a refused card refund repaid by transfer.
+- `POST /api/v1/warehouse/returns/cancellations` (admin, accounts) `{ "order_number", "notified_at", "lines": [{ "line_no", "pack_qty" }] }`: a cancellation made by email or phone; `notified_at` without an offset is UK time, never in the future, and the window is judged at it. 201.
+- Responses add `return_reason`, `within_reject_period`, `resolution_type`, `refund` (net, tax, delivery, gross, method, status) and per-line dispositions and refunds.
+- Customer "Report a problem": `POST /orders/{id}/problems` and `/orders/{id}/guest/{expires}/{signature}/problems`, multipart `{ reason, detail, lines[], photos[] }` (up to 5 images, 10 MB each), 10 a minute.
+
 ### 9.4 Stock availability
 
 ```

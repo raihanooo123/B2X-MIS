@@ -44,6 +44,12 @@ class ReturnsPageController extends Controller
                     'refund_due_on' => $r->refund_due_on?->toDateString(),
                     'we_collect' => $r->return_method === 'collection',
                 ])->values()->all(),
+            // 05.4 §13.4: problem reports waiting for a handler, and returns to inspect or settle.
+            'to_review' => Rma::query()->where('status', 'requested')->orderBy('requested_at')->limit(self::EXPECTED_SHOWN)->get()
+                ->map(fn (Rma $r) => ['rma_number' => $r->rma_number, 'reason' => $r->return_reason, 'requested_at' => $r->requested_at->toIso8601ZuluString()])->values()->all(),
+            'to_settle' => Rma::query()->whereIn('status', ['received', 'inspected'])->orderBy('refund_due_on')->orderBy('id')->limit(self::EXPECTED_SHOWN)->get()
+                ->map(fn (Rma $r) => ['rma_number' => $r->rma_number, 'status' => $r->status, 'refund_due_on' => $r->refund_due_on?->toDateString()])->values()->all(),
+            'can_record_cancellation' => Gate::allows('recordCancellation', Rma::class),
         ]);
     }
 

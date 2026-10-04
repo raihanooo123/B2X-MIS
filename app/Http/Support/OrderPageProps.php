@@ -5,6 +5,7 @@ namespace App\Http\Support;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
 use App\Domain\Returns\CancellationEligibility;
+use App\Domain\Returns\FaultReports;
 use App\Domain\Storefront\PreContractInformation;
 use App\Models\DeliveryZone;
 use App\Models\Order;
@@ -43,6 +44,8 @@ final class OrderPageProps
             'refunds' => self::refunds($model),
             // 05.4 §13.3: cancelling some or all of a dispatched consumer order.
             'cancellation' => self::cancellation($model),
+            // 05.4 §13.4: report faulty, damaged or wrong goods — never limited by the 14-day window.
+            'problem' => self::problem($model),
             'returns' => self::returns($model),
             'payment_status' => $model->payment_status,
             // 02 §18. Null only for orders placed before the column existed.
@@ -127,6 +130,31 @@ final class OrderPageProps
     }
 
     /**
+     * What may be reported as faulty, damaged or wrong (FaultReports is the
+     * authority). Null for a trade order or one not yet sent.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function problem(Order $order): ?array
+    {
+        $lines = FaultReports::reportable($order);
+        if ($lines === []) {
+            return null;
+        }
+
+        return [
+            'reasons' => array_map(fn (string $r) => ['value' => $r, 'label' => ucfirst(str_replace('_', ' ', $r))], FaultReports::REASONS),
+            'lines' => array_values(array_map(fn (array $l) => [
+                'line_no' => $l['order_line']->line_no,
+                'sku_code' => $l['order_line']->sku_code_snapshot,
+                'name' => $l['order_line']->name_snapshot,
+                'pack_label' => $l['order_line']->pack_label_snapshot,
+                'reportable_pack_qty' => $l['reportable_pack_qty'],
+            ], $lines)),
+        ];
+    }
+
+    /**
      * The order's returns, for the customer.
      *
      * @return list<array<string, mixed>>
@@ -149,6 +177,9 @@ final class OrderPageProps
                 'received_at' => $r->received_at?->toIso8601ZuluString(),
                 'refund_due_on' => $r->refund_due_on?->toDateString(),
                 'accepts_proof' => $r->status === 'awaiting_goods' && $r->return_method !== 'collection' && $r->return_reason === 'consumer_cancellation',
+                'is_problem_report' => $r->return_reason !== 'consumer_cancellation',
+                'resolution_type' => $r->resolution_type,
+                'refund_gross_minor' => $r->refund_gross_minor,
                 'lines' => array_values($r->lines->map(fn (RmaLine $l) => ['sku_code' => $l->sku_code_snapshot, 'name' => $l->name_snapshot, 'pack_qty' => $l->requested_pack_qty])->all()),
             ])
             ->all());

@@ -44,18 +44,28 @@ final class ConsumerCancellations
     ) {}
 
     /**
+     * `$recordedByStaffId`: staff recording a cancellation the customer made
+     * by email or phone (05.4 §13.3, S6e). `$notifiedAt` is then when the
+     * customer told us, not when it is recorded, and the window is judged
+     * at that time.
+     *
      * @param  array<int, int>  $packQtyByLineNo  order line_no => packs to cancel (zeros ignored)
      *
      * @throws CancellationRequestRejectedException
      */
-    public function request(int $orderId, array $packQtyByLineNo, CarbonImmutable $notifiedAt, ?int $requestedByUserId = null): Rma
+    public function request(int $orderId, array $packQtyByLineNo, CarbonImmutable $notifiedAt, ?int $requestedByUserId = null, ?int $recordedByStaffId = null): Rma
     {
+        // Online, the notification time is the request time; a time staff type in must not be ahead of now.
+        if ($recordedByStaffId !== null && $notifiedAt->greaterThan(CarbonImmutable::now())) {
+            throw new CancellationRequestRejectedException('notified_in_future', 'The time the customer told us cannot be in the future.', 'notified_at');
+        }
+
         $wanted = array_filter($packQtyByLineNo, fn (int $qty) => $qty > 0);
         if ($wanted === []) {
             throw new CancellationRequestRejectedException('nothing_selected', 'Choose at least one item to cancel.', 'lines');
         }
 
-        return DB::transaction(function () use ($orderId, $wanted, $notifiedAt, $requestedByUserId): Rma {
+        return DB::transaction(function () use ($orderId, $wanted, $notifiedAt, $requestedByUserId, $recordedByStaffId): Rma {
             $order = Order::query()->lockForUpdate()->findOrFail($orderId);
             $eligibility = CancellationEligibility::for($order, $notifiedAt);
 
@@ -87,6 +97,7 @@ final class ConsumerCancellations
                 'company_id' => null,
                 'order_id' => $order->id,
                 'requested_by_user_id' => $requestedByUserId,
+                'handled_by_user_id' => $recordedByStaffId,
                 'status' => 'awaiting_goods',
                 'return_reason' => 'consumer_cancellation',
                 'return_method' => $weCollect ? 'collection' : 'customer_carriage',

@@ -112,7 +112,7 @@ final readonly class CancellationEligibility
     }
 
     /** What earlier returns of this line still hold (05.4 §6.1 rule 2). */
-    private static function heldBaseQty(int $orderLineId): int
+    public static function heldBaseQty(int $orderLineId): int
     {
         return (int) RmaLine::query()
             ->where('order_line_id', $orderLineId)

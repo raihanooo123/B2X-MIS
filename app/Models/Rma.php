@@ -34,6 +34,16 @@ use Illuminate\Support\Carbon;
  * @property int|null $handled_by_user_id
  * @property int|null $refund_payment_id
  * @property string|null $internal_note
+ * @property string|null $reason_detail
+ * @property string|null $resolution_type
+ * @property int $refund_net_minor
+ * @property int $refund_tax_minor
+ * @property int $refund_gross_minor
+ * @property int $delivery_refund_net_minor
+ * @property int $delivery_refund_tax_minor
+ * @property int|null $credit_note_id
+ * @property Carbon|null $inspected_at
+ * @property Carbon|null $resolved_at
  * @property Carbon $requested_at
  * @property Carbon|null $approved_at
  * @property Carbon|null $return_by_date
@@ -67,6 +77,15 @@ class Rma extends Model
         'refund_due_on',
         'received_at',
         'internal_note',
+        'inspected_at',
+        'resolved_at',
+        'refund_net_minor',
+        'refund_tax_minor',
+        'refund_gross_minor',
+        'delivery_refund_net_minor',
+        'delivery_refund_tax_minor',
+        'credit_note_id',
+        'refund_payment_id',
         'requested_at',
         'approved_at',
         'return_by_date',
@@ -81,6 +100,13 @@ class Rma extends Model
             'refund_due_on' => 'date',
             'goods_sent_at' => 'datetime',
             'received_at' => 'datetime',
+            'inspected_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'refund_net_minor' => 'integer',
+            'refund_tax_minor' => 'integer',
+            'refund_gross_minor' => 'integer',
+            'delivery_refund_net_minor' => 'integer',
+            'delivery_refund_tax_minor' => 'integer',
             'requested_at' => 'datetime',
             'approved_at' => 'datetime',
             'return_by_date' => 'date',
