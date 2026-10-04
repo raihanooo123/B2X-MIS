@@ -4,15 +4,17 @@
  * heading with optional actions, and the flashed status message.
  */
 import { Head, Link, usePage } from '@inertiajs/react';
-import { ArrowLeft, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, Users, ShoppingBag, Receipt, MapPin, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { AccountMenu } from '@/components/auth/AccountMenu';
 import { cn } from '@/lib/utils';
 import type { SharedProps } from '@/types/shared';
 
 interface AccountLayoutProps {
     title: string;
+    shell?: ShellProps | null;
     eyebrow?: ReactNode;
     description?: ReactNode;
     actions?: ReactNode;
@@ -27,27 +29,30 @@ interface NavItem {
     show: boolean;
 }
 
-export function AccountLayout({ title, eyebrow, description, actions, status, children }: AccountLayoutProps) {
+export function AccountLayout({ title, eyebrow, description, actions, status, children, shell }: AccountLayoutProps) {
     const { auth } = usePage<SharedProps>().props;
     const path = usePage().url.split('?')[0];
 
     const items: NavItem[] = [
+        { href: '/account/orders', label: 'My orders', icon: ShoppingBag, show: auth?.public_customer ?? false },
+        { href: '/account/receipts', label: 'My receipts', icon: Receipt, show: auth?.public_customer ?? false },
+        { href: '/account/addresses', label: 'Delivery addresses', icon: MapPin, show: auth?.public_customer ?? false },
         { href: '/account', label: 'Account & security', icon: ShieldCheck, show: true },
         { href: '/account/team', label: 'Team', icon: Users, show: auth?.can_manage_team ?? false },
     ];
 
-    return (
+    const content = (
         <>
-            <Head title={title} />
+            {!auth?.public_customer && <Head title={title} />}
             <div className="min-h-screen bg-muted/30">
-                <div className="border-b bg-background">
+                {!auth?.public_customer && <div className="border-b bg-background">
                     <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3">
                         <Link href="/order-pad" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground md:min-h-0">
                             <ArrowLeft className="size-4" aria-hidden /> Back to ordering
                         </Link>
                         <AccountMenu />
                     </div>
-                </div>
+                </div>}
 
                 <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 md:grid-cols-[13rem_1fr] md:py-8">
                     <nav aria-label="Account sections" className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
@@ -76,7 +81,7 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
                         </ul>
                     </nav>
 
-                    <main className="min-w-0">
+                    <section aria-label={title} className="min-w-0">
                         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
                             <div className="min-w-0">
                                 {eyebrow && <p className="mb-1 text-sm text-muted-foreground">{eyebrow}</p>}
@@ -93,11 +98,12 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
                         )}
 
                         {children}
-                    </main>
+                    </section>
                 </div>
             </div>
         </>
     );
+    return auth?.public_customer ? <StorefrontLayout title={title} shell={shell ?? null}>{content}</StorefrontLayout> : content;
 }
 
 /** A white section card on the account pages. */

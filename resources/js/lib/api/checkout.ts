@@ -70,13 +70,13 @@ export interface CheckoutPreview {
 }
 
 /** With a postcode, preview rates carriage too (05.6); without one, `delivery` is null. */
-export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean } = {}) {
+export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean; savedAddressId?: string; addressKey?: string } = {}) {
     return useQuery<CheckoutPreview, ApiError>({
-        queryKey: orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''),
+        queryKey: [...orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''), options.savedAddressId ?? null, options.addressKey ?? null],
         queryFn: ({ signal }) =>
             apiRequest<CheckoutPreview>('/checkout/preview', {
                 method: 'POST',
-                body: { delivery_country_code: countryCode, delivery_postcode: postcode, fulfilment_type: 'delivery' },
+                body: { delivery_country_code: countryCode, delivery_address_id: options.savedAddressId, delivery_postcode: postcode, fulfilment_type: 'delivery' },
                 signal,
             }),
         enabled: (options.enabled ?? true) && countryCode !== null,
@@ -99,6 +99,7 @@ export interface DeliveryAddressInput {
 }
 
 export interface PlaceOrderInput {
+    delivery_address_id?: string;
     payment_method: PaymentMethod;
     expected_total_gross_minor: number;
     customer_reference: string;
@@ -124,7 +125,7 @@ export interface CardIntent {
  * across retries for the same cart and total, so trying again never
  * authorises twice.
  */
-export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string; delivery_postcode: string }): Promise<CardIntent> {
+export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string; delivery_postcode: string; delivery_address_id?: string }): Promise<CardIntent> {
     return apiRequest<{ data: CardIntent }>('/checkout/card-intent', { method: 'POST', body: input }).then((r) => r.data);
 }
 

@@ -2,9 +2,12 @@
 
 namespace App\Policies;
 
+use App\Domain\Storefront\PublicCustomer;
 use App\Models\Invoice;
+use App\Models\Order;
 use App\Models\User;
 use App\Policies\Concerns\DeniesDeletion;
+use Illuminate\Auth\Access\Response;
 
 /**
  * Staff access to invoices and receipts. Read-only for everyone: a
@@ -27,6 +30,15 @@ final class InvoicePolicy
     public function view(User $user, Invoice $invoice): bool
     {
         return $this->viewAny($user);
+    }
+
+    public function downloadReceipt(User $user, Invoice $invoice): Response
+    {
+        $allowed = PublicCustomer::eligible($user) && $user->hasVerifiedEmail()
+            && $invoice->company_id === null && $invoice->status !== 'void'
+            && Order::query()->where('id', $invoice->order_id)->whereNull('company_id')->where('user_id', $user->id)->exists();
+
+        return $allowed ? Response::allow() : Response::denyAsNotFound();
     }
 
     public function create(User $user): bool

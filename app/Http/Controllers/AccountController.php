@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Domain\Identity\CompanyUserDirectory;
 use App\Domain\Identity\RecoveryCodes;
+use App\Domain\Storefront\PublicCustomer;
+use App\Domain\Storefront\StorefrontShell;
 use App\Http\Controllers\Auth\TwoFactorSetupController;
 use App\Http\Support\ActingCompany;
+use App\Http\Support\CartContext;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -28,6 +31,7 @@ class AccountController extends Controller
         $pending = $request->session()->get(TwoFactorSetupController::REGENERATED_CODES);
 
         return Inertia::render('Account/Index', [
+            'shell' => PublicCustomer::eligible($user) ? (new StorefrontShell)->props((new CartContext)->owner($request, createGuestToken: false)) : null,
             'user' => [
                 'name' => trim("{$user->first_name} {$user->last_name}"),
                 'email' => $user->email,

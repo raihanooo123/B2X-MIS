@@ -6,6 +6,7 @@ use App\Domain\Accounts\AcceptedTerms;
 use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Ordering\PaymentMethod;
 use App\Http\Requests\Concerns\AuthFields;
+use App\Http\Requests\Concerns\SavedDeliveryAddress;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -17,9 +18,9 @@ use Illuminate\Validation\Rule;
  * `price_changed` with both figures — never a silently repriced order.
  *
  * The delivery address is sent inline and snapshotted onto the order
- * (02 §8.4). `delivery_address_id` stays refused, as on preview:
- * `addresses` has no `public_id` (02 §4.5), and a public customer has no
- * saved addresses at all. The address's country sets the VAT (03 §10).
+ * (02 §8.4). An optional public address ULID is checked for live ownership
+ * (02 §28); the final editable fields remain the snapshot. The address's
+ * country sets the VAT (03 §10).
  *
  * Only delivery is built (collection slots are not, 05.6).
  *
@@ -34,6 +35,8 @@ use Illuminate\Validation\Rule;
  */
 class PlaceOrderRequest extends FormRequest
 {
+    use SavedDeliveryAddress;
+
     public function authorize(): bool
     {
         // Guests too (05.15 §6.1); CartPolicy::checkout() decides who owns the cart.
@@ -72,7 +75,7 @@ class PlaceOrderRequest extends FormRequest
                 : ['prohibited'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],
             'apply_account_credit' => ['sometimes', 'boolean'],
-            'delivery_address_id' => ['prohibited'],
+            'delivery_address_id' => $this->savedAddressRules(),
             'delivery_address' => ['required', 'array'],
             'delivery_address.contact_name' => ['required', 'string', 'max:191'],
             'delivery_address.company_name' => ['nullable', 'string', 'max:191'],

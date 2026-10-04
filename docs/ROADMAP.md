@@ -1413,10 +1413,21 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] S6c sending back and the refund deadline (05.4 §13.5, as amended 2026-10-04: deadline from the proof upload;
       only returns with neither proof nor receipt are swept). Staff Returns screen, `returns:refund-due-alerts`,
       `returns:sweep-not-received`. No migration. 2026-10-04, pending verification.
-- [x] S6d inspection and refund (05.4 §13.5–13.6). No migration. 2026-10-04, pending verification.
-- [x] S6e faulty goods and staff entry (05.4 §13.4, §13.3). No migration. 2026-10-04, pending verification.
+- [x] S6d inspection and refund (05.4 §13.5–13.6). No migration. Merged in PR #34; full test suite passed.
+- [x] S6e faulty goods and staff entry (05.4 §13.4, §13.3), including refund deadlines, customer remedy choices and UK notification timestamps. No migration. Merged in PR #34; full test suite passed.
       Not built: the replacement order itself (05.4 §7.5, via 04 §4.2) — a replacement is recorded, not shipped.
-- [ ] S7 legal pages, sitemap (with 05.11)
+**Remaining B2C delivery order (user decision, 2026-10-04):**
+
+1. [x] **My account for public customers:** all my orders in one list, keyset-paginated newest first; open any order using the existing order page with cancel/return/report-a-problem actions; my receipts; saved delivery addresses (add, edit, delete, default) used at checkout. Guest orders claimed on verification appear here. Specs 05.15 §6.4 and 02 §28 signed off; implementation and migration `2026_10_19_090100` built, pending user test verification.
+2. [ ] **S7:** write and approve `05.11` first, then legal pages (terms, privacy, returns, cookies), cookie banner (PECR), sitemap and JSON-LD. Required legal work is a pre-go-live requirement; S7 is not deferred to deployment.
+3. [ ] **Replacement orders:** create and ship replacements for faulty goods (05.4 §7.5, via 04 §4.2).
+4. [ ] **S5b:** click & collect for public customers, with collection slots and the collection workflow (05.6 §7).
+
+**Pre-go-live readiness, separate from this coding order:**
+
+- [ ] Legal review (05.15 §12 Q1).
+- [ ] Configure real `seller.*` company details.
+- [ ] Verify production PDF invoices/receipts, seller details, generation and customer access.
 
 ---
 

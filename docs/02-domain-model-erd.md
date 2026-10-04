@@ -4401,3 +4401,65 @@ ALTER TABLE orders VALIDATE CONSTRAINT orders_return_cost_estimate_chk;
 - Shown in the pre-contract information before the pay button and in the confirmation email (05.15 §7.1, 05.4 §13.3), and in `rma.approved`.
 - **No index.** It is read only for the order it belongs to.
 - `NOT VALID` then `VALIDATE` (§2.5): every existing row is NULL. Adding the nullable column is catalogue-only (07 §11.1).
+
+
+## 28. Public My account — signed off 2026-10-04
+
+**Signed off 2026-10-04; not yet migrated.** Behaviour, routes and tests: 05.15 §6.4. ROADMAP §23A places this first. Amend existing §4.5 `addresses` to support either a company or a user owner; no new address table. This replaces the earlier separate-table draft at the user's request.
+
+### 28.1 `addresses` — exclusive company or user ownership
+
+```sql
+ALTER TABLE addresses ALTER COLUMN company_id DROP NOT NULL;
+ALTER TABLE addresses ADD COLUMN user_id bigint
+  REFERENCES users (id) ON DELETE RESTRICT;
+ALTER TABLE addresses ADD COLUMN public_id text;
+
+ALTER TABLE addresses ADD CONSTRAINT addresses_owner_chk CHECK (
+  (company_id IS NOT NULL AND user_id IS NULL)
+  OR (company_id IS NULL AND user_id IS NOT NULL)
+) NOT VALID;
+ALTER TABLE addresses VALIDATE CONSTRAINT addresses_owner_chk;
+
+ALTER TABLE addresses ADD CONSTRAINT addresses_public_delivery_chk CHECK (
+  user_id IS NULL OR (
+    address_type = 'delivery' AND country_code = 'GB'
+    AND contact_name IS NOT NULL AND btrim(contact_name) <> ''
+  )
+) NOT VALID;
+ALTER TABLE addresses VALIDATE CONSTRAINT addresses_public_delivery_chk;
+
+ALTER TABLE addresses ADD CONSTRAINT addresses_public_id_uq UNIQUE (public_id);
+-- Migration backfill: assign a Laravel-generated ULID to every existing row,
+-- including soft-deleted rows, before applying the following NOT NULL.
+ALTER TABLE addresses ALTER COLUMN public_id SET NOT NULL;
+
+CREATE INDEX addresses_user_live_idx
+  ON addresses (user_id, created_at, id)
+  WHERE user_id IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX addresses_user_default_uq
+  ON addresses (user_id)
+  WHERE user_id IS NOT NULL AND is_default AND deleted_at IS NULL;
+```
+
+The SQL's `public_id SET NOT NULL` must run **after** the application-side ULID backfill; the comments describe a required migration step, not an SQL-generated identifier. New writes generate ULIDs per §2.1. Existing company foreign key, address fields and company indexes stay in place. `addresses_default_uq` continues enforcing company defaults per type; user rows have NULL company ids and are governed by `addresses_user_default_uq`. Exactly one owner is required, including on soft-deleted rows. No address may belong to both or neither.
+
+Policies scope company rows through the existing company permissions and user rows through the authenticated verified public owner. A user's customer classification is not expressible as a row CHECK. Public addresses are delivery-only, GB-only and require a contact name; trade address types/countries remain unchanged. Default promotion and owner-serialised mutations follow 05.15 §6.4. For public checkout, resolve the current zone/rate from the final address rather than trusting a saved `delivery_zone_id`. Orders retain immutable `order_addresses` snapshots (§8.4); no reference to `addresses` is added to orders or receipts. Retention/erasure follows 07 §7.
+
+### 28.2 Public order history index
+
+```sql
+CREATE INDEX orders_public_user_placed_idx
+  ON orders (user_id, placed_at DESC, id DESC)
+  WHERE company_id IS NULL AND placed_at IS NOT NULL;
+```
+
+Serves authenticated public history with `user_id = :viewer`, `company_id IS NULL`, `placed_at IS NOT NULL`, and tuple keyset pagination; §8.2's company-led index cannot serve this owner predicate efficiently. Claimed guest orders automatically enter the viewer's history when `user_id` is assigned. No order column changes. EXPLAIN acceptance: index scan without a sort or OFFSET on representative data.
+
+### 28.3 Receipt history
+
+No receipt columns or new receipt table. Ownership comes from `invoices.order_id → orders.user_id`, with both company ids NULL. Start from owned orders using §28.2 and existing `invoices_order_idx`; filter non-void receipts and keyset by `(issued_at, id)`. A bounded top-N sort across owned receipts is acceptable; verify the plan on representative data before proposing any further index. Archived PDFs and seller snapshots remain §21's existing mechanism.
+
+### 28.4 Implementation gate
+
+This section and 05.15 §6.4 were approved together on 2026-10-04. Implementation is authorised. A later additive migration amends `addresses`, backfills its ULIDs and adds the owner/order-history indexes; do not edit merged migrations. No migration is created or run as part of this draft.

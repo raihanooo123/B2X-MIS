@@ -7,7 +7,9 @@ use App\Domain\Ordering\ConsumerCheckout;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
 use App\Domain\Storefront\Branding;
+use App\Domain\Storefront\DeliveryAddressBook;
 use App\Domain\Storefront\PreContractInformation;
+use App\Domain\Storefront\PublicCustomer;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
 use App\Models\Address;
@@ -29,8 +31,8 @@ use Inertia\Response;
  * delivery country changes; the order is placed through `/checkout`.
  *
  * Saved addresses are offered to prefill the form and are sent back
- * inline — they cannot be referenced by id (`addresses` has no public_id,
- * 02 §4.5), and the order snapshots them anyway (02 §8.4).
+ * inline, with owned public ULIDs checked when supplied (02 §28). Orders
+ * snapshot the final form fields (02 §8.4).
  *
  * A public buyer (05.15 §6.1) is offered GB only (rule G), reads and
  * accepts the terms of sale in force (step 4), and sees the pre-contract
@@ -54,7 +56,8 @@ class CheckoutPageController extends Controller
                 'name' => $user === null ? '' : trim("{$user->first_name} {$user->last_name}"),
                 'phone' => $user?->getAttribute('phone'),
             ],
-            'addresses' => $company === null ? [] : $this->savedAddresses($company),
+            'addresses' => $company !== null ? $this->savedAddresses($company) : ($user !== null && $user->hasVerifiedEmail() && PublicCustomer::eligible($user)
+                ? array_map(fn (array $a) => ['key' => $a['public_id'], ...$a], (new DeliveryAddressBook)->listing($user)) : []),
             'countries' => $company === null
                 ? array_values(array_filter(DeliveryCountries::available(), fn (array $c) => ConsumerCheckout::servesCountry($c['code'])))
                 : DeliveryCountries::available(),
