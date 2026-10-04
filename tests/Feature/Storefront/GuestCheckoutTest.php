@@ -119,7 +119,7 @@ it('opens a guest order only with a valid, unexpired link for its own email', fu
     $order = guestOrder();
     $url = GuestOrderLink::url($order);
 
-    $this->get($url)->assertOk()->assertInertia(fn ($page) => $page->component('Orders/Confirmation')->where('guest.email', 'guest@example.com'));
+    $this->get($url)->assertOk()->assertInertia(fn ($page) => $page->component('Orders/Confirmation', false)->where('guest.email', 'guest@example.com'));
 
     // Tampered signature, and an expired link.
     $this->get(substr($url, 0, -1).(str_ends_with($url, '0') ? '1' : '0'))->assertRedirect(route('orders.lookup'));

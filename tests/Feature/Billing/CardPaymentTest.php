@@ -497,7 +497,7 @@ it('places a guest card order with no account, names the guest, and links them t
 
     // The link opens the order page, signed out.
     $this->get($response->json('data.confirmation_url'))->assertOk()
-        ->assertInertia(fn ($page) => $page->component('Orders/Confirmation')
+        ->assertInertia(fn ($page) => $page->component('Orders/Confirmation', false)
             ->where('order.order_number', $order->order_number)
             ->where('guest.email', 'sam.lee@example.com')
             ->where('guest.can_save_details', true));
