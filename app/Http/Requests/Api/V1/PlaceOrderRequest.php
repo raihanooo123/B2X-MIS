@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\V1;
 use App\Domain\Accounts\AcceptedTerms;
 use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Ordering\PaymentMethod;
+use App\Http\Requests\Concerns\AuthFields;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,12 +27,17 @@ use Illuminate\Validation\Rule;
  * (05.15 §6.1 step 4). Whether it is required depends on who is buying,
  * which the controller knows and this request does not, so it is
  * optional here and required there.
+ *
+ * A guest (no session user, 05.15 §6.1) sends `guest_email` and a phone on
+ * the delivery address, which is where a guest's phone is kept (02 §26.1).
+ * A signed-in buyer may not send `guest_email`.
  */
 class PlaceOrderRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        // Guests too (05.15 §6.1); CartPolicy::checkout() decides who owns the cart.
+        return true;
     }
 
     protected function prepareForValidation(): void
@@ -61,13 +67,16 @@ class PlaceOrderRequest extends FormRequest
             'payment_intent_id' => ['required_if:payment_method,card', 'prohibited_unless:payment_method,card', 'nullable', 'string', 'regex:/^pi_[A-Za-z0-9]{8,64}$/'],
             'customer_reference' => ['nullable', 'string', 'max:64'],
             'terms_version_id' => ['sometimes', 'nullable', 'integer'],
+            'guest_email' => $this->user() === null
+                ? AuthFields::email()
+                : ['prohibited'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],
             'apply_account_credit' => ['sometimes', 'boolean'],
             'delivery_address_id' => ['prohibited'],
             'delivery_address' => ['required', 'array'],
             'delivery_address.contact_name' => ['required', 'string', 'max:191'],
             'delivery_address.company_name' => ['nullable', 'string', 'max:191'],
-            'delivery_address.phone' => ['nullable', 'string', 'max:32'],
+            'delivery_address.phone' => [$this->user() === null ? 'required' : 'nullable', 'string', 'max:32'],
             'delivery_address.line1' => ['required', 'string', 'max:191'],
             'delivery_address.line2' => ['nullable', 'string', 'max:191'],
             'delivery_address.city' => ['required', 'string', 'max:100'],
@@ -99,6 +108,14 @@ class PlaceOrderRequest extends FormRequest
         $ref = $this->validated('customer_reference');
 
         return is_string($ref) && trim($ref) !== '' ? trim($ref) : null;
+    }
+
+    /** A guest's contact email, trimmed and lower-cased (02 §26.1); null when signed in. */
+    public function guestEmail(): ?string
+    {
+        $email = $this->validated('guest_email');
+
+        return is_string($email) ? mb_strtolower(trim($email)) : null;
     }
 
     /** The terms of sale accepted, with where they were accepted from (02 §25.1). */

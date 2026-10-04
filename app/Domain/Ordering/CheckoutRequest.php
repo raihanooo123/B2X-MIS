@@ -30,6 +30,10 @@ use App\Domain\Billing\CardIntent;
  * recorded as a `terms_acceptances` row in the order's transaction
  * (02 §25.1, §26.2). Requiring it for web checkout is the caller's job:
  * a phone or rep order has no browser acceptance to record.
+ *
+ * `guestEmail` is a guest's contact email (05.15 §6.1, 02 §26.1): set
+ * exactly when there is neither a company nor a user. Stored trimmed and
+ * lower-cased on `orders.guest_email`.
  */
 final readonly class CheckoutRequest
 {
@@ -53,5 +57,6 @@ final readonly class CheckoutRequest
          */
         public ?CardIntent $cardAuthorisation = null,
         public ?AcceptedTerms $saleTerms = null,
+        public ?string $guestEmail = null,
     ) {}
 }

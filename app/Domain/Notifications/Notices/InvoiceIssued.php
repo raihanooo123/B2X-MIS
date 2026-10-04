@@ -6,6 +6,7 @@ use App\Domain\Notifications\MailContent;
 use App\Domain\Notifications\Notice;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\Recipient;
+use App\Domain\Ordering\GuestOrderLink;
 use App\Models\Invoice;
 use App\Models\Order;
 
@@ -46,7 +47,7 @@ final class InvoiceIssued extends Notice
     public function content(Recipient $recipient): MailContent
     {
         $invoice = Invoice::query()->findOrFail($this->invoiceId);
-        $order = Order::query()->findOrFail($invoice->order_id, ['id', 'public_id', 'order_number']);
+        $order = Order::query()->findOrFail($invoice->order_id, ['id', 'public_id', 'order_number', 'user_id', 'company_id', 'guest_email']);
         $receipt = $invoice->isReceipt();
         $document = $receipt ? 'Receipt' : 'VAT invoice';
 
@@ -77,7 +78,7 @@ final class InvoiceIssued extends Notice
                 : "Please find the details of invoice {$invoice->invoice_number} for order {$order->order_number} below."],
             facts: $facts,
             actionLabel: 'View your order',
-            actionUrl: route('orders.confirmation', ['order' => $order->public_id]),
+            actionUrl: GuestOrderLink::customerUrl($order),
             closing: [$hasPdf ? "A PDF copy of this {$this->lower($document)} is attached." : 'Keep this email for your records.'],
         );
     }

@@ -62,7 +62,8 @@ use RuntimeException;
  * become blocking.
  *
  * Who may place the order is checked here too, when the caller passes
- * the user (05.13): a guest must sign in (§4.1), an applicant waits for
+ * the user (05.13): a guest may check out without an account (05.15
+ * §6.1, amending 05.13 §4.1 and §5.2), an applicant waits for
  * approval (`application_pending`, §7), a public customer must confirm
  * their email (`email_unverified`, §11), and a company `viewer` cannot
  * order (05.2 §10). A public customer also needs terms of sale to accept
@@ -237,8 +238,10 @@ final class CheckoutPreviewService
      */
     private function identityBlockers(?User $user, ?int $companyId): array
     {
+        // 05.15 §6.1: a guest checks out without an account, on the same
+        // terms of sale as a signed-in public customer.
         if ($user === null) {
-            return [new CheckoutBlocker(null, 'sign_in_required', 'Sign in or create an account to check out.')];
+            return $this->termsOfSaleBlockers();
         }
 
         if ($companyId !== null) {
@@ -262,8 +265,17 @@ final class CheckoutPreviewService
             return [new CheckoutBlocker(null, 'email_unverified', 'Confirm your email address to check out — we have sent you a link.')];
         }
 
-        // 05.15 §6.1 step 4: nothing to accept means no contract terms to
-        // sell on (02 §25.10: publish the first `sale` version first).
+        return $this->termsOfSaleBlockers();
+    }
+
+    /**
+     * 05.15 §6.1 step 4: nothing to accept means no contract terms to sell
+     * on (02 §25.10: publish the first `sale` version first).
+     *
+     * @return list<CheckoutBlocker>
+     */
+    private function termsOfSaleBlockers(): array
+    {
         return TermsVersion::current(TermsKind::Sale) === null
             ? [new CheckoutBlocker(null, 'terms_of_sale_unavailable', 'Online ordering is not available yet. Please contact us to order.')]
             : [];

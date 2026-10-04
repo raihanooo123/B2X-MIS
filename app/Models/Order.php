@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property string $status
  * @property string $payment_status
  * @property string|null $payment_method
+ * @property string|null $guest_email
  * @property int|null $delivery_zone_id
  * @property int|null $delivery_rate_id
  * @property string|null $delivery_method
@@ -51,6 +52,7 @@ class Order extends Model
         'order_number',
         'company_id',
         'user_id',
+        'guest_email',
         'placed_by_user_id',
         'sales_rep_user_id',
         'quote_id',

@@ -50,14 +50,14 @@ class CartPolicy
     }
 
     /**
-     * Placing the order: the cart's owner, signed in (05.13 §4.1 — guests
-     * sign in first). Whether this person may order at all — a company
-     * `viewer`, an applicant, an unconfirmed email — is reported by
-     * checkout preview's blockers, with a message the buyer can act on.
+     * Placing the order: the cart's owner — a guest too, for their own
+     * guest cart (05.15 §6.1). Whether this person may order at all — a
+     * company `viewer`, an applicant, an unconfirmed email — is reported
+     * by checkout preview's blockers, with a message the buyer can act on.
      */
     public function checkout(?User $user, Cart $cart): bool
     {
-        return $user !== null && $this->owns($user, $cart);
+        return $this->owns($user, $cart);
     }
 
     private function owns(?User $user, Cart $cart): bool

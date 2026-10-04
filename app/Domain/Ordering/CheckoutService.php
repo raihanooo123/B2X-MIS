@@ -303,6 +303,8 @@ final class CheckoutService
             'order_number' => (string) Str::ulid(),
             'company_id' => $request->companyId,
             'user_id' => $request->userId,
+            // 02 §26.1: a guest's identity, trimmed and lower-cased.
+            'guest_email' => $request->guestEmail === null ? null : mb_strtolower(trim($request->guestEmail)),
             'placed_by_user_id' => $request->placedByUserId ?? $request->userId,
             'channel' => $request->channel,
             'status' => 'draft',

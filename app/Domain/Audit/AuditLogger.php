@@ -50,6 +50,7 @@ final class AuditLogger
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
             AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
+            AuditAction::OrderClaimed => $this->validateOrderClaimed($entry),
             AuditAction::LockedOut => $this->validateLockout($entry),
             AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
             AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
@@ -302,6 +303,20 @@ final class AuditLogger
             || $entry->subjectType !== 'terms_version' || $entry->subjectId === null
             || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid terms version audit entry.');
+        }
+    }
+
+    /**
+     * 05.15 §6.3: by the claimant, about the order; `user_id` from NULL to
+     * the claimant. Nothing else — never the guest email.
+     */
+    private function validateOrderClaimed(AuditEntry $entry): void
+    {
+        if ($entry->before !== ['user_id' => null] || $entry->after !== ['user_id' => $entry->actorUserId]
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'order' || $entry->subjectId === null
+            || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid order claim audit entry.');
         }
     }
 

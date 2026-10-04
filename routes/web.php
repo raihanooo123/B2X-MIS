@@ -12,7 +12,9 @@ use App\Http\Controllers\CartPageController;
 use App\Http\Controllers\CheckoutPageController;
 use App\Http\Controllers\CompanyInvitationController;
 use App\Http\Controllers\CompanyMemberController;
+use App\Http\Controllers\GuestOrderController;
 use App\Http\Controllers\OrderConfirmationController;
+use App\Http\Controllers\OrderLookupController;
 use App\Http\Controllers\OrderPadController;
 use App\Http\Controllers\Storefront\CatalogueController;
 use App\Http\Controllers\Storefront\HomeController;
@@ -36,15 +38,27 @@ Route::post('/price-display', PriceDisplayController::class)->middleware('thrott
 // base prices (05.13 §14).
 Route::get('/order-pad', [OrderPadController::class, 'index'])->name('order-pad');
 
-// 06 §8–9: cart (guests too — they have carts, 02 §14.3), checkout and
-// the confirmation (signed in, 05.13 §4.1).
+// 06 §8–9: cart and checkout (guests too — they have carts, 02 §14.3, and
+// may check out without an account, 05.15 §6.1), and the confirmation.
 Route::get('/cart', [CartPageController::class, 'show'])->name('cart');
+Route::get('/checkout', [CheckoutPageController::class, 'show'])->name('checkout');
+Route::get('/checkout/sign-in', [CheckoutPageController::class, 'signIn'])->name('checkout.sign-in');
 Route::middleware('auth')->group(function (): void {
-    Route::get('/checkout', [CheckoutPageController::class, 'show'])->name('checkout');
     Route::get('/orders/{order}/confirmation', [OrderConfirmationController::class, 'show'])
         ->whereUlid('order')
         ->name('orders.confirmation');
 });
+
+// 05.15 §6.2–6.3: a guest's order page by signed link (not a sign-in
+// link), saving their details as an account, and Find my order.
+Route::get('/orders/{order}/guest/{expires}/{signature}', [GuestOrderController::class, 'show'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->name('orders.guest');
+Route::post('/orders/{order}/guest/{expires}/{signature}/account', [GuestOrderController::class, 'createAccount'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->middleware('throttle:10,1')->name('orders.guest.account');
+Route::get('/orders/lookup', [OrderLookupController::class, 'show'])->name('orders.lookup');
+Route::post('/orders/lookup', [OrderLookupController::class, 'send'])->name('orders.lookup.send');
 
 // Doc 05.13 — authentication and onboarding.
 Route::middleware('guest')->group(function (): void {

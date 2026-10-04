@@ -148,9 +148,12 @@ it('checks out a public/guest order with no company: no credit check, no credit 
         paymentMethod: 'card',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
+        // 02 §26.1: an order with no company and no user is a guest's.
+        guestEmail: 'Guest@Example.com ',
     ));
 
     expect($order->company_id)->toBeNull()
+        ->and($order->guest_email)->toBe('guest@example.com')
         ->and($order->payment_status)->toBe('unpaid')
         ->and($order->status)->toBe('confirmed');
 

@@ -28,10 +28,11 @@ Route::prefix('v1')->group(function (): void {
     Route::delete('/cart/lines/{id}', [CartController::class, 'destroyLine'])->whereUlid('id');
     Route::post('/cart/bulk-add', [CartController::class, 'bulkAdd']);
     Route::post('/checkout/preview', [CheckoutController::class, 'preview']);
-    // 06 §9.3 — requires an Idempotency-Key header (06 §6).
-    Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('auth');
+    // 06 §9.3 — requires an Idempotency-Key header (06 §6). Guests too
+    // (05.15 §6.1): CartPolicy::checkout() requires the cart's owner.
+    Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('throttle:60,1');
     // 07 §6.4 — authorise a card for the previewed total (Stripe Elements confirms it).
-    Route::post('/checkout/card-intent', [CheckoutController::class, 'cardIntent'])->middleware('auth');
+    Route::post('/checkout/card-intent', [CheckoutController::class, 'cardIntent'])->middleware('throttle:60,1');
 
     // 06 §8 — goods-in (05.5 §4). Staff only; GoodsReceiptPolicy decides who.
     // Receiving a line requires an Idempotency-Key (06 §6, 05.5 §10).

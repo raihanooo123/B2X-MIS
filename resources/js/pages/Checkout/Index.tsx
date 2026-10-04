@@ -18,6 +18,10 @@
  * same body reuses it, so a lost response replays instead of ordering
  * twice (06 §6).
  *
+ * A guest checks out without an account (05.15 §6.1): their email, a phone,
+ * card only, and an offer to sign in that reads the same for everyone, so
+ * it never says whether the email has an account.
+ *
  * A public buyer (05.15 §6.1, §7.1) also sees the pre-contract information
  * and accepts the terms of sale before the button, which says the order
  * carries an obligation to pay (CCR 2013 reg. 14(3)).
@@ -57,6 +61,8 @@ interface SavedAddress {
 interface CheckoutProps {
     display_mode: DisplayMode;
     is_trade: boolean;
+    /** Checking out without an account (05.15 §6.1). */
+    is_guest: boolean;
     company_name: string | null;
     contact: { name: string; phone: string | null };
     addresses: SavedAddress[];
@@ -130,6 +136,8 @@ function CheckoutForm(props: CheckoutProps) {
     const [failure, setFailure] = useState<ApiError | null>(null);
     const [priceChange, setPriceChange] = useState<PriceChange | null>(null);
     const [termsAccepted, setTermsAccepted] = useState(false);
+    const [guestEmail, setGuestEmail] = useState('');
+    const isGuest = props.is_guest;
     const terms = props.terms_of_sale;
 
     const address: DeliveryAddressInput = useMemo(() => {
@@ -163,7 +171,7 @@ function CheckoutForm(props: CheckoutProps) {
     const idempotency = useRef<{ body: string; key: string } | null>(null);
 
     const blockers = preview.data?.blockers ?? [];
-    const addressComplete = [address.contact_name, address.line1, address.city, address.postcode, address.country_code].every((v) => v.trim() !== '');
+    const addressComplete = [address.contact_name, address.line1, address.city, address.postcode, address.country_code, ...(isGuest ? [address.phone, guestEmail] : [])].every((v) => v.trim() !== '');
     const stripe = useStripe();
     const elements = useElements();
     const [stage, setStage] = useState<'idle' | 'authorising' | 'placing'>('idle');
@@ -279,6 +287,7 @@ function CheckoutForm(props: CheckoutProps) {
             delivery_address: address,
             ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
             ...(!isTrade && terms !== null ? { terms_version_id: terms.id } : {}),
+            ...(isGuest ? { guest_email: guestEmail.trim() } : {}),
         };
         const body = JSON.stringify(input);
         if (idempotency.current?.body !== body) {
@@ -312,6 +321,28 @@ function CheckoutForm(props: CheckoutProps) {
 
                 <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-[1fr_380px] lg:items-start">
                     <div className="space-y-8">
+                        {isGuest && (
+                            <Section title="Your details">
+                                <p className="text-sm text-muted-foreground">
+                                    <Link href="/checkout/sign-in" className="font-medium text-foreground underline underline-offset-2">
+                                        Sign in for faster checkout
+                                    </Link>
+                                    , or continue as a guest.
+                                </p>
+                                <Field
+                                    label="Email"
+                                    type="email"
+                                    autoComplete="email"
+                                    required
+                                    value={guestEmail}
+                                    maxLength={254}
+                                    onChange={(e) => setGuestEmail(e.target.value)}
+                                    error={fieldErrors.guest_email}
+                                    hint="We send your order confirmation and a link to your order here."
+                                />
+                            </Section>
+                        )}
+
                         <Section title="Delivery address">
                             {addresses.length > 0 && (
                                 <fieldset className="space-y-2">
@@ -332,7 +363,7 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
 
                             {addressChoice === NEW_ADDRESS && (
-                                <AddressForm value={newAddress} onChange={setNewAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} />
+                                <AddressForm value={newAddress} onChange={setNewAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} phoneRequired={isGuest} />
                             )}
                             {addressChoice !== NEW_ADDRESS && (
                                 <p className="text-xs text-muted-foreground">
@@ -426,7 +457,11 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
                         </Button>
                         {!isTrade && terms !== null && !termsAccepted && <p className="text-center text-xs text-muted-foreground">Accept the terms of sale to place your order.</p>}
-                        {!addressComplete && <p className="text-center text-xs text-muted-foreground">Complete the delivery address to place your order.</p>}
+                        {!addressComplete && (
+                            <p className="text-center text-xs text-muted-foreground">
+                                {isGuest ? 'Enter your email, phone and delivery address to place your order.' : 'Complete the delivery address to place your order.'}
+                            </p>
+                        )}
                         {addressComplete && delivery === null && !preview.isFetching && (
                             <p className="text-center text-xs text-muted-foreground">Enter your full delivery postcode to see the delivery cost.</p>
                         )}
@@ -570,7 +605,7 @@ function Choice({ name, value, checked, onChange, children }: { name: string; va
     );
 }
 
-function AddressForm({ value, onChange, countries, errors, isTrade }: { value: DeliveryAddressInput; onChange: (v: DeliveryAddressInput) => void; countries: { code: string; name: string }[]; errors: Record<string, string>; isTrade: boolean }) {
+function AddressForm({ value, onChange, countries, errors, isTrade, phoneRequired }: { value: DeliveryAddressInput; onChange: (v: DeliveryAddressInput) => void; countries: { code: string; name: string }[]; errors: Record<string, string>; isTrade: boolean; phoneRequired: boolean }) {
     const set = (key: keyof DeliveryAddressInput) => (e: { target: { value: string } }) => onChange({ ...value, [key]: e.target.value });
     const countryId = useId();
 
@@ -578,7 +613,7 @@ function AddressForm({ value, onChange, countries, errors, isTrade }: { value: D
         <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Contact name" autoComplete="name" required value={value.contact_name} onChange={set('contact_name')} error={errors['delivery_address.contact_name']} />
-                <Field label="Phone" type="tel" autoComplete="tel" value={value.phone} onChange={set('phone')} error={errors['delivery_address.phone']} />
+                <Field label="Phone" type="tel" autoComplete="tel" required={phoneRequired} value={value.phone} onChange={set('phone')} error={errors['delivery_address.phone']} />
             </div>
             {isTrade && <Field label="Company" autoComplete="organization" value={value.company_name} onChange={set('company_name')} error={errors['delivery_address.company_name']} />}
             <Field label="Address line 1" autoComplete="address-line1" required value={value.line1} onChange={set('line1')} error={errors['delivery_address.line1']} />

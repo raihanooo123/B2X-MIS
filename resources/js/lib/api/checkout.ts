@@ -105,6 +105,8 @@ export interface PlaceOrderInput {
     payment_intent_id?: string;
     /** Public buyers: the terms of sale version accepted (05.15 §6.1 step 4). */
     terms_version_id?: number;
+    /** Guests only: the contact email the order is placed with (05.15 §6.1). */
+    guest_email?: string;
 }
 
 export interface CardIntent {

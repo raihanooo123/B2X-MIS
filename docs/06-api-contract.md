@@ -477,6 +477,13 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - **Terms of sale** (05.15 §6.1 step 4, 02 §26.2). Checkout takes `terms_version_id`, the terms of sale version the buyer accepted; a public buyer without it gets 422 `terms_not_accepted`. A version that is no longer in force is 409 `terms_changed` (`details[0].meta.accepted_terms_version_id`, `current_terms_version_id`), committing nothing. The acceptance is a `terms_acceptances` row in the order's transaction. Ignored for trade buyers.
 - Preview adds the blocker `terms_of_sale_unavailable` for a public buyer while no terms of sale version is published (02 §25.10).
 
+**As built (2026-10-04, 05.15 slice S5a), additive per §2 — guest checkout:**
+
+- **Guests may check out** (05.15 §6.1), replacing "signed in only" above. Checkout and `checkout/card-intent` accept the owner of a guest cart; preview no longer reports `sign_in_required` (a guest sees only `terms_of_sale_unavailable`, when no terms are published). Unauthenticated limit per §12: 60 a minute per IP.
+- A guest sends `guest_email` (required; refused from a signed-in buyer) and `delivery_address.phone` (required). The order is placed with no user and no company, and `orders.guest_email` set (02 §26.1).
+- **Card only for guests** (§6.1 step 3): any other `payment_method` is 422 `payment_method_not_available`.
+- `confirmation_url` for a guest is their signed order link (`/orders/{id}/guest/{expires}/{signature}`, 90 days, 05.15 §6.2), not the signed-in confirmation page.
+
 ### 9.4 Stock availability
 
 ```

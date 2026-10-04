@@ -6,6 +6,7 @@ use App\Domain\Notifications\MailContent;
 use App\Domain\Notifications\Notice;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\Recipient;
+use App\Domain\Ordering\GuestOrderLink;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Shipment;
@@ -92,7 +93,7 @@ final class ShipmentDispatched extends Notice
             paragraphs: $paragraphs,
             facts: $facts,
             actionLabel: 'View your order',
-            actionUrl: route('orders.confirmation', ['order' => $order->public_id]),
+            actionUrl: GuestOrderLink::customerUrl($order),
         );
     }
 

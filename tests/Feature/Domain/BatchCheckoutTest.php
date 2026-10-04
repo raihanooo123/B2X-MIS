@@ -77,6 +77,7 @@ function batchCheckout(Cart $cart, Sku $sku, int $qty): Order
         paymentMethod: 'card',
         expectedTotalGrossMinor: $pricing->totalGrossMinor,
         deliveryCountryCode: 'GB',
+        guestEmail: 'guest@example.com',
     ));
 }
 

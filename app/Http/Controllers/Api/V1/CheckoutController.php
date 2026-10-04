@@ -22,6 +22,7 @@ use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Ordering\Exceptions\BatchTrackedCheckoutNotSupportedException;
 use App\Domain\Ordering\Exceptions\PriceChangedException;
 use App\Domain\Ordering\Exceptions\TermsOfSaleChangedException;
+use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Exceptions\ApiException;
@@ -66,6 +67,11 @@ use Throwable;
  * rule G) — and must accept the terms of sale in force to place an order
  * (§6.1 step 4): 422 `terms_not_accepted` without them, 409
  * `terms_changed` when the version accepted is no longer current.
+ *
+ * Guests check out too (05.15 §6.1): the guest cart's owner, by card only,
+ * with `guest_email`. A guest's card authorisation is bound to their cart,
+ * which only their session can reach; the confirmation URL is their signed
+ * order link (§6.2).
  */
 class CheckoutController extends Controller
 {
@@ -89,10 +95,7 @@ class CheckoutController extends Controller
 
     private function placeOrder(PlaceOrderRequest $request): JsonResponse
     {
-        $user = $request->user();
-        if (! $user instanceof User) {
-            throw new ApiException(401, 'unauthenticated', 'Sign in to check out.');
-        }
+        $user = $request->user() instanceof User ? $request->user() : null;
 
         $owner = $this->context->owner($request, createGuestToken: false);
         $cart = $owner === null ? null : $this->cartService->findCartFor($owner);
@@ -103,7 +106,7 @@ class CheckoutController extends Controller
 
         $companyId = $owner->companyId;
         $method = $request->paymentMethod();
-        $this->assertPaymentMethodAllowed($method, $companyId);
+        $this->assertPaymentMethodAllowed($method, $companyId, guest: $user === null);
 
         $address = $request->deliveryAddress();
         $this->assertCountryServed($address->countryCode, $companyId, 'delivery_address.country_code');
@@ -136,7 +139,8 @@ class CheckoutController extends Controller
             'order_number' => $order->order_number,
             'total_gross_minor' => $order->total_gross_minor,
             'payment_status' => $order->payment_status,
-            'confirmation_url' => route('orders.confirmation', $order->public_id),
+            // 05.15 §6.2: a guest has no account to sign in with.
+            'confirmation_url' => $user === null ? GuestOrderLink::url($order) : route('orders.confirmation', $order->public_id),
         ]], 201);
     }
 
@@ -144,7 +148,7 @@ class CheckoutController extends Controller
      * The preview's checks, then the order itself (CheckoutService). A card
      * authorisation, when given, is recorded in the order's transaction.
      */
-    private function commitOrder(PlaceOrderRequest $request, User $user, Cart $cart, ?int $companyId, PaymentMethod $method, DeliveryAddress $address, ?CardIntent $card, ?AcceptedTerms $saleTerms): Order
+    private function commitOrder(PlaceOrderRequest $request, ?User $user, Cart $cart, ?int $companyId, PaymentMethod $method, DeliveryAddress $address, ?CardIntent $card, ?AcceptedTerms $saleTerms): Order
     {
         // The same checks preview reports — the button the buyer pressed was
         // only enabled because there were none, but the cart, the stock or
@@ -168,7 +172,7 @@ class CheckoutController extends Controller
             $order = $this->checkoutService->checkout(new CheckoutRequest(
                 cartId: $cart->id,
                 companyId: $companyId,
-                userId: $user->id,
+                userId: $user?->id,
                 paymentMethod: $method->value,
                 expectedTotalGrossMinor: $request->expectedTotalGrossMinor(),
                 deliveryCountryCode: $address->countryCode,
@@ -176,6 +180,7 @@ class CheckoutController extends Controller
                 deliveryAddress: $address,
                 cardAuthorisation: $card,
                 saleTerms: $saleTerms,
+                guestEmail: $user === null ? $request->guestEmail() : null,
             ));
         } catch (PriceChangedException $e) {
             throw new ApiException(409, 'price_changed', 'Prices have changed since you reviewed your order. Nothing has been placed.', [[
@@ -254,10 +259,7 @@ class CheckoutController extends Controller
      */
     public function cardIntent(CardIntentRequest $request): JsonResponse
     {
-        $user = $request->user();
-        if (! $user instanceof User) {
-            throw new ApiException(401, 'unauthenticated', 'Sign in to check out.');
-        }
+        $user = $request->user() instanceof User ? $request->user() : null;
         if ((string) config('services.stripe.secret') === '') {
             throw new ApiException(503, 'card_payments_unavailable', 'Card payments are not available right now. Please pay by bank transfer.');
         }
@@ -282,8 +284,8 @@ class CheckoutController extends Controller
             ?? $this->gatewayCall(fn () => $this->gateway()->createAuthorisation(
                 $preview->totalGrossMinor,
                 'GBP',
-                ['cart_id' => (string) $cart->public_id, 'user_id' => (string) $user->public_id],
-                'card-intent:'.$user->public_id.':'.$cart->public_id.':'.$preview->totalGrossMinor.':'.Str::ulid(),
+                ['cart_id' => (string) $cart->public_id, 'user_id' => self::buyerRef($user)],
+                'card-intent:'.self::buyerRef($user).':'.$cart->public_id.':'.$preview->totalGrossMinor.':'.Str::ulid(),
             ));
 
         Cache::put($this->cardIntentCacheKey($user, $cart), $intent->id, 86400);
@@ -296,7 +298,7 @@ class CheckoutController extends Controller
         ]]);
     }
 
-    private function reusableIntent(User $user, Cart $cart, int $amountMinor): ?CardIntent
+    private function reusableIntent(?User $user, Cart $cart, int $amountMinor): ?CardIntent
     {
         $id = Cache::get($this->cardIntentCacheKey($user, $cart));
         if (! is_string($id) || CardPayments::findByIntent($id) !== null) {
@@ -321,16 +323,26 @@ class CheckoutController extends Controller
         return null;
     }
 
-    private function cardIntentCacheKey(User $user, Cart $cart): string
+    private function cardIntentCacheKey(?User $user, Cart $cart): string
     {
-        return 'checkout:card-intent:'.$user->public_id.':'.$cart->public_id;
+        return 'checkout:card-intent:'.self::buyerRef($user).':'.$cart->public_id;
+    }
+
+    /**
+     * Who an authorisation is for: the signed-in buyer, or `guest`. A guest
+     * cart is reachable only by its own session (CartOwner), so the cart id
+     * alongside is what binds a guest's authorisation to them.
+     */
+    private static function buyerRef(?User $user): string
+    {
+        return $user === null ? 'guest' : (string) $user->public_id;
     }
 
     /**
      * The intent must be this buyer's, for this cart, authorised, and for the
      * total they confirmed. A decline is answered with what to do next.
      */
-    private function authorisedCard(PlaceOrderRequest $request, User $user, Cart $cart): CardIntent
+    private function authorisedCard(PlaceOrderRequest $request, ?User $user, Cart $cart): CardIntent
     {
         $id = (string) $request->paymentIntentId();
 
@@ -340,7 +352,7 @@ class CheckoutController extends Controller
 
         $intent = $this->gatewayCall(fn () => $this->gateway()->retrieve($id));
 
-        if (($intent->metadata['cart_id'] ?? null) !== $cart->public_id || ($intent->metadata['user_id'] ?? null) !== $user->public_id) {
+        if (($intent->metadata['cart_id'] ?? null) !== $cart->public_id || ($intent->metadata['user_id'] ?? null) !== self::buyerRef($user)) {
             throw new ApiException(422, 'payment_not_authorised', 'This payment does not belong to your order.');
         }
 
@@ -455,10 +467,19 @@ class CheckoutController extends Controller
 
     /**
      * 05.2 §8.1: on-account needs a company on credit terms; a company on
-     * `prepay` terms, and every public customer, pays by card or BACS.
+     * `prepay` terms, and every public customer, pays by card or BACS. A
+     * guest pays by card only (05.15 §6.1 step 3).
      */
-    private function assertPaymentMethodAllowed(PaymentMethod $method, ?int $companyId): void
+    private function assertPaymentMethodAllowed(PaymentMethod $method, ?int $companyId, bool $guest = false): void
     {
+        if ($guest && $method !== PaymentMethod::Card) {
+            throw new ApiException(422, 'payment_method_not_available', 'Guest checkout is by card. Sign in or create an account to pay by bank transfer.', [[
+                'field' => 'payment_method',
+                'code' => 'payment_method_not_available',
+                'message' => 'Pay by card.',
+            ]]);
+        }
+
         if ($method !== PaymentMethod::OnAccount) {
             return;
         }
