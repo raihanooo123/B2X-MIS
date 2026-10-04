@@ -24,6 +24,7 @@ class ReportProblemRequest extends FormRequest
     {
         return [
             'reason' => ['required', 'string', 'in:'.implode(',', FaultReports::REASONS)],
+            'customer_choice' => ['nullable', 'string', 'in:repair,replacement'],
             'detail' => ['required', 'string', 'min:5', 'max:2000'],
             'lines' => ['required', 'array', 'min:1', 'max:500'],
             'lines.*.line_no' => ['required', 'integer', 'min:1', 'distinct'],

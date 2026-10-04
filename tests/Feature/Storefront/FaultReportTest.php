@@ -3,6 +3,7 @@
 use App\Domain\Billing\PaymentGateway;
 use App\Domain\Notifications\Notices\RmaApproved;
 use App\Domain\Notifications\Recipient;
+use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
 use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ReturnInspection;
@@ -77,9 +78,9 @@ function faultOrder(?Sku $sku = null): Order
     return $order;
 }
 
-function report(Order $order, string $ukDateTime, string $reason = 'faulty'): Rma
+function faultReport(Order $order, string $ukDateTime, string $reason = 'faulty', ?string $choice = null): Rma
 {
-    return (new FaultReports)->report($order->id, [1 => 1], $reason, 'It does not switch on.', [], CarbonImmutable::parse($ukDateTime, 'Europe/London'), test()->user->id);
+    return (new FaultReports)->report($order->id, [1 => 1], $reason, 'It does not switch on.', [], CarbonImmutable::parse($ukDateTime, 'Europe/London'), test()->user->id, $choice);
 }
 
 /** Approve, receive and inspect a report: the goods arrive and are written off. */
@@ -93,7 +94,7 @@ function faultReceived(Rma $rma): Rma
 }
 
 it('refunds faulty goods in full within 30 days, including the whole delivery, with no deduction', function () {
-    $rma = report(faultOrder(), '2026-11-06 18:00:00'); // day 30 after possession
+    $rma = faultReport(faultOrder(), '2026-11-06 18:00:00'); // day 30 after possession
     expect(FaultReports::withinRejectPeriod($rma))->toBeTrue()
         ->and($rma->status)->toBe('requested');
 
@@ -111,7 +112,7 @@ it('refunds faulty goods in full within 30 days, including the whole delivery, w
 });
 
 it('never takes a deduction for diminished value on faulty goods', function () {
-    $rma = report(faultOrder(), '2026-10-20 12:00:00');
+    $rma = faultReport(faultOrder(), '2026-10-20 12:00:00');
     (new FaultReports)->approve($rma->id, faultStaff('accounts')->id);
     (new ReturnReceipt)->receive($rma->id, [1 => 1], faultStaff('warehouse')->id);
 
@@ -124,14 +125,14 @@ it('never takes a deduction for diminished value on faulty goods', function () {
 });
 
 it('accepts a fault reported on day 40, offering repair or replacement first (C11)', function () {
-    $rma = report(faultOrder(), '2026-11-16 12:00:00'); // day 40, long after the 14-day window
+    $rma = faultReport(faultOrder(), '2026-11-16 12:00:00', choice: 'repair'); // day 40, long after the 14-day window
     expect($rma->status)->toBe('requested')
         ->and(FaultReports::withinRejectPeriod($rma))->toBeFalse();
 
     $received = faultReceived($rma);
-    expect(fn () => (new ReturnResolution)->resolve($received->id, faultStaff('accounts')->id))->toThrow(ReturnActionRefusedException::class);
+    expect(fn () => (new ReturnResolution)->resolve($received->id, faultStaff('accounts')->id, 'credit_note'))->toThrow(ReturnActionRefusedException::class);
 
-    $repaired = (new ReturnResolution)->resolve($received->id, faultStaff('accounts')->id, 'repair');
+    $repaired = (new ReturnResolution)->resolve($received->id, faultStaff('accounts')->id);
     expect($repaired->status)->toBe('resolved')
         ->and($repaired->resolution_type)->toBe('repair')
         ->and($repaired->refund_gross_minor)->toBe(0)
@@ -140,7 +141,7 @@ it('accepts a fault reported on day 40, offering repair or replacement first (C1
 });
 
 it('takes a report for bespoke goods too: a fault is never excluded', function () {
-    $rma = report(faultOrder(Sku::factory()->nonRefundable('bespoke')->create()), '2026-10-25 12:00:00');
+    $rma = faultReport(faultOrder(Sku::factory()->nonRefundable('bespoke')->create()), '2026-10-25 12:00:00');
 
     expect($rma->status)->toBe('requested')
         ->and(DB::table('notification_log')->where('notification_key', 'rma.requested')->count())->toBe(0); // no accounts user yet
@@ -167,7 +168,7 @@ it('takes "Report a problem" from the order page with photos, and tells the hand
 
 it('lets accounts approve a report, collecting at our cost, or reject it with a reason', function () {
     $order = faultOrder();
-    $approved = report($order, '2026-10-20 12:00:00');
+    $approved = faultReport($order, '2026-10-20 12:00:00');
 
     $this->actingAs(faultStaff('warehouse'))->postJson("/api/v1/warehouse/returns/{$approved->public_id}/approve")->assertForbidden();
     $this->actingAs(faultStaff('accounts'))->postJson("/api/v1/warehouse/returns/{$approved->public_id}/approve")
@@ -205,5 +206,74 @@ it('keeps the time the customer told us when staff record their cancellation', f
         ->assertStatus(422)->assertJsonPath('error.code', 'window_closed');
     $this->actingAs(faultStaff('warehouse'))->postJson('/api/v1/warehouse/returns/cancellations', ['order_number' => $order->order_number, 'notified_at' => '2026-10-20T16:30', 'lines' => [['line_no' => 1, 'pack_qty' => 1]]])
         ->assertForbidden();
+    $this->travelBack();
+});
+
+it('requires the customer choice after day 30 and retains it through a reasoned staff override', function (string $overrideBasis) {
+    $order = faultOrder();
+    expect(fn () => faultReport($order, '2026-11-07 00:00:00'))->toThrow(CancellationRequestRejectedException::class);
+    expect(Rma::query()->count())->toBe(0);
+    $rma = faultReport($order, '2026-11-07 00:00:00', choice: 'replacement');
+    expect($rma->resolution_type)->toBe('replacement');
+    $received = faultReceived($rma);
+    $accounts = faultStaff('accounts');
+    foreach ([[null, null], ['impossible', ''], ['convenient', 'Easier for us']] as [$basis, $reason]) {
+        expect(fn () => (new ReturnResolution)->resolve($received->id, $accounts->id, 'repair', $basis, null, $reason))
+            ->toThrow(ReturnActionRefusedException::class);
+    }
+    $settled = (new ReturnResolution)->resolve($received->id, $accounts->id, 'repair', $overrideBasis, null, 'This model is discontinued; no replacement is available.');
+    $record = json_decode($settled->internal_note, true);
+    expect($settled->resolution_type)->toBe('repair')
+        ->and($record['customer_choice'])->toBe('replacement')
+        ->and($record['decisions'][0]['override_basis'])->toBe($overrideBasis)
+        ->and($record['decisions'][0]['staff_user_id'])->toBe($accounts->id)
+        ->and(Payment::query()->where('type', 'refund')->count())->toBe(0);
+})->with(['impossible', 'disproportionate']);
+
+it('refunds after day 30 only with a recorded failed or refused remedy and never twice', function (string $outcome) {
+    $rma = faultReceived(faultReport(faultOrder(), '2026-11-16 12:00:00', choice: 'replacement'));
+    $accounts = faultStaff('accounts');
+    expect(fn () => (new ReturnResolution)->resolve($rma->id, $accounts->id, 'credit_note'))
+        ->toThrow(ReturnActionRefusedException::class);
+    expect(fn () => (new ReturnResolution)->resolve($rma->id, $accounts->id, 'credit_note', null, $outcome, '  '))
+        ->toThrow(ReturnActionRefusedException::class);
+    (new ReturnResolution)->resolve($rma->id, $accounts->id, 'replacement');
+    $settled = (new ReturnResolution)->resolve($rma->id, $accounts->id, 'credit_note', null, $outcome, 'Replacement could not remedy the reported fault.');
+    expect($settled->refund_gross_minor)->toBe(2400)
+        ->and(json_decode($settled->internal_note, true)['decisions'][0]['remedy_outcome'])->toBe($outcome)
+        ->and(CreditNote::query()->count())->toBe(1)
+        ->and(Payment::query()->where('type', 'refund')->count())->toBe(1);
+    expect(fn () => (new ReturnResolution)->resolve($rma->id, $accounts->id, 'credit_note', null, $outcome, 'Again'))
+        ->toThrow(ReturnActionRefusedException::class);
+    expect(CreditNote::query()->count())->toBe(1)
+        ->and($this->gateway->refunds)->toHaveCount(1);
+})->with(['failed', 'refused']);
+
+it('keeps the UK approval plus 14-day fault deadline through receipt and alerts accounts once', function () {
+    $accounts = faultStaff('accounts');
+    $rma = faultReport(faultOrder(), '2026-10-08 12:00:00');
+    $this->travelTo(CarbonImmutable::parse('2026-10-09 23:30:00', 'UTC')); // UK date is 10 October
+    (new FaultReports)->approve($rma->id, $accounts->id);
+    expect($rma->fresh()->refund_due_on->toDateString())->toBe('2026-10-24');
+    $this->travelTo(CarbonImmutable::parse('2026-10-20 12:00:00', 'Europe/London'));
+    $this->artisan('returns:refund-due-alerts')->assertSuccessful();
+    expect(DB::table('notification_log')->where('notification_key', 'rma.refund_due_soon')->count())->toBe(0);
+    (new ReturnReceipt)->receive($rma->id, [1 => 1], faultStaff('warehouse')->id);
+    expect($rma->fresh()->refund_due_on->toDateString())->toBe('2026-10-24');
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 12:00:00', 'Europe/London'));
+    $this->artisan('returns:refund-due-alerts')->assertSuccessful();
+    $this->artisan('returns:refund-due-alerts')->assertSuccessful();
+    expect(DB::table('notification_log')->where('notification_key', 'rma.refund_due_soon')->where('user_id', $accounts->id)->count())->toBe(1);
+    $this->travelBack();
+});
+
+it('records the customer replacement choice from the order page', function () {
+    $order = faultOrder();
+    $this->travelTo(CarbonImmutable::parse('2026-11-16 12:00:00', 'Europe/London'));
+    $this->actingAs($this->user)->post(route('orders.problems', $order->public_id), [
+        'reason' => 'faulty', 'detail' => 'It does not switch on.', 'customer_choice' => 'replacement',
+        'lines' => [['line_no' => 1, 'pack_qty' => 1]],
+    ])->assertSessionHasNoErrors()->assertSessionHas('status');
+    expect(Rma::query()->sole()->resolution_type)->toBe('replacement');
     $this->travelBack();
 });

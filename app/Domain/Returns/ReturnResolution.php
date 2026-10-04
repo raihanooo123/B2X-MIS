@@ -26,7 +26,8 @@ use RuntimeException;
  *     refunded, with no deduction (nothing was inspected).
  *   - Resolution: a cancellation is refunded (`credit_note`). Faulty goods
  *     within 30 days of possession are refunded in full (CRA s.22, §13.4);
- *     after 30 days the handler chooses repair, replacement or a refund.
+ *     after 30 days the customer chooses repair or replacement; staff
+ *     record any override or failed/refused remedy before a refund.
  *     Repair and replacement settle the return with no refund.
  *   - Refund (RefundCalculator): goods actually refunded, less diminished
  *     value; the outbound delivery — for a cancellation, the standard charge
@@ -53,10 +54,10 @@ final class ReturnResolution
      *
      * @throws ReturnActionRefusedException
      */
-    public function resolve(int $rmaId, int $staffUserId, ?string $resolutionType = null): Rma
+    public function resolve(int $rmaId, int $staffUserId, ?string $resolutionType = null, ?string $overrideBasis = null, ?string $remedyOutcome = null, ?string $remedyReason = null): Rma
     {
         /** @var array{rma: Rma, refund_id: int|null} $outcome */
-        $outcome = DB::transaction(fn () => $this->resolveWithinTransaction($rmaId, $staffUserId, $resolutionType));
+        $outcome = DB::transaction(fn () => $this->resolveWithinTransaction($rmaId, $staffUserId, $resolutionType, $overrideBasis, $remedyOutcome, $remedyReason));
 
         if ($outcome['refund_id'] !== null) {
             (new RefundSettlement($this->notifications))->settle([$outcome['refund_id']]);
@@ -68,7 +69,7 @@ final class ReturnResolution
     /**
      * @return array{rma: Rma, refund_id: int|null}
      */
-    private function resolveWithinTransaction(int $rmaId, int $staffUserId, ?string $resolutionType): array
+    private function resolveWithinTransaction(int $rmaId, int $staffUserId, ?string $resolutionType, ?string $overrideBasis, ?string $remedyOutcome, ?string $remedyReason): array
     {
         $rma = Rma::query()->lockForUpdate()->findOrFail($rmaId);
         if ($rma->company_id !== null) {
@@ -76,13 +77,35 @@ final class ReturnResolution
         }
 
         $onProof = $rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null && $rma->return_reason === 'consumer_cancellation';
-        if ($rma->status !== 'inspected' && ! $onProof) {
+        $finalReject = $rma->status === 'resolved' && in_array($rma->resolution_type, ['repair', 'replacement'], true) && $resolutionType === 'credit_note' && in_array($remedyOutcome, ['failed', 'refused'], true);
+        if ($rma->credit_note_id !== null || ($rma->resolved_at !== null && ! $finalReject)) {
+            throw new ReturnActionRefusedException('already_settled', 'This return has already been settled.');
+        }
+        if ($rma->status !== 'inspected' && ! $onProof && ! $finalReject) {
             throw new ReturnActionRefusedException('not_ready', "Return {$rma->rma_number} cannot be settled yet (it is {$rma->status}).");
         }
 
         $fault = $rma->return_reason !== 'consumer_cancellation';
         $withinReject = $fault && FaultReports::withinRejectPeriod($rma);
-        $type = $this->resolutionType($fault, $withinReject, $resolutionType);
+        $type = $this->resolutionType($fault, $withinReject, $resolutionType ?? ($fault && ! $withinReject ? $rma->resolution_type : null));
+        if ($fault && ! $withinReject) {
+            $record = json_decode($rma->internal_note ?? '{}', true);
+            $choice = is_array($record) ? ($record['customer_choice'] ?? null) : null;
+            if (! in_array($choice, ['repair', 'replacement'], true)) {
+                throw new ReturnActionRefusedException('customer_choice_required', 'Record the customer repair or replacement choice first.');
+            }
+            $reason = trim($remedyReason ?? '');
+            if ($type === 'credit_note' && (! in_array($remedyOutcome, ['failed', 'refused'], true) || $reason === '')) {
+                throw new ReturnActionRefusedException('remedy_outcome_required', 'Record why repair/replacement failed or was refused before refunding.');
+            }
+            if ($type !== 'credit_note' && $type !== $choice && (! in_array($overrideBasis, ['impossible', 'disproportionate'], true) || $reason === '')) {
+                throw new ReturnActionRefusedException('override_reason_required', 'Override only when impossible or disproportionate, with a reason.');
+            }
+            if ($type === 'credit_note' || $type !== $choice) {
+                $record['decisions'][] = ['resolution_type' => $type, 'override_basis' => $overrideBasis, 'remedy_outcome' => $remedyOutcome, 'reason' => $reason, 'staff_user_id' => $staffUserId, 'at' => now()->toIso8601String()];
+                $rma->internal_note = json_encode($record, JSON_THROW_ON_ERROR);
+            }
+        }
 
         $lines = RmaLine::query()->where('rma_id', $rma->id)->orderBy('line_no')->lockForUpdate()->get();
         $refundable = [];
@@ -162,7 +185,7 @@ final class ReturnResolution
         }
 
         if (! in_array($requested, ['repair', 'replacement', 'credit_note'], true)) {
-            throw new ReturnActionRefusedException('resolution_required', 'More than 30 days after delivery: choose repair, replacement or a refund.');
+            throw new ReturnActionRefusedException('resolution_required', 'More than 30 days after delivery: Record the customer choice of repair or replacement, or the failed/refused remedy before refunding.');
         }
 
         return $requested;

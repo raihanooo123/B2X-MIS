@@ -63,6 +63,7 @@ class ReturnResource extends JsonResource
             // 05.4 §13.4: faulty goods within 30 days of possession are refunded in full.
             'within_reject_period' => $rma->return_reason !== 'consumer_cancellation' && FaultReports::withinRejectPeriod($rma),
             'resolution_type' => $rma->resolution_type,
+            'remedy_record' => json_decode($rma->internal_note ?? '{}', true),
             'refund' => [
                 'net_minor' => $rma->refund_net_minor,
                 'tax_minor' => $rma->refund_tax_minor,
@@ -110,10 +111,10 @@ class ReturnResource extends JsonResource
                 'line_refund_net_minor' => $l->line_refund_net_minor,
                 'line_refund_tax_minor' => $l->line_refund_tax_minor,
             ])->all()),
-            'can_receive' => $can('receive') && $rma->status === 'awaiting_goods' && $rma->approved_at !== null,
+            'can_receive' => $can('receive') && ($rma->status === 'awaiting_goods' || ($rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at === null)) && $rma->approved_at !== null,
             'can_reject_proof' => $can('rejectProof') && $rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null,
-            'can_inspect' => $can('inspect') && $rma->status === 'received',
-            'can_resolve' => $can('resolve') && ($rma->status === 'inspected'
+            'can_inspect' => $can('inspect') && ($rma->status === 'received' || ($rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at !== null && $rma->inspected_at === null)),
+            'can_resolve' => $can('resolve') && $rma->credit_note_id === null && (($rma->status === 'resolved' && in_array($rma->resolution_type, ['repair', 'replacement'], true)) || $rma->status === 'inspected'
                 || ($rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null && $rma->return_reason === 'consumer_cancellation')),
             'can_review' => $can('review') && $rma->status === 'requested',
             'can_record_bank_refund' => $can('recordRefund') && $refund !== null

@@ -1415,8 +1415,7 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
       `returns:sweep-not-received`. No migration. 2026-10-04, pending verification.
 - [x] S6d inspection and refund (05.4 §13.5–13.6). No migration. 2026-10-04, pending verification.
 - [x] S6e faulty goods and staff entry (05.4 §13.4, §13.3). No migration. 2026-10-04, pending verification.
-      Not built: the replacement order itself (05.4 §7.5, via 04 §4.2) — a replacement is recorded, not shipped;
-      a statutory refund deadline for faulty goods (CRA s.20(15)) is not in the spec.
+      Not built: the replacement order itself (05.4 §7.5, via 04 §4.2) — a replacement is recorded, not shipped.
 - [ ] S7 legal pages, sitemap (with 05.11)
 
 ---

@@ -84,7 +84,7 @@ class OrderConfirmationController extends Controller
         Gate::authorize('cancel', $model);
 
         try {
-            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), $request->user()?->getAuthIdentifier());
+            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), $request->user()?->getAuthIdentifier(), $request->validated('customer_choice'));
         } catch (CancellationRequestRejectedException $e) {
             return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
         }

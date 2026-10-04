@@ -10,7 +10,8 @@ use Carbon\CarbonImmutable;
  * 05.4 §13.5 — the statutory refund deadline of a consumer return (CCR
  * reg. 34(4)–(6)):
  *
- *   - we collect the goods: 14 days after the customer told us;
+ *   - faulty goods: 14 days after accounts approval (CRA s.20(15));
+ *   - a cancellation where we collect the goods: 14 days after the customer told us;
  *   - otherwise: 14 days after the EARLIER of the goods arriving
  *     (`received_at`) and the customer's proof of sending (`goods_sent_at`,
  *     the upload time) — UK dates;
@@ -27,6 +28,10 @@ final class RefundDeadline
     {
         if ($rma->company_id !== null) {
             return null;
+        }
+
+        if ($rma->return_reason !== 'consumer_cancellation') {
+            return $rma->approved_at === null ? null : self::day($rma->approved_at)->addDays(self::DAYS);
         }
 
         if ($rma->return_method === 'collection') {

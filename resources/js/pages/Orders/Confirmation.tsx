@@ -441,8 +441,8 @@ function Returns({ returns, returnsUrl }: { returns: ReturnView[]; returnsUrl: s
                     {r.status === 'awaiting_goods' && r.return_method === 'collection' && <p className="mt-1 text-xs text-muted-foreground">We will contact you to collect them.</p>}
                     {r.proof_sent_at && <p className="mt-1 text-xs text-emerald-800">We have your proof of sending.</p>}
                     {r.resolution_type === 'credit_note' && r.refund_gross_minor > 0 && <p className="mt-1 text-xs text-emerald-800">Refund of {formatMinor(r.refund_gross_minor)}.</p>}
-                    {r.resolution_type === 'repair' && <p className="mt-1 text-xs text-muted-foreground">We are repairing the items and will send them back.</p>}
-                    {r.resolution_type === 'replacement' && <p className="mt-1 text-xs text-muted-foreground">We are sending you replacements.</p>}
+                    {r.status === 'resolved' && r.resolution_type === 'repair' && <p className="mt-1 text-xs text-muted-foreground">We are repairing the items and will send them back.</p>}
+                    {r.status === 'resolved' && r.resolution_type === 'replacement' && <p className="mt-1 text-xs text-muted-foreground">We are sending you replacements.</p>}
                     {r.refund_due_on && !['resolved', 'partially_resolved'].includes(r.status) && (
                         <p className="mt-1 text-xs text-muted-foreground">We will refund you by {longDate(r.refund_due_on)}.</p>
                     )}
@@ -576,8 +576,9 @@ function ProofUpload({ url, hasProof }: { url: string; hasProof: boolean }) {
  */
 function ReportProblem({ problem, url }: { problem: ProblemView; url: string }) {
     const [open, setOpen] = useState(false);
-    const form = useForm<{ reason: string; detail: string; lines: { line_no: number; pack_qty: number }[]; photos: File[] }>({
+    const form = useForm<{ reason: string; detail: string; customer_choice: string; lines: { line_no: number; pack_qty: number }[]; photos: File[] }>({
         reason: problem.reasons[0]?.value ?? 'faulty',
+        customer_choice: '',
         detail: '',
         lines: problem.lines.map((l) => ({ line_no: l.line_no, pack_qty: 0 })),
         photos: [],
@@ -616,6 +617,15 @@ function ReportProblem({ problem, url }: { problem: ProblemView; url: string }) 
                             </option>
                         ))}
                     </select>
+                </div>
+                <div className="space-y-1">
+                    <label htmlFor="problem-choice" className="block font-medium">After 30 days: choose repair or replacement</label>
+                    <select id="problem-choice" value={form.data.customer_choice} onChange={(e) => form.setData('customer_choice', e.target.value)} className="h-10 w-full rounded-md border border-input bg-transparent px-2">
+                        <option value="">Within 30 days: refund</option>
+                        <option value="repair">Repair</option>
+                        <option value="replacement">Replacement</option>
+                    </select>
+                    {errors.customer_choice && <p className="text-xs text-red-700">{errors.customer_choice}</p>}
                 </div>
                 {problem.lines.map((l) => (
                     <div key={l.line_no} className="flex items-start justify-between gap-3">

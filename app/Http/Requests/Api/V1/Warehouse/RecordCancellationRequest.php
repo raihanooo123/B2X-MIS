@@ -36,10 +36,10 @@ class RecordCancellationRequest extends FormRequest
         return strtoupper(trim((string) $this->validated('order_number')));
     }
 
-    /** A value with no offset is read as UK local time. */
+    /** Read offset-free values as UK local time; preserve explicit offsets' instants for UTC storage. */
     public function notifiedAt(): CarbonImmutable
     {
-        return CarbonImmutable::parse((string) $this->validated('notified_at'), 'Europe/London');
+        return CarbonImmutable::parse((string) $this->validated('notified_at'), 'Europe/London')->utc();
     }
 
     /**

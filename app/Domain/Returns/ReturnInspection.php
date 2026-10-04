@@ -45,7 +45,8 @@ final class ReturnInspection
     {
         return DB::transaction(function () use ($rmaId, $byLineNo, $staffUserId): Rma {
             $rma = Rma::query()->lockForUpdate()->findOrFail($rmaId);
-            if ($rma->status !== 'received') {
+            $late = $rma->company_id === null && $rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at !== null && $rma->inspected_at === null;
+            if ($rma->status !== 'received' && ! $late) {
                 throw new ReturnActionRefusedException('not_received', "Return {$rma->rma_number} has not been received (it is {$rma->status}).");
             }
 
@@ -69,6 +70,9 @@ final class ReturnInspection
                 }
 
                 $diminished = $decision['diminished_value_minor'] ?? 0;
+                if ($late && $diminished !== 0) {
+                    throw new ReturnActionRefusedException('already_settled', 'A settled refund cannot be reduced.');
+                }
                 $diminishedReason = isset($decision['diminished_value_reason']) ? trim((string) $decision['diminished_value_reason']) : null;
                 $this->assertDiminished($rma, $line, $lineNo, $diminished, $diminishedReason, $restock + $quarantine + $writeOff);
 
@@ -102,7 +106,9 @@ final class ReturnInspection
 
             $this->restock($rma, $restocks, $staffUserId, $now);
 
-            $rma->status = 'inspected';
+            if (! $late) {
+                $rma->status = 'inspected';
+            }
             $rma->setAttribute('inspected_at', $now);
             $rma->handled_by_user_id = $staffUserId;
             $rma->save();

@@ -49,6 +49,7 @@ interface ReturnData {
     is_cancellation: boolean;
     within_reject_period: boolean;
     resolution_type: string | null;
+    remedy_record: { customer_choice?: string; decisions?: { reason: string; resolution_type: string }[] } | null;
     refund: { net_minor: number; tax_minor: number; delivery_net_minor: number; delivery_tax_minor: number; gross_minor: number; method: 'card' | 'bank_transfer' | null; status: string | null };
     order_number: string | null;
     customer: string | null;
@@ -225,7 +226,7 @@ function ReturnPanel({ rma }: { rma: ReturnData }) {
             {rma.can_review && <ReviewPanel rma={rma} />}
             {rma.can_receive ? <ReceiveForm rma={rma} /> : rma.can_inspect ? <InspectForm rma={rma} /> : <ReceivedLines rma={rma} />}
             {rma.can_resolve && <ResolvePanel rma={rma} />}
-            {rma.resolution_type && <RefundSummary rma={rma} />}
+            {['resolved', 'partially_resolved'].includes(rma.status) && <RefundSummary rma={rma} />}
             {rma.can_record_bank_refund && <BankRefund rma={rma} />}
         </>
     );
@@ -492,7 +493,10 @@ function InspectForm({ rma }: { rma: ReturnData }) {
 /** 05.4 §13.6: settle — a refund, or for faulty goods after 30 days, repair or replacement. */
 function ResolvePanel({ rma }: { rma: ReturnData }) {
     const choose = !rma.is_cancellation && !rma.within_reject_period;
-    const [type, setType] = useState(choose ? 'repair' : 'credit_note');
+    const [type, setType] = useState(choose ? (rma.status === 'resolved' ? 'credit_note' : rma.resolution_type ?? 'repair') : 'credit_note');
+    const [basis, setBasis] = useState('');
+    const [outcome, setOutcome] = useState('');
+    const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -500,7 +504,7 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
         setBusy(true);
         setError(null);
         try {
-            await post(`/warehouse/returns/${rma.id}/resolve`, { resolution_type: type }, true);
+            await post(`/warehouse/returns/${rma.id}/resolve`, { resolution_type: type, override_basis: basis || null, remedy_outcome: outcome || null, remedy_reason: reason || null }, true);
             router.reload();
         } catch (err) {
             setError(describeError(err));
@@ -519,6 +523,16 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
                     <option value="credit_note">Refund</option>
                 </select>
             )}
+            {choose && <>
+                <p>Customer choice: {rma.remedy_record?.customer_choice ?? 'Not recorded'}</p>
+                {type === 'credit_note' ? <select aria-label="Repair or replacement outcome" value={outcome} onChange={(e) => setOutcome(e.target.value)} className={cn(FIELD, 'w-full rounded-md border px-2')}>
+                    <option value="">Choose outcome before refunding</option><option value="failed">Repair/replacement failed</option><option value="refused">Repair/replacement refused</option>
+                </select> : <select aria-label="Override basis" value={basis} onChange={(e) => setBasis(e.target.value)} className={cn(FIELD, 'w-full rounded-md border px-2')}>
+                    <option value="">Follow customer choice</option><option value="impossible">Customer choice impossible</option><option value="disproportionate">Customer choice disproportionate</option>
+                </select>}
+                <label className="block">Reason for override or failed/refused remedy<textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={2000} className={cn(FIELD, 'w-full rounded-md border px-2')} /></label>
+                {rma.remedy_record?.decisions?.map((d, i) => <p key={i}>{d.resolution_type}: {d.reason}</p>)}
+            </>}
             {error && <Notice tone="error">{error}</Notice>}
             <Button type="button" className={cn(TARGET, 'w-full')} disabled={busy} onClick={submit}>
                 {type === 'credit_note' ? 'Refund the customer' : `Settle by ${type}`}

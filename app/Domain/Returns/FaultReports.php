@@ -88,7 +88,7 @@ final class FaultReports
      *
      * @throws CancellationRequestRejectedException
      */
-    public function report(int $orderId, array $packQtyByLineNo, string $reason, string $detail, array $photos, CarbonImmutable $at, ?int $userId): Rma
+    public function report(int $orderId, array $packQtyByLineNo, string $reason, string $detail, array $photos, CarbonImmutable $at, ?int $userId, ?string $customerChoice = null): Rma
     {
         if (! in_array($reason, self::REASONS, true)) {
             throw new CancellationRequestRejectedException('unknown_reason', 'Choose what is wrong with the items.', 'reason');
@@ -108,7 +108,7 @@ final class FaultReports
         }
 
         try {
-            return DB::transaction(function () use ($orderId, $wanted, $reason, $detail, $at, $userId, $disk, $stored): Rma {
+            return DB::transaction(function () use ($orderId, $wanted, $reason, $detail, $at, $userId, $disk, $stored, $customerChoice): Rma {
                 $order = Order::query()->lockForUpdate()->findOrFail($orderId);
                 $reportable = self::reportable($order);
                 if ($reportable === []) {
@@ -168,6 +168,14 @@ final class FaultReports
                     ]);
                 }
 
+                if (! self::withinRejectPeriod($rma) && ! in_array($customerChoice, ['repair', 'replacement'], true)) {
+                    throw new CancellationRequestRejectedException('customer_choice_required', 'Choose repair or replacement.', 'customer_choice');
+                }
+                if (in_array($customerChoice, ['repair', 'replacement'], true)) {
+                    $rma->resolution_type = $customerChoice;
+                    $rma->internal_note = json_encode(['customer_choice' => $customerChoice], JSON_THROW_ON_ERROR);
+                }
+
                 $rma->update(['goods_net_minor' => $goods, 'rma_number' => $this->numbers->next('rma_number')]);
                 $this->notifications->rmaRequested($rma->id);
 
@@ -192,7 +200,9 @@ final class FaultReports
                 'return_method' => 'collection',
                 'carriage_payer' => 'us',
                 'handled_by_user_id' => $staffUserId,
-            ])->save();
+            ]);
+            RefundDeadline::apply($rma);
+            $rma->save();
             $this->notifications->rmaApproved($rma->id);
 
             return $rma;

@@ -330,3 +330,30 @@ it('lets the warehouse inspect and accounts settle, and not the other way round'
     $resolve(refundStaff('warehouse'))->assertForbidden();
     $resolve(refundStaff('accounts'))->assertOk()->assertJsonPath('data.refund.gross_minor', 3180);
 });
+
+it('books in and restocks goods arriving after settlement on proof without reopening money', function () {
+    $order = refundOrder();
+    $rma = (new ConsumerCancellations)->request($order->id, [1 => 1], CarbonImmutable::parse('2026-10-08 12:00:00', 'Europe/London'), $this->user->id);
+    (new ProofOfSending)->upload($rma->id, UploadedFile::fake()->image('postage.jpg'), $this->user->id);
+    $settled = settle($rma);
+    $snapshot = [$settled->credit_note_id, $settled->refund_payment_id, $settled->refund_gross_minor, $settled->resolved_at->toIso8601String(), $settled->refund_due_on->toDateString()];
+    $warehouse = refundStaff('warehouse');
+    $this->actingAs($warehouse)->withHeader('Idempotency-Key', (string) Str::ulid())
+        ->postJson("/api/v1/warehouse/returns/{$rma->public_id}/receive", ['lines' => [['line_no' => 1, 'received_base_qty' => 1]]])
+        ->assertOk()->assertJsonPath('data.status', 'resolved')->assertJsonPath('data.can_inspect', true);
+    $this->actingAs($warehouse)->withHeader('Idempotency-Key', (string) Str::ulid())
+        ->postJson("/api/v1/warehouse/returns/{$rma->public_id}/inspect", ['lines' => [['line_no' => 1, 'restock' => 1, 'quarantine' => 0, 'write_off' => 0]]])
+        ->assertOk()->assertJsonPath('data.status', 'resolved')->assertJsonPath('data.can_inspect', false);
+    $fresh = $rma->fresh();
+    expect([$fresh->credit_note_id, $fresh->refund_payment_id, $fresh->refund_gross_minor, $fresh->resolved_at->toIso8601String(), $fresh->refund_due_on->toDateString()])->toBe($snapshot)
+        ->and(StockMovement::query()->where('movement_type', 'return_in')->count())->toBe(1)
+        ->and(OrderLine::query()->where('order_id', $order->id)->sole()->returned_base_qty)->toBe(1)
+        ->and($fresh->lines()->sole()->line_refund_net_minor)->toBe(2000);
+    expect(fn () => (new ReturnReceipt)->receive($rma->id, [1 => 1], $warehouse->id))->toThrow(ReturnActionRefusedException::class);
+    expect(fn () => (new ReturnInspection)->inspect($rma->id, [1 => ['restock' => 1, 'quarantine' => 0, 'write_off' => 0]], $warehouse->id))->toThrow(ReturnActionRefusedException::class);
+    expect(fn () => settle($rma))->toThrow(ReturnActionRefusedException::class);
+    expect(CreditNote::query()->count())->toBe(1)
+        ->and(Payment::query()->where('type', 'refund')->count())->toBe(1)
+        ->and(StockMovement::query()->where('movement_type', 'return_in')->count())->toBe(1)
+        ->and($this->gateway->refunds)->toHaveCount(1);
+});

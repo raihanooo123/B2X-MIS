@@ -55,6 +55,9 @@ final class ConsumerCancellations
      */
     public function request(int $orderId, array $packQtyByLineNo, CarbonImmutable $notifiedAt, ?int $requestedByUserId = null, ?int $recordedByStaffId = null): Rma
     {
+        // Eloquent serialises dates without an offset: normalise the instant before checks and storage.
+        $notifiedAt = $notifiedAt->utc();
+
         // Online, the notification time is the request time; a time staff type in must not be ahead of now.
         if ($recordedByStaffId !== null && $notifiedAt->greaterThan(CarbonImmutable::now())) {
             throw new CancellationRequestRejectedException('notified_in_future', 'The time the customer told us cannot be in the future.', 'notified_at');

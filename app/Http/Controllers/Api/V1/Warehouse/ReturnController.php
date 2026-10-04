@@ -101,7 +101,7 @@ class ReturnController extends Controller
         Gate::authorize('resolve', $rma);
 
         return Idempotency::run($request, 'returns-resolve:'.$rma->public_id, fn () => (new ReturnResource(
-            $this->refusals(fn () => $this->resolutions->resolve($rma->id, $this->staffId($request), $request->resolutionType()))
+            $this->refusals(fn () => $this->resolutions->resolve($rma->id, $this->staffId($request), $request->resolutionType(), $request->validated('override_basis'), $request->validated('remedy_outcome'), $request->validated('remedy_reason')))
         ))->response());
     }
 

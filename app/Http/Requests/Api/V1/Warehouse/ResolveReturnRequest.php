@@ -6,8 +6,9 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 05.4 §13.6: settle a return. `resolution_type` is needed only for faulty
- * goods reported more than 30 days after delivery (repair, replacement or a
- * refund). Requires an Idempotency-Key (06 §6): it refunds.
+ * goods reported more than 30 days after delivery. An override needs its
+ * statutory basis and reason; a refund needs a failed/refused remedy and
+ * reason. Requires an Idempotency-Key (06 §6): it refunds.
  */
 class ResolveReturnRequest extends FormRequest
 {
@@ -21,7 +22,12 @@ class ResolveReturnRequest extends FormRequest
      */
     public function rules(): array
     {
-        return ['resolution_type' => ['nullable', 'string', 'in:credit_note,repair,replacement']];
+        return [
+            'resolution_type' => ['nullable', 'string', 'in:credit_note,repair,replacement'],
+            'override_basis' => ['nullable', 'string', 'in:impossible,disproportionate'],
+            'remedy_outcome' => ['nullable', 'string', 'in:failed,refused'],
+            'remedy_reason' => ['nullable', 'string', 'max:2000'],
+        ];
     }
 
     public function resolutionType(): ?string

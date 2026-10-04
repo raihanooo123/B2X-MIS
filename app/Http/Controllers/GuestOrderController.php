@@ -137,7 +137,7 @@ class GuestOrderController extends Controller
         }
 
         try {
-            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), null);
+            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), null, $request->validated('customer_choice'));
         } catch (CancellationRequestRejectedException $e) {
             return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
         }
