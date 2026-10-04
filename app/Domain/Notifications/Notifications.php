@@ -15,6 +15,9 @@ use App\Domain\Notifications\Notices\RmaApproved;
 use App\Domain\Notifications\Notices\RmaNotReceived;
 use App\Domain\Notifications\Notices\RmaProofRejected;
 use App\Domain\Notifications\Notices\RmaRefundDueSoon;
+use App\Domain\Notifications\Notices\RmaRejected;
+use App\Domain\Notifications\Notices\RmaRequested;
+use App\Domain\Notifications\Notices\RmaResolved;
 use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
@@ -101,6 +104,30 @@ final class Notifications
         $order = $this->rmaOrder($rmaId);
         $customer = $order === null ? [] : $this->recipients->orderCustomer($order);
         $this->dispatcher->send(new RmaNotReceived($rmaId), [...$customer, ...$this->recipients->role('accounts')]);
+    }
+
+    /** 05.12 §5.1 `rma.requested`: the handler, accounts (05.4 §13.4). Consumers have no rep. */
+    public function rmaRequested(int $rmaId): void
+    {
+        $this->dispatcher->send(new RmaRequested($rmaId), $this->recipients->role('accounts'));
+    }
+
+    /** 05.12 §5.1 `rma.rejected`: to the customer, with the reason. */
+    public function rmaRejected(int $rmaId, string $reason): void
+    {
+        $order = $this->rmaOrder($rmaId);
+        if ($order !== null) {
+            $this->dispatcher->send(new RmaRejected($rmaId, $reason), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.12 §5.1 `rma.resolved`: to the customer (05.4 §13.6). */
+    public function rmaResolved(int $rmaId): void
+    {
+        $order = $this->rmaOrder($rmaId);
+        if ($order !== null) {
+            $this->dispatcher->send(new RmaResolved($rmaId), $this->recipients->orderCustomer($order));
+        }
     }
 
     private function rmaOrder(int $rmaId): ?Order

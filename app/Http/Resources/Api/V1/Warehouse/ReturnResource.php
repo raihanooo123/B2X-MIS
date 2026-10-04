@@ -2,8 +2,10 @@
 
 namespace App\Http\Resources\Api\V1\Warehouse;
 
+use App\Domain\Returns\FaultReports;
 use App\Models\Attachment;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Rma;
 use App\Models\RmaLine;
 use App\Models\User;
@@ -40,6 +42,8 @@ class ReturnResource extends JsonResource
         $rma = $this->resource;
         $order = Order::query()->find($rma->order_id, ['id', 'order_number', 'user_id', 'guest_email']);
         $user = $request->user();
+        $refund = $rma->refund_payment_id === null ? null : Payment::query()->find($rma->refund_payment_id, ['id', 'gateway', 'status']);
+        $can = fn (string $ability): bool => $user instanceof User && Gate::forUser($user)->allows($ability, $rma);
         $lastRejection = DB::table('audit_log')
             ->where('action', 'rma.proof_rejected')
             ->where('subject_type', 'rma')
@@ -53,6 +57,22 @@ class ReturnResource extends JsonResource
             'id' => $rma->public_id,
             'rma_number' => $rma->rma_number,
             'status' => $rma->status,
+            'return_reason' => $rma->return_reason,
+            'reason_detail' => $rma->reason_detail,
+            'is_cancellation' => $rma->return_reason === 'consumer_cancellation',
+            // 05.4 §13.4: faulty goods within 30 days of possession are refunded in full.
+            'within_reject_period' => $rma->return_reason !== 'consumer_cancellation' && FaultReports::withinRejectPeriod($rma),
+            'resolution_type' => $rma->resolution_type,
+            'remedy_record' => json_decode($rma->internal_note ?? '{}', true),
+            'refund' => [
+                'net_minor' => $rma->refund_net_minor,
+                'tax_minor' => $rma->refund_tax_minor,
+                'delivery_net_minor' => $rma->delivery_refund_net_minor,
+                'delivery_tax_minor' => $rma->delivery_refund_tax_minor,
+                'gross_minor' => $rma->refund_gross_minor,
+                'method' => $refund === null ? null : ($refund->gateway === 'stripe' ? 'card' : 'bank_transfer'),
+                'status' => $refund?->status,
+            ],
             'order_number' => $order?->order_number,
             'customer' => $order->guest_email ?? ($order?->user_id === null ? null : User::query()->whereKey($order->user_id)->value('email')),
             'return_method' => $rma->return_method,
@@ -80,9 +100,25 @@ class ReturnResource extends JsonResource
                 'name' => $l->name_snapshot,
                 'requested_base_qty' => $l->requested_base_qty,
                 'received_base_qty' => $l->received_base_qty,
+                'restocked_base_qty' => $l->restocked_base_qty,
+                'quarantined_base_qty' => $l->quarantined_base_qty,
+                'written_off_base_qty' => $l->written_off_base_qty,
+                'disposition' => $l->disposition,
+                'disposition_reason' => $l->disposition_reason,
+                'diminished_value_minor' => $l->diminished_value_minor,
+                'diminished_value_reason' => $l->diminished_value_reason,
+                'batch_recovered' => $l->batch_id !== null,
+                'line_refund_net_minor' => $l->line_refund_net_minor,
+                'line_refund_tax_minor' => $l->line_refund_tax_minor,
             ])->all()),
-            'can_receive' => $user instanceof User && Gate::forUser($user)->allows('receive', $rma) && $rma->status === 'awaiting_goods',
-            'can_reject_proof' => $user instanceof User && Gate::forUser($user)->allows('rejectProof', $rma) && $rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null,
+            'can_receive' => $can('receive') && ($rma->status === 'awaiting_goods' || ($rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at === null)) && $rma->approved_at !== null,
+            'can_reject_proof' => $can('rejectProof') && $rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null,
+            'can_inspect' => $can('inspect') && ($rma->status === 'received' || ($rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at !== null && $rma->inspected_at === null)),
+            'can_resolve' => $can('resolve') && $rma->credit_note_id === null && (($rma->status === 'resolved' && in_array($rma->resolution_type, ['repair', 'replacement'], true)) || $rma->status === 'inspected'
+                || ($rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null && $rma->return_reason === 'consumer_cancellation')),
+            'can_review' => $can('review') && $rma->status === 'requested',
+            'can_record_bank_refund' => $can('recordRefund') && $refund !== null
+                && ($refund->status === 'failed' || ($refund->gateway === 'bacs' && $refund->status === 'pending')),
         ];
     }
 }

@@ -25,6 +25,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $line_goods_net_minor
  * @property int $received_base_qty
  * @property int|null $batch_id
+ * @property int $restocked_base_qty
+ * @property int $quarantined_base_qty
+ * @property int $written_off_base_qty
+ * @property int $diminished_value_minor
+ * @property string|null $diminished_value_reason
+ * @property string $disposition
+ * @property string|null $disposition_reason
+ * @property int $line_refund_net_minor
+ * @property int $line_refund_tax_minor
  */
 class RmaLine extends Model
 {
@@ -43,6 +52,17 @@ class RmaLine extends Model
         'line_goods_net_minor',
         'received_base_qty',
         'batch_id',
+        'restocked_base_qty',
+        'quarantined_base_qty',
+        'written_off_base_qty',
+        'diminished_value_minor',
+        'diminished_value_reason',
+        'disposition',
+        'disposition_reason',
+        'inspected_by_user_id',
+        'inspected_at',
+        'line_refund_net_minor',
+        'line_refund_tax_minor',
     ];
 
     protected function casts(): array
@@ -54,6 +74,13 @@ class RmaLine extends Model
             'tax_rate_bp' => 'integer',
             'line_goods_net_minor' => 'integer',
             'received_base_qty' => 'integer',
+            'restocked_base_qty' => 'integer',
+            'quarantined_base_qty' => 'integer',
+            'written_off_base_qty' => 'integer',
+            'diminished_value_minor' => 'integer',
+            'line_refund_net_minor' => 'integer',
+            'line_refund_tax_minor' => 'integer',
+            'inspected_at' => 'datetime',
         ];
     }
 

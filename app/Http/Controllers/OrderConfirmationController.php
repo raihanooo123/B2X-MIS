@@ -7,9 +7,11 @@ use App\Domain\Ordering\OrderCancellationService;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
+use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Requests\Web\ProofOfSendingRequest;
+use App\Http\Requests\Web\ReportProblemRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
@@ -39,6 +41,7 @@ class OrderConfirmationController extends Controller
             'guest' => null,
             'cancel_url' => OrderPageProps::canCancel($model) && Gate::allows('cancel', $model) ? route('orders.cancel', ['order' => $model->public_id]) : null,
             'cancel_items_url' => Gate::allows('cancel', $model) ? route('orders.cancel-items', ['order' => $model->public_id]) : null,
+            'problems_url' => Gate::allows('cancel', $model) ? route('orders.problems', ['order' => $model->public_id]) : null,
             // 05.4 §13.5: proof uploads post to {returns_url}/{rma id}/proof.
             'returns_url' => Gate::allows('cancel', $model) ? url("/orders/{$model->public_id}/returns") : null,
         ]);
@@ -72,6 +75,21 @@ class OrderConfirmationController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.4 §13.4: a signed-in consumer reports faulty, damaged or wrong goods. */
+    public function reportProblem(ReportProblemRequest $request, string $order): RedirectResponse
+    {
+        $model = Order::query()->where('public_id', $order)->firstOrFail();
+        Gate::authorize('cancel', $model);
+
+        try {
+            $rma = (new FaultReports)->report($model->id, $request->packQtyByLineNo(), (string) $request->validated('reason'), (string) $request->validated('detail'), $request->photos(), CarbonImmutable::now(), $request->user()?->getAuthIdentifier(), $request->validated('customer_choice'));
+        } catch (CancellationRequestRejectedException $e) {
+            return back()->withErrors([$e->field ?? 'lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', "Thank you — we have your report {$rma->rma_number} and will be in touch.");
     }
 
     /** 05.4 §13.5: a signed-in consumer uploads proof of sending for one of their returns. */

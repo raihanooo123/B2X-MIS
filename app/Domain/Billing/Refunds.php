@@ -25,15 +25,18 @@ use Illuminate\Support\Facades\DB;
 final class Refunds
 {
     /**
-     * Call inside the transaction that decides the refund.
+     * Call inside the transaction that decides the refund. `$gateway`
+     * overrides the original's — `bacs` when a refused card refund is
+     * repaid by bank transfer.
      */
-    public static function recordPending(Payment $original, int $amountMinor): Payment
+    public static function recordPending(Payment $original, int $amountMinor, ?string $gateway = null): Payment
     {
         return Payment::query()->create([
             'order_id' => $original->order_id,
             'company_id' => $original->company_id,
             'type' => 'refund',
-            'gateway' => $original->gateway,
+            // A failed card refund is repaid by bank transfer (05.4 §13.6).
+            'gateway' => $gateway ?? $original->gateway,
             'status' => 'pending',
             'amount_minor' => $amountMinor,
             'currency' => $original->currency,

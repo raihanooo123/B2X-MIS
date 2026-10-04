@@ -35,7 +35,8 @@ final class ReturnReceipt
     {
         return DB::transaction(function () use ($rmaId, $receivedBaseQtyByLineNo, $staffUserId): Rma {
             $rma = Rma::query()->lockForUpdate()->findOrFail($rmaId);
-            if ($rma->status !== 'awaiting_goods') {
+            $late = $rma->company_id === null && $rma->status === 'resolved' && $rma->resolution_type === 'credit_note' && $rma->goods_sent_at !== null && $rma->received_at === null;
+            if ($rma->status !== 'awaiting_goods' && ! $late) {
                 throw new ReturnActionRefusedException('not_awaiting_goods', "Return {$rma->rma_number} is not waiting for goods (it is {$rma->status}).");
             }
 
@@ -62,7 +63,9 @@ final class ReturnReceipt
                 throw new ReturnActionRefusedException('nothing_received', 'Enter what arrived on at least one line.');
             }
 
-            $rma->status = 'received';
+            if (! $late) {
+                $rma->status = 'received';
+            }
             $rma->received_at = now();
             $rma->handled_by_user_id = $staffUserId;
             RefundDeadline::apply($rma);

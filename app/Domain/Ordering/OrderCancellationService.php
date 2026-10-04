@@ -5,6 +5,7 @@ namespace App\Domain\Ordering;
 use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentGateway;
 use App\Domain\Billing\Refunds;
+use App\Domain\Billing\RefundSettlement;
 use App\Domain\Inventory\DeadlockRetryPolicy;
 use App\Domain\Inventory\DeallocationService;
 use App\Domain\Inventory\MovementAttribution;
@@ -175,22 +176,7 @@ final class OrderCancellationService
             }
         }
 
-        foreach ($outcome['refunds'] as $refundId) {
-            $refund = Payment::query()->find($refundId);
-            $original = $refund?->refunded_payment_id === null ? null : Payment::query()->find($refund->refunded_payment_id);
-            if ($refund === null || $original === null || $refund->gateway !== 'stripe' || $original->gateway_reference === null) {
-                continue; // BACS: accounts repay by transfer and record it.
-            }
-
-            try {
-                $reference = $this->gateway()->refund($original->gateway_reference, $refund->amount_minor, 'refund:'.$refund->public_id);
-                Refunds::markSucceeded($refund->id, $reference);
-            } catch (PaymentGatewayException $e) {
-                Refunds::markFailed($refund->id, $e->getMessage());
-                Log::error('Card refund failed for a cancelled order; accounts notified.', ['refund' => $refund->id, 'error' => $e->getMessage()]);
-                $this->notifications->refundFailed($refund->id);
-            }
-        }
+        (new RefundSettlement($this->notifications))->settle($outcome['refunds']);
     }
 
     /** Resolved on use, so a cancellation with no card payment never builds a Stripe client. */
