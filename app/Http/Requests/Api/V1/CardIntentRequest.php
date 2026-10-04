@@ -9,12 +9,15 @@ use Illuminate\Foundation\Http\FormRequest;
  * POST /api/v1/checkout/card-intent — the card authorisation for the
  * total the buyer is looking at. The delivery address decides the amount:
  * its country sets the VAT (03 §10) and its postcode the carriage (05.6).
+ *
+ * Guests too (05.15 §6.1): who may authorise a card for a cart is
+ * CartPolicy::checkout(), applied by the controller once the cart is found.
  */
 class CardIntentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return true;
     }
 
     protected function prepareForValidation(): void

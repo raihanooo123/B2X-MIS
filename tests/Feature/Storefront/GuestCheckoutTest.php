@@ -126,7 +126,7 @@ it('opens a guest order only with a valid, unexpired link for its own email', fu
     $this->get(GuestOrderLink::url($order, now()->subDays(91)->getTimestamp()))->assertRedirect(route('orders.lookup'));
 
     // A link issued for this order stops working if its email changes.
-    DB::table('orders')->whereKey($order->id)->update(['guest_email' => 'other@example.com']);
+    DB::table('orders')->where('id', $order->id)->update(['guest_email' => 'other@example.com']);
     $this->get($url)->assertRedirect(route('orders.lookup'));
 });
 
