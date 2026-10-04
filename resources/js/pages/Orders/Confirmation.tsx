@@ -195,19 +195,19 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
     return (
         <>
             <Head title={`Order ${order.order_number}`} />
-            <div className="mx-auto max-w-[900px] px-4 py-4">
+            <div className="mx-auto max-w-6xl px-4 py-8">
                 <header className="mb-6 flex flex-wrap items-center justify-end gap-x-4">
                     <AccountMenu />
                 </header>
 
-                <section className="mb-8 flex items-start gap-3">
+                <section className="mb-8 flex items-start gap-4 rounded-2xl border bg-muted/20 p-6">
                     {cancelled ? (
                         <XCircle className="mt-0.5 size-8 shrink-0 text-muted-foreground" aria-hidden />
                     ) : (
                         <CheckCircle2 className="mt-0.5 size-8 shrink-0 text-emerald-600" aria-hidden />
                     )}
                     <div>
-                        <h1 className="text-xl font-semibold tracking-tight">
+                        <h1 className="text-2xl font-semibold tracking-tight">
                             {cancelled ? `Order ${order.order_number} is cancelled` : guest ? `Your order ${order.order_number}` : 'Thank you — your order is placed'}
                         </h1>
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -225,7 +225,7 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
 
                 <div className="grid gap-6 md:grid-cols-[1fr_280px]">
                     <section aria-label="Order lines" className="min-w-0">
-                        <div className="overflow-x-auto rounded-md border">
+                        <div className="overflow-x-auto rounded-2xl border bg-background">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="text-xs hover:bg-transparent">

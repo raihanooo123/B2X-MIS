@@ -21,13 +21,13 @@ export function AuthLayout({ title, description, status, wide = false, children,
     return (
         <>
             <Head title={title} />
-            <div className="flex min-h-screen flex-col items-center bg-muted/40 px-4 py-8 sm:justify-center sm:py-12">
-                <Link href="/order-pad" className="mb-6 text-sm font-semibold tracking-tight text-foreground">
+            <div className="flex min-h-screen flex-col items-center bg-gradient-to-br from-primary/5 via-muted/30 to-background px-4 py-8 sm:justify-center sm:py-12">
+                <Link href="/order-pad" className="mb-6 inline-flex min-h-11 items-center text-lg font-semibold tracking-tight text-foreground">
                     B2X Wholesale
                 </Link>
-                <main className={cn('w-full rounded-lg border bg-background p-6 shadow-sm sm:p-8', wide ? 'max-w-2xl' : 'max-w-md')}>
-                    <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-                    {description && <div className="mt-1.5 text-sm text-muted-foreground">{description}</div>}
+                <main className={cn('w-full rounded-2xl border border-border/70 bg-background p-6 shadow-lg sm:p-8', wide ? 'max-w-2xl' : 'max-w-md')}>
+                    <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+                    {description && <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</div>}
                     {status && (
                         <p role="status" className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                             {status}

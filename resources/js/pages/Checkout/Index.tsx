@@ -305,19 +305,19 @@ function CheckoutForm(props: CheckoutProps) {
     return (
         <>
             <Head title="Checkout" />
-            <div className="mx-auto max-w-[1100px] px-4 py-4">
-                <header className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div className="mx-auto max-w-7xl px-4 py-8">
+                <header className="mb-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b pb-5">
                     <div className="flex items-center gap-3">
                         <Link href="/cart" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:min-h-0">
                             <ArrowLeft className="size-4" aria-hidden /> Cart
                         </Link>
-                        <h1 className="text-lg font-semibold tracking-tight">Checkout</h1>
+                        <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
                     </div>
                     <AccountMenu />
                 </header>
 
                 <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-[1fr_380px] lg:items-start">
-                    <div className="space-y-8">
+                    <div className="space-y-5">
                         {isGuest && (
                             <Section title="Your details">
                                 <p className="text-sm text-muted-foreground">
@@ -360,7 +360,7 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
 
                             <AddressForm value={address} onChange={setAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} phoneRequired={isGuest} />
-                            {!isGuest && !isTrade && <Link href="/account/addresses" className="text-sm underline">Manage saved delivery addresses</Link>}
+                            {!isGuest && !isTrade && <Link href="/account/addresses" className="inline-flex min-h-11 items-center text-sm underline md:min-h-0">Manage saved delivery addresses</Link>}
                             {addressChoice !== NEW_ADDRESS && (
                                 <p className="text-xs text-muted-foreground">
                                     Delivering to {countries.find((c) => c.code === address.country_code)?.name ?? address.country_code}. VAT is charged at that country's rates.
@@ -415,8 +415,8 @@ function CheckoutForm(props: CheckoutProps) {
                         )}
                     </div>
 
-                    <aside className="space-y-4 rounded-md border p-4 lg:sticky lg:top-4" aria-label="Order summary">
-                        <h2 className="text-sm font-semibold">Order summary</h2>
+                    <aside className="space-y-5 rounded-2xl border bg-background p-6 shadow-sm lg:sticky lg:top-6" aria-label="Order summary">
+                        <h2 className="text-lg font-semibold">Order summary</h2>
 
                         {priceChange && preview.data && <PriceChangeNotice change={priceChange} now={preview.data} cartLines={cart.data?.lines ?? []} mode={mode} />}
 
@@ -437,7 +437,7 @@ function CheckoutForm(props: CheckoutProps) {
                             </div>
                         )}
 
-                        <Button type="submit" className="h-12 w-full text-base" disabled={!canPlace}>
+                        <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={!canPlace}>
                             {stage === 'authorising' ? (
                                 <>
                                     <Loader2 className="animate-spin" /> Checking your card…
@@ -524,12 +524,12 @@ function PreContract({ sections, returnStatement }: { sections: { heading: strin
 function TermsOfSale({ terms, accepted, onChange, disabled, error }: { terms: { id: number; version: string; html: string }; accepted: boolean; onChange: (v: boolean) => void; disabled: boolean; error?: string }) {
     return (
         <div className="space-y-2">
-            <details className="rounded-md border p-3 text-sm">
-                <summary className="cursor-pointer font-medium">Read our terms of sale (version {terms.version})</summary>
+            <details className="rounded-md border text-sm">
+                <summary className="min-h-11 cursor-pointer px-3 py-3 font-medium">Read our terms of sale (version {terms.version})</summary>
                 <div
                     tabIndex={0}
                     aria-label="Terms of sale"
-                    className="mt-2 max-h-64 space-y-2 overflow-y-auto [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+                    className="max-h-64 space-y-2 overflow-y-auto px-3 pb-3 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
                     dangerouslySetInnerHTML={{ __html: terms.html }}
                 />
             </details>
@@ -592,7 +592,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
-        <section className="space-y-3">
+        <section className="space-y-4 rounded-2xl border bg-background p-5 shadow-sm sm:p-6">
             <h2 className="text-base font-semibold">{title}</h2>
             {children}
         </section>
@@ -603,7 +603,7 @@ function Choice({ name, value, checked, onChange, children }: { name: string; va
     const id = useId();
 
     return (
-        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent')}>
+        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent/50')}>
             <input id={id} type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} className="mt-0.5 size-4 shrink-0 accent-primary" />
             <span className="min-w-0 flex-1">{children}</span>
         </label>

@@ -9,9 +9,10 @@
  * the `--primary` token for everything inside the layout.
  */
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, LogOut, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 
+import { AccountDropdown, accountEntries } from '@/components/storefront/AccountDropdown';
 import { storefrontLinks } from '@/lib/storefront/links';
 import { shelfPrice } from '@/lib/storefront/price';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
     ) as CSSProperties;
 
     return (
-        <div style={brandStyle} className="flex min-h-screen flex-col bg-background text-foreground">
+        <div style={brandStyle} className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
             <Head title={title === brand.name ? title : `${title} · ${brand.name}`}>{description && <meta name="description" content={description} />}</Head>
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:shadow">
                 Skip to content
@@ -53,50 +54,53 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
 
             <UtilityBar brand={brand} />
 
-            <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 md:gap-6">
+            <header className="sticky top-0 z-30 border-b border-border/60 bg-background/90 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80">
+                <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-2.5 sm:gap-3 md:gap-6 md:py-3">
                     <button
                         type="button"
-                        className="-ml-2 inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
-                        aria-label="Open the category menu"
+                        className="-ml-2 inline-flex size-11 items-center justify-center rounded-xl text-foreground hover:bg-muted lg:hidden"
+                        aria-label="Open the menu"
                         aria-expanded={menuOpen}
                         onClick={() => setMenuOpen(true)}
                     >
                         <Menu className="size-5" aria-hidden />
                     </button>
 
-                    <Link href={storefrontLinks.home()} className="flex shrink-0 items-center gap-2" aria-label={`${brand.name} home`}>
+                    <Link href={storefrontLinks.home()} className="flex min-h-11 shrink-0 items-center gap-2" aria-label={`${brand.name} home`}>
                         {brand.logo_url ? (
                             <img src={brand.logo_url} alt="" className="h-9 w-auto max-w-[10rem] object-contain" />
                         ) : (
-                            <span className="text-lg font-semibold tracking-tight">{brand.name}</span>
+                            <BrandMark name={brand.name} />
                         )}
                     </Link>
 
                     <SearchBox className="hidden flex-1 md:flex" />
 
-                    <nav aria-label="Account" className="ml-auto flex items-center gap-1 text-sm">
-                        <AccountLink />
+                    <nav aria-label="Account" className="ml-auto flex items-center gap-0.5 sm:gap-1">
+                        <AccountDropdown />
                         <Link
                             href={storefrontLinks.cart()}
-                            className="relative inline-flex min-h-11 items-center gap-2 rounded-md px-3 font-medium hover:bg-muted"
+                            className="relative inline-flex min-h-11 items-center gap-2 rounded-xl px-2.5 transition-colors hover:bg-muted sm:px-3"
                             aria-label={`Basket, ${shell?.cart_count ?? 0} ${shell?.cart_count === 1 ? 'item' : 'items'}`}
                         >
-                            <ShoppingBag className="size-5" aria-hidden />
-                            <span className="hidden sm:inline">Basket</span>
-                            {(shell?.cart_count ?? 0) > 0 && (
-                                <span aria-hidden className="absolute right-0.5 top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground sm:static">
-                                    {shell?.cart_count}
-                                </span>
-                            )}
+                            <span className="relative">
+                                <ShoppingBag className="size-5" aria-hidden />
+                                {(shell?.cart_count ?? 0) > 0 && (
+                                    <span aria-hidden className="absolute -right-2.5 -top-2 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                                        {shell?.cart_count}
+                                    </span>
+                                )}
+                            </span>
+                            <span className="hidden text-sm font-semibold sm:inline">Basket</span>
                         </Link>
                     </nav>
                 </div>
 
-                <div className="px-4 pb-3 md:hidden">
+                <div className="px-4 pb-2.5 md:hidden">
                     <SearchBox />
                 </div>
 
+                {categories.length > 0 && <CategoryStrip categories={categories} />}
                 {categories.length > 0 && <CategoryBar categories={categories} />}
             </header>
 
@@ -122,21 +126,22 @@ function UtilityBar({ brand }: { brand: SharedBrand }) {
     const { price_display } = usePage<SharedProps>().props;
 
     return (
-        <div className="bg-muted/60 text-xs text-muted-foreground">
-            <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-1.5">
-                <div className="flex flex-wrap items-center gap-x-4">
+        <div className="bg-zinc-950 text-xs text-zinc-300">
+            <div className="mx-auto flex max-w-7xl items-center justify-between gap-x-4 px-4">
+                <div className="flex min-w-0 items-center gap-x-5">
                     {brand.support_phone && (
-                        <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`} className="inline-flex min-h-8 items-center gap-1.5 hover:text-foreground">
+                        <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`} className="inline-flex min-h-11 items-center gap-1.5 hover:text-white md:min-h-9">
                             <Phone className="size-3.5" aria-hidden /> {brand.support_phone}
                         </a>
                     )}
                     {brand.support_email && (
-                        <a href={`mailto:${brand.support_email}`} className="hidden min-h-8 items-center gap-1.5 hover:text-foreground sm:inline-flex">
+                        <a href={`mailto:${brand.support_email}`} className="hidden min-h-9 items-center gap-1.5 hover:text-white sm:inline-flex">
                             <Mail className="size-3.5" aria-hidden /> {brand.support_email}
                         </a>
                     )}
                 </div>
-                {price_display.can_switch ? <VatSwitch mode={price_display.mode} /> : <span>Prices {price_display.mode === 'gross' ? 'include' : 'exclude'} VAT</span>}
+                <p className="hidden text-zinc-400 lg:block">Trade and retail · UK delivery · Secure checkout by Stripe</p>
+                {price_display.can_switch ? <VatSwitch mode={price_display.mode} /> : <span className="py-2.5">Prices {price_display.mode === 'gross' ? 'include' : 'exclude'} VAT</span>}
             </div>
         </div>
     );
@@ -151,9 +156,9 @@ function VatSwitch({ mode }: { mode: 'net' | 'gross' }) {
     };
 
     return (
-        <div role="group" aria-label="Show prices" className="inline-flex items-center gap-2">
-            <span className="hidden sm:inline">Prices</span>
-            <div className="inline-flex rounded-md border bg-background p-0.5">
+        <div role="group" aria-label="Show prices" className="inline-flex shrink-0 items-center gap-2">
+            <span className="hidden text-zinc-400 sm:inline">Prices</span>
+            <div className="inline-flex rounded-full bg-white/10 p-0.5">
                 {(['gross', 'net'] as const).map((option) => (
                     <button
                         key={option}
@@ -161,8 +166,8 @@ function VatSwitch({ mode }: { mode: 'net' | 'gross' }) {
                         aria-pressed={mode === option}
                         onClick={() => set(option)}
                         className={cn(
-                            'min-h-8 rounded px-2.5 font-medium transition-colors',
-                            mode === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                            'min-h-11 rounded-full px-3.5 font-semibold transition-colors md:min-h-7 md:px-3',
+                            mode === option ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-300 hover:text-white',
                         )}
                     >
                         {option === 'gross' ? 'Inc VAT' : 'Ex VAT'}
@@ -170,6 +175,18 @@ function VatSwitch({ mode }: { mode: 'net' | 'gross' }) {
                 ))}
             </div>
         </div>
+    );
+}
+
+/** The text wordmark when the business has no logo: a monogram tile and the name. */
+function BrandMark({ name }: { name: string }) {
+    return (
+        <span className="flex items-center gap-2.5">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-base font-extrabold text-primary-foreground shadow-sm" aria-hidden>
+                {name.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="text-lg font-extrabold tracking-tight">{name}</span>
+        </span>
     );
 }
 
@@ -275,7 +292,7 @@ function SearchBox({ className }: { className?: string }) {
             <label htmlFor={inputId} className="sr-only">
                 Search products
             </label>
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <input
                 ref={input}
                 id={inputId}
@@ -292,10 +309,17 @@ function SearchBox({ className }: { className?: string }) {
                 aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
                 placeholder="Search products or SKU codes"
                 autoComplete="off"
-                className="h-11 w-full rounded-lg border bg-muted/40 pl-9 pr-4 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/30 md:h-10 md:text-sm"
+                className="h-12 w-full rounded-full border border-transparent bg-muted/70 pl-11 pr-14 md:h-11 text-base outline-none transition-colors placeholder:text-muted-foreground hover:bg-muted focus:border-ring focus:bg-background focus:ring-4 focus:ring-ring/15 md:text-sm"
             />
+            <button
+                type="submit"
+                aria-label="Search"
+                className="absolute right-0.5 top-1/2 inline-flex size-11 -translate-y-1/2 md:right-1 md:size-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
+                <ArrowRight className="size-4" aria-hidden />
+            </button>
             {showList && (
-                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-background shadow-lg">
+                <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border bg-background shadow-xl ring-1 ring-black/5">
                     {results.length === 0 ? (
                         <p className="px-4 py-3 text-sm text-muted-foreground">No matching products. Press Enter to search anyway.</p>
                     ) : (
@@ -340,37 +364,40 @@ function SearchBox({ className }: { className?: string }) {
     );
 }
 
-function AccountLink() {
-    const { auth } = usePage<SharedProps>().props;
-    const cls = 'inline-flex min-h-11 items-center gap-2 rounded-md px-3 hover:bg-muted';
-
-    if (auth === null) {
-        return (
-            <>
-                <Link href="/login" className={cls}>
-                    <User className="size-5" aria-hidden />
-                    <span className="hidden sm:inline">Sign in</span>
-                </Link>
-                <Link href="/register" className={cn(cls, 'hidden font-medium lg:inline-flex')}>
-                    Create account
-                </Link>
-            </>
-        );
-    }
+/** Phones and tablets: departments as a swipeable row of chips under the search, as marketplace apps do. */
+function CategoryStrip({ categories }: { categories: NavCategory[] }) {
+    const path = usePage().url.split('?')[0];
 
     return (
-        <Link href="/account" className={cls}>
-            <User className="size-5" aria-hidden />
-            <span className="hidden sm:inline">{auth.company ? auth.company.name : auth.user.first_name}</span>
-            <span className="sr-only sm:hidden">Your account</span>
-        </Link>
+        <nav aria-label="Departments" className="lg:hidden">
+            <ul className="flex gap-2 overflow-x-auto px-4 pb-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {categories.map((category) => {
+                    const href = storefrontLinks.category(category.slug);
+                    const active = path === href || category.children.some((c) => path === storefrontLinks.category(c.slug));
+                    return (
+                        <li key={category.slug} className="shrink-0">
+                            <Link
+                                href={href}
+                                aria-current={active ? 'page' : undefined}
+                                className={cn(
+                                    'inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors',
+                                    active ? 'border-foreground bg-foreground text-background' : 'border-border bg-background hover:border-foreground/30',
+                                )}
+                            >
+                                {category.name}
+                            </Link>
+                        </li>
+                    );
+                })}
+            </ul>
+        </nav>
     );
 }
 
 /** Desktop category bar: each department opens its sub-categories on hover or keyboard focus. */
 function CategoryBar({ categories }: { categories: NavCategory[] }) {
     return (
-        <nav aria-label="Categories" className="hidden border-t lg:block">
+        <nav aria-label="Categories" className="hidden border-t border-border/60 lg:block">
             <ul className="mx-auto flex max-w-7xl items-center gap-1 px-4">
                 {categories.map((category) => (
                     <CategoryMenu key={category.slug} category={category} />
@@ -380,10 +407,16 @@ function CategoryBar({ categories }: { categories: NavCategory[] }) {
     );
 }
 
+const barItem =
+    'relative inline-flex min-h-11 items-center gap-1 px-3 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:origin-left after:scale-x-0 after:rounded-full after:bg-primary after:transition-transform hover:after:scale-x-100';
+
 function CategoryMenu({ category }: { category: NavCategory }) {
     const [open, setOpen] = useState(false);
     const menuId = useId();
     const wrapper = useRef<HTMLLIElement>(null);
+    const path = usePage().url.split('?')[0];
+    const href = storefrontLinks.category(category.slug);
+    const current = path === href || category.children.some((c) => path === storefrontLinks.category(c.slug));
 
     useEffect(() => {
         if (!open) {
@@ -397,7 +430,7 @@ function CategoryMenu({ category }: { category: NavCategory }) {
     if (category.children.length === 0) {
         return (
             <li>
-                <Link href={storefrontLinks.category(category.slug)} className="inline-flex min-h-11 items-center rounded-md px-3 text-sm font-medium hover:bg-muted">
+                <Link href={href} aria-current={current ? 'page' : undefined} className={cn(barItem, current && 'text-foreground after:scale-x-100')}>
                     {category.name}
                 </Link>
             </li>
@@ -417,33 +450,38 @@ function CategoryMenu({ category }: { category: NavCategory }) {
                 aria-expanded={open}
                 aria-controls={menuId}
                 onClick={() => setOpen((v) => !v)}
-                className={cn('inline-flex min-h-11 items-center gap-1 rounded-md px-3 text-sm font-medium hover:bg-muted', open && 'bg-muted')}
+                className={cn(barItem, (open || current) && 'text-foreground after:scale-x-100')}
             >
                 {category.name}
                 <ChevronDown className={cn('size-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden />
             </button>
             {open && (
-                <div id={menuId} className="absolute left-0 top-full z-40 w-64 rounded-lg border bg-background p-2 shadow-lg">
-                    <Link href={storefrontLinks.category(category.slug)} className="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-muted">
-                        All {category.name}
-                    </Link>
-                    <ul>
-                        {category.children.map((child) => (
-                            <li key={child.slug}>
-                                <Link href={storefrontLinks.category(child.slug)} className="block rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
-                                    {child.name}
-                                </Link>
-                            </li>
-                        ))}
-                    </ul>
+                <div id={menuId} className="absolute left-0 top-full z-40 w-72 pt-1">
+                    <div className="overflow-hidden rounded-2xl border bg-background shadow-xl ring-1 ring-black/5 animate-in fade-in-0 slide-in-from-top-1">
+                        <ul className="p-2">
+                            {category.children.map((child) => (
+                                <li key={child.slug}>
+                                    <Link href={storefrontLinks.category(child.slug)} className="group flex min-h-10 items-center justify-between rounded-lg px-3 text-sm text-foreground/80 hover:bg-muted hover:text-foreground">
+                                        {child.name}
+                                        <ChevronRight className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                        <Link href={href} className="flex min-h-11 items-center justify-between border-t bg-muted/40 px-5 text-sm font-semibold hover:bg-muted">
+                            Shop all {category.name}
+                            <ArrowRight className="size-4" aria-hidden />
+                        </Link>
+                    </div>
                 </div>
             )}
         </li>
     );
 }
 
-/** Small-screen category menu: a drawer from the left. */
+/** Small-screen menu: a drawer from the left with the account, departments and help. */
 function CategoryDrawer({ open, onClose, categories, brand }: { open: boolean; onClose: () => void; categories: NavCategory[]; brand: SharedBrand }) {
+    const { auth } = usePage<SharedProps>().props;
     const panel = useRef<HTMLDivElement>(null);
     const close = useRef(onClose);
     close.current = onClose;
@@ -468,39 +506,112 @@ function CategoryDrawer({ open, onClose, categories, brand }: { open: boolean; o
         return null;
     }
 
+    const row = 'flex min-h-12 items-center gap-3 rounded-xl px-3 text-[15px] font-medium hover:bg-muted';
+
     return (
-        <div className="fixed inset-0 z-50 bg-black/40 lg:hidden" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-            <div ref={panel} role="dialog" aria-modal="true" aria-label="Categories" className="flex h-full w-80 max-w-[85vw] flex-col bg-background shadow-xl">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                    <span className="font-semibold">{brand.name}</span>
-                    <button type="button" onClick={onClose} className="inline-flex size-11 items-center justify-center rounded-md hover:bg-muted" aria-label="Close the menu">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm animate-in fade-in-0 lg:hidden" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+            <div ref={panel} role="dialog" aria-modal="true" aria-label="Menu" className="flex h-full w-[22rem] max-w-[88vw] flex-col bg-background shadow-2xl animate-in slide-in-from-left">
+                <div className="flex items-center justify-between gap-3 bg-zinc-950 px-4 py-3 text-white">
+                    {auth ? (
+                        <Link href="/account" className="flex min-h-11 min-w-0 items-center gap-3">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold" aria-hidden>
+                                {auth.user.first_name.slice(0, 1).toUpperCase()}
+                            </span>
+                            <span className="truncate font-semibold">Hello, {auth.user.first_name}</span>
+                        </Link>
+                    ) : (
+                        <Link href="/login" className="flex min-h-11 items-center gap-3 font-semibold">
+                            <User className="size-5" aria-hidden /> Hello, sign in
+                        </Link>
+                    )}
+                    <button type="button" onClick={onClose} className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl hover:bg-white/10" aria-label="Close the menu">
                         <X className="size-5" aria-hidden />
                     </button>
                 </div>
-                <nav aria-label="Categories" className="flex-1 overflow-y-auto p-2">
-                    {categories.map((category) => (
-                        <details key={category.slug} className="group">
-                            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-md px-3 font-medium hover:bg-muted">
-                                {category.name}
-                                <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
-                            </summary>
-                            <ul className="mb-2 ml-3 border-l pl-2">
-                                <li>
-                                    <Link href={storefrontLinks.category(category.slug)} className="flex min-h-11 items-center rounded-md px-3 text-sm font-medium hover:bg-muted">
-                                        All {category.name}
-                                    </Link>
-                                </li>
-                                {category.children.map((child) => (
-                                    <li key={child.slug}>
-                                        <Link href={storefrontLinks.category(child.slug)} className="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-muted">
-                                            {child.name}
+
+                <div className="flex-1 overflow-y-auto">
+                    <nav aria-label="Departments" className="p-2">
+                        <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shop by department</p>
+                        {categories.map((category) =>
+                            category.children.length === 0 ? (
+                                <Link key={category.slug} href={storefrontLinks.category(category.slug)} className={row}>
+                                    {category.name}
+                                </Link>
+                            ) : (
+                                <details key={category.slug} className="group">
+                                    <summary className={cn(row, 'cursor-pointer list-none justify-between [&::-webkit-details-marker]:hidden')}>
+                                        {category.name}
+                                        <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+                                    </summary>
+                                    <ul className="mb-2 ml-4 border-l pl-2">
+                                        <li>
+                                            <Link href={storefrontLinks.category(category.slug)} className="flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold hover:bg-muted">
+                                                Shop all {category.name}
+                                            </Link>
+                                        </li>
+                                        {category.children.map((child) => (
+                                            <li key={child.slug}>
+                                                <Link href={storefrontLinks.category(child.slug)} className="flex min-h-11 items-center rounded-lg px-3 text-sm text-foreground/80 hover:bg-muted">
+                                                    {child.name}
+                                                </Link>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            ),
+                        )}
+                    </nav>
+
+                    <div className="border-t p-2">
+                        <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your account</p>
+                        {auth ? (
+                            <>
+                                {accountEntries(auth).map((entry) =>
+                                    entry.external ? (
+                                        <a key={entry.href} href={entry.href} className={row}>
+                                            <entry.icon className="size-5 text-muted-foreground" aria-hidden /> {entry.label}
+                                        </a>
+                                    ) : (
+                                        <Link key={entry.href} href={entry.href} className={cn(row, entry.tone === 'warning' && 'text-amber-800')}>
+                                            <entry.icon className="size-5 text-muted-foreground" aria-hidden /> {entry.label}
                                         </Link>
-                                    </li>
-                                ))}
-                            </ul>
-                        </details>
-                    ))}
-                </nav>
+                                    ),
+                                )}
+                                <Link href="/logout" method="post" as="button" className={cn(row, 'w-full text-left')}>
+                                    <LogOut className="size-5 text-muted-foreground" aria-hidden /> Sign out
+                                </Link>
+                            </>
+                        ) : (
+                            <>
+                                <Link href="/login" className={row}>
+                                    <User className="size-5 text-muted-foreground" aria-hidden /> Sign in
+                                </Link>
+                                <Link href="/register?type=public" className={row}>
+                                    Create an account
+                                </Link>
+                                <Link href="/register?type=trade" className={row}>
+                                    Apply for a trade account
+                                </Link>
+                            </>
+                        )}
+                    </div>
+
+                    {(brand.support_phone || brand.support_email) && (
+                        <div className="border-t p-2 pb-6">
+                            <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Help</p>
+                            {brand.support_phone && (
+                                <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`} className={row}>
+                                    <Phone className="size-5 text-muted-foreground" aria-hidden /> {brand.support_phone}
+                                </a>
+                            )}
+                            {brand.support_email && (
+                                <a href={`mailto:${brand.support_email}`} className={row}>
+                                    <Mail className="size-5 text-muted-foreground" aria-hidden /> <span className="truncate">{brand.support_email}</span>
+                                </a>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -509,22 +620,23 @@ function CategoryDrawer({ open, onClose, categories, brand }: { open: boolean; o
 function Footer({ brand, categories }: { brand: SharedBrand; categories: NavCategory[] }) {
     const { legal } = brand;
     const year = new Date().getFullYear();
+    const link = 'inline-flex min-h-11 items-center transition-colors hover:text-white md:min-h-0';
 
     return (
-        <footer className="mt-16 border-t bg-muted/40 text-sm">
-            <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
+        <footer className="mt-20 bg-zinc-950 text-sm text-zinc-400">
+            <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
                 <div>
-                    <p className="text-base font-semibold">{brand.name}</p>
-                    {brand.tagline && <p className="mt-1 text-muted-foreground">{brand.tagline}</p>}
+                    <p className="text-lg font-extrabold tracking-tight text-white">{brand.name}</p>
+                    {brand.tagline && <p className="mt-2 max-w-xs leading-relaxed">{brand.tagline}</p>}
                 </div>
 
                 {categories.length > 0 && (
                     <div>
-                        <h2 className="mb-3 font-semibold">Shop</h2>
-                        <ul className="space-y-2 text-muted-foreground">
+                        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-white">Shop</h2>
+                        <ul className="md:space-y-2.5">
                             {categories.slice(0, 8).map((c) => (
                                 <li key={c.slug}>
-                                    <Link href={storefrontLinks.category(c.slug)} className="hover:text-foreground">
+                                    <Link href={storefrontLinks.category(c.slug)} className={link}>
                                         {c.name}
                                     </Link>
                                 </li>
@@ -534,29 +646,34 @@ function Footer({ brand, categories }: { brand: SharedBrand; categories: NavCate
                 )}
 
                 <div>
-                    <h2 className="mb-3 font-semibold">Help</h2>
-                    <ul className="space-y-2 text-muted-foreground">
+                    <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-white">Help</h2>
+                    <ul className="md:space-y-2.5">
                         {brand.support_phone && (
                             <li>
-                                <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`} className="hover:text-foreground">
+                                <a href={`tel:${brand.support_phone.replace(/[^+\d]/g, '')}`} className={link}>
                                     {brand.support_phone}
                                 </a>
                             </li>
                         )}
                         {brand.support_email && (
                             <li>
-                                <a href={`mailto:${brand.support_email}`} className="hover:text-foreground">
+                                <a href={`mailto:${brand.support_email}`} className={link}>
                                     {brand.support_email}
                                 </a>
                             </li>
                         )}
                         <li>
-                            <Link href="/account" className="hover:text-foreground">
+                            <Link href="/account" className={link}>
                                 Your account
                             </Link>
                         </li>
                         <li>
-                            <Link href="/register?type=trade" className="hover:text-foreground">
+                            <Link href="/orders/lookup" className={link}>
+                                Find a guest order
+                            </Link>
+                        </li>
+                        <li>
+                            <Link href="/register?type=trade" className={link}>
                                 Apply for a trade account
                             </Link>
                         </li>
@@ -565,27 +682,27 @@ function Footer({ brand, categories }: { brand: SharedBrand; categories: NavCate
 
                 {(legal.name || legal.address.length > 0) && (
                     <div>
-                        <h2 className="mb-3 font-semibold">Company</h2>
-                        <address className="space-y-0.5 not-italic text-muted-foreground">
-                            {legal.name && <p>{legal.name}</p>}
+                        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-white">Company</h2>
+                        <address className="space-y-1 not-italic leading-relaxed">
+                            {legal.name && <p className="text-zinc-300">{legal.name}</p>}
                             {legal.address.map((line) => (
                                 <p key={line}>{line}</p>
                             ))}
-                            {legal.company_number && <p className="pt-2">Company no. {legal.company_number}</p>}
+                            {legal.company_number && <p className="pt-3">Company no. {legal.company_number}</p>}
                             {legal.vat_number && <p>VAT no. {legal.vat_number}</p>}
                         </address>
                     </div>
                 )}
             </div>
 
-            <div className="border-t">
-                <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground">
+            <div className="border-t border-white/10">
+                <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-5 text-xs">
                     <p>
-                        © {year} {legal.name ?? brand.name}
+                        © {year} {legal.name ?? brand.name}. All rights reserved.
                     </p>
                     {brand.show_powered_by && (
                         <p>
-                            Powered by <span className="font-semibold text-foreground">B2X MIS</span> · by Raihan
+                            Powered by <span className="font-semibold text-white">B2X MIS</span> · by Raihan
                         </p>
                     )}
                 </div>

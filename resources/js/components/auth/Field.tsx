@@ -56,7 +56,8 @@ export function Checkbox({ label, error, checked, onChange }: { label: ReactNode
 
     return (
         <div className="space-y-1">
-            <div className="flex items-start gap-2.5">
+            {/* The whole row is the label, so the tap target is 44px tall, not the 20px box. */}
+            <label htmlFor={id} className="flex min-h-11 cursor-pointer items-start gap-2.5 py-2.5">
                 <input
                     id={id}
                     type="checkbox"
@@ -66,10 +67,8 @@ export function Checkbox({ label, error, checked, onChange }: { label: ReactNode
                     aria-describedby={error ? `${id}-error` : undefined}
                     className="mt-0.5 size-5 shrink-0 rounded border-input accent-primary"
                 />
-                <label htmlFor={id} className="text-sm leading-snug">
-                    {label}
-                </label>
-            </div>
+                <span className="text-sm leading-snug">{label}</span>
+            </label>
             {error && (
                 <p id={`${id}-error`} className="pl-7 text-xs text-red-700">
                     {error}

@@ -58,7 +58,7 @@ export function ScanBar({ id, inputRef, label, busy, onScan }: { id: string; inp
     };
 
     return (
-        <form onSubmit={submit} className="rounded-xl border-2 border-slate-800 bg-white p-3 shadow-sm">
+        <form onSubmit={submit} className="rounded-2xl border border-border bg-background p-4 shadow-sm">
             <label htmlFor={id} className="mb-2 flex items-center gap-2 text-base font-semibold">
                 <ScanLine className="size-5" aria-hidden /> {label}
             </label>

@@ -57,7 +57,7 @@ export default function Login({ status }: { status: string | null }) {
                     defaultValue=""
                     error={form.errors.password}
                     labelAside={
-                        <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-4 hover:underline">
+                        <Link href="/forgot-password" className="-my-3 inline-flex min-h-11 items-center text-xs text-muted-foreground underline-offset-4 hover:underline md:my-0 md:min-h-0">
                             Forgot password?
                         </Link>
                     }
