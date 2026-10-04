@@ -6,7 +6,9 @@ use App\Domain\Identity\Registration;
 use App\Domain\Notifications\Notices\EmailVerification;
 use App\Domain\Notifications\Notices\ExistingAccount;
 use App\Domain\Notifications\Notifications;
+use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\GuestOrderLink;
+use App\Domain\Ordering\OrderCancellationService;
 use App\Http\Requests\Web\GuestAccountRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
@@ -54,7 +56,27 @@ class GuestOrderController extends Controller
                 'account_url' => route('orders.guest.account', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
                 'status' => $request->session()->get('status'),
             ],
+            'cancel_url' => OrderPageProps::canCancel($model)
+                ? route('orders.guest.cancel', ['order' => $order, 'expires' => $expires, 'signature' => $signature])
+                : null,
         ]);
+    }
+
+    /** 05.4 §13.2: a guest cancels before dispatch, by their order link. */
+    public function cancel(string $order, int $expires, string $signature): RedirectResponse
+    {
+        $model = $this->linkedOrder($order, $expires, $signature);
+        if ($model === null) {
+            return redirect()->route('orders.lookup')->with('status', self::INVALID);
+        }
+
+        try {
+            (new OrderCancellationService)->cancel($model->id);
+        } catch (OrderNotCancellableException $e) {
+            return back()->with('status', $e->getMessage());
+        }
+
+        return back()->with('status', 'Your order is cancelled. We have emailed you a confirmation.');
     }
 
     public function createAccount(GuestAccountRequest $request, string $order, int $expires, string $signature): RedirectResponse

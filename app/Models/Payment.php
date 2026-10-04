@@ -22,6 +22,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $amount_minor
  * @property string|null $card_brand
  * @property string|null $card_last4
+ * @property string $public_id
+ * @property string $type
+ * @property string $gateway
+ * @property string|null $gateway_reference
+ * @property string $currency
+ * @property int|null $refunded_payment_id
+ * @property string|null $failure_reason
  */
 class Payment extends Model
 {

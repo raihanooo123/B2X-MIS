@@ -47,6 +47,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/orders/{order}/confirmation', [OrderConfirmationController::class, 'show'])
         ->whereUlid('order')
         ->name('orders.confirmation');
+    // 05.4 §13.2: a consumer cancels before dispatch.
+    Route::post('/orders/{order}/cancel', [OrderConfirmationController::class, 'cancel'])
+        ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel');
 });
 
 // 05.15 §6.2–6.3: a guest's order page by signed link (not a sign-in
@@ -57,6 +60,9 @@ Route::get('/orders/{order}/guest/{expires}/{signature}', [GuestOrderController:
 Route::post('/orders/{order}/guest/{expires}/{signature}/account', [GuestOrderController::class, 'createAccount'])
     ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
     ->middleware('throttle:10,1')->name('orders.guest.account');
+Route::post('/orders/{order}/guest/{expires}/{signature}/cancel', [GuestOrderController::class, 'cancel'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->middleware('throttle:10,1')->name('orders.guest.cancel');
 Route::get('/orders/lookup', [OrderLookupController::class, 'show'])->name('orders.lookup');
 Route::post('/orders/lookup', [OrderLookupController::class, 'send'])->name('orders.lookup.send');
 

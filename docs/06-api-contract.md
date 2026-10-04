@@ -484,6 +484,12 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - **Card only for guests** (§6.1 step 3): any other `payment_method` is 422 `payment_method_not_available`.
 - `confirmation_url` for a guest is their signed order link (`/orders/{id}/guest/{expires}/{signature}`, 90 days, 05.15 §6.2), not the signed-in confirmation page.
 
+**As built (2026-10-04, 05.15 slice S6a) — consumer cancellation before dispatch (05.4 §13.2):**
+
+- Built as web routes behind the Inertia order page, not yet as the JSON `/orders/{id}/cancel` in §8: `POST /orders/{id}/cancel` (signed in, `OrderPolicy::cancel`: the order's own customer, consumer orders only) and `POST /orders/{id}/guest/{expires}/{signature}/cancel` (a guest's valid order link). Both are limited to 10 a minute.
+- Whole order only. Refused, with the order left as it was, when anything has been dispatched (`order_already_dispatched`), when it is already cancelled, or for a trade order (403 by policy).
+- The JSON endpoint in §8 stays for trade cancellation with 05.10.
+
 ### 9.4 Stock availability
 
 ```

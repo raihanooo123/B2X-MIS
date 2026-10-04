@@ -32,6 +32,10 @@ final class OrderPageProps
             'order_number' => $model->order_number,
             'placed_at' => $model->placed_at?->toIso8601ZuluString(),
             'status' => $model->status,
+            // 05.4 §13.2: a consumer order not yet dispatched may be cancelled.
+            'can_cancel' => self::canCancel($model),
+            'cancelled_at' => $model->cancelled_at?->toIso8601ZuluString(),
+            'refunds' => self::refunds($model),
             'payment_status' => $model->payment_status,
             // 02 §18. Null only for orders placed before the column existed.
             'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
@@ -77,6 +81,33 @@ final class OrderPageProps
                 'country' => DeliveryCountries::name(trim($address->country_code)),
             ] : null,
         ];
+    }
+
+    /** Mirrors OrderCancellationService's own check, which is the authority. */
+    public static function canCancel(Order $order): bool
+    {
+        return $order->company_id === null && in_array($order->status, ['confirmed', 'picking'], true);
+    }
+
+    /**
+     * The order's refunds, for the customer: amount, how, and whether done.
+     *
+     * @return list<array{amount_minor: int, method: string, status: string}>
+     */
+    private static function refunds(Order $order): array
+    {
+        return array_values(Payment::query()
+            ->where('order_id', $order->id)
+            ->where('type', 'refund')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Payment $p) => [
+                'amount_minor' => $p->amount_minor,
+                'method' => $p->gateway === 'stripe' ? 'card' : 'bank_transfer',
+                // A failed card refund is repaid by transfer: still "in progress" for the customer.
+                'status' => $p->status === 'captured' ? 'refunded' : 'in_progress',
+            ])
+            ->all());
     }
 
     /**
