@@ -91,6 +91,13 @@ enum AuditAction: string
      */
     case OrderClaimed = 'order.claimed';
 
+    /*
+     * 05.4 §13.5: staff reject a consumer's proof of sending. The files are
+     * kept as evidence; this entry is the record of who rejected it, when
+     * and why (`reason`). A decision on a return, so `rma_disposition`.
+     */
+    case RmaProofRejected = 'rma.proof_rejected';
+
     public function family(): string
     {
         return match ($this) {
@@ -107,6 +114,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
             self::OrderClaimed => 'permission',
+            self::RmaProofRejected => 'rma_disposition',
             self::CreditLimitChanged => 'credit_limit',
             self::TermsVersionPublished, self::StorefrontSettingsChanged => 'configuration',
         };
@@ -129,6 +137,7 @@ enum AuditAction: string
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => [],
             self::OrderClaimed => ['user_id'],
+            self::RmaProofRejected => ['goods_sent_at', 'last_proof_attachment_id'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
@@ -159,6 +168,7 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => ['checks'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],
+            self::RmaProofRejected => ['goods_sent_at'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],

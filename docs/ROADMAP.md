@@ -1410,7 +1410,9 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] S6b cancellation request after dispatch (05.4 §13.3; A6, A7, A9): `2026_10_18_090100` (A9),
       `2026_10_18_090200` (`rmas`, `rma_lines`, `credit_notes.rma_id` FK, `rma_number` and `credit_note_number`
       series). 2026-10-04, pending verification.
-- [ ] S6c sending back and the refund deadline (05.4 §13.5)
+- [x] S6c sending back and the refund deadline (05.4 §13.5, as amended 2026-10-04: deadline from the proof upload;
+      only returns with neither proof nor receipt are swept). Staff Returns screen, `returns:refund-due-alerts`,
+      `returns:sweep-not-received`. No migration. 2026-10-04, pending verification.
 - [ ] S6d inspection and refund (05.4 §13.5–13.6)
 - [ ] S6e faulty goods and staff entry (05.4 §13.4)
 - [ ] S7 legal pages, sitemap (with 05.11)

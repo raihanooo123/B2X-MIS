@@ -20,6 +20,7 @@ export interface SharedAuth {
         picking: boolean;
         dispatch: boolean;
         stocktake: boolean;
+        returns: boolean;
     };
 }
 

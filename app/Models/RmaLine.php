@@ -23,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $unit_price_net_e4
  * @property int $tax_rate_bp
  * @property int $line_goods_net_minor
+ * @property int $received_base_qty
+ * @property int|null $batch_id
  */
 class RmaLine extends Model
 {
@@ -39,6 +41,8 @@ class RmaLine extends Model
         'unit_price_net_e4',
         'tax_rate_bp',
         'line_goods_net_minor',
+        'received_base_qty',
+        'batch_id',
     ];
 
     protected function casts(): array
@@ -49,6 +53,7 @@ class RmaLine extends Model
             'unit_price_net_e4' => 'integer',
             'tax_rate_bp' => 'integer',
             'line_goods_net_minor' => 'integer',
+            'received_base_qty' => 'integer',
         ];
     }
 

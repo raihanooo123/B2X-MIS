@@ -11,11 +11,15 @@ use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\OrderCancellationService;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
+use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
+use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Requests\Web\GuestAccountRequest;
+use App\Http\Requests\Web\ProofOfSendingRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
+use App\Models\Rma;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -64,6 +68,7 @@ class GuestOrderController extends Controller
                 ? route('orders.guest.cancel', ['order' => $order, 'expires' => $expires, 'signature' => $signature])
                 : null,
             'cancel_items_url' => route('orders.guest.cancel-items', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
+            'returns_url' => route('orders.guest', ['order' => $order, 'expires' => $expires, 'signature' => $signature]).'/returns',
         ]);
     }
 
@@ -118,6 +123,24 @@ class GuestOrderController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.4 §13.5: a guest uploads proof of sending, by their order link. */
+    public function uploadProof(ProofOfSendingRequest $request, string $order, int $expires, string $signature, string $rma): RedirectResponse
+    {
+        $model = $this->linkedOrder($order, $expires, $signature);
+        if ($model === null) {
+            return redirect()->route('orders.lookup')->with('status', self::INVALID);
+        }
+        $return = Rma::query()->where('public_id', $rma)->where('order_id', $model->id)->firstOrFail();
+
+        try {
+            (new ProofOfSending)->upload($return->id, $request->file('proof'), null);
+        } catch (ReturnActionRefusedException $e) {
+            return back()->withErrors(['proof' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'Thank you — we have your proof of sending. We refund within 14 days of it.');
     }
 
     private function linkedOrder(string $publicId, int $expires, string $signature): ?Order

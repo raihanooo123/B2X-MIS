@@ -7,6 +7,7 @@ use App\Domain\Storefront\Branding;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
 use App\Models\GoodsReceipt;
+use App\Models\Rma;
 use App\Models\Shipment;
 use App\Models\Stocktake;
 use App\Models\User;
@@ -90,6 +91,7 @@ class HandleInertiaRequests extends Middleware
                 'picking' => Gate::allows('viewAny', Shipment::class),
                 'dispatch' => Gate::allows('viewAny', Shipment::class),
                 'stocktake' => Gate::allows('viewAny', Stocktake::class),
+                'returns' => Gate::allows('viewAny', Rma::class),
             ],
         ];
     }

@@ -12,6 +12,9 @@ use App\Domain\Notifications\Notices\OrderConfirmed;
 use App\Domain\Notifications\Notices\PaymentReceived;
 use App\Domain\Notifications\Notices\RefundFailed;
 use App\Domain\Notifications\Notices\RmaApproved;
+use App\Domain\Notifications\Notices\RmaNotReceived;
+use App\Domain\Notifications\Notices\RmaProofRejected;
+use App\Domain\Notifications\Notices\RmaRefundDueSoon;
 use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
@@ -75,6 +78,36 @@ final class Notifications
         if ($order !== null) {
             $this->dispatcher->send(new RmaApproved($rmaId), $this->recipients->orderCustomer($order));
         }
+    }
+
+    /** 05.12 §5.1 `rma.proof_rejected`: to the customer, who may upload again (05.4 §13.5). */
+    public function rmaProofRejected(int $rmaId, string $reason): void
+    {
+        $order = $this->rmaOrder($rmaId);
+        if ($order !== null) {
+            $this->dispatcher->send(new RmaProofRejected($rmaId, $reason), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.12 §5.1 `rma.refund_due_soon`: accounts, once per deadline (05.4 §13.5). */
+    public function rmaRefundDueSoon(int $rmaId, string $dueOn): void
+    {
+        $this->dispatcher->send(new RmaRefundDueSoon($rmaId, $dueOn), $this->recipients->role('accounts'));
+    }
+
+    /** 05.12 §5.1 `rma.not_received`: the customer and accounts (05.4 §7.6). */
+    public function rmaNotReceived(int $rmaId): void
+    {
+        $order = $this->rmaOrder($rmaId);
+        $customer = $order === null ? [] : $this->recipients->orderCustomer($order);
+        $this->dispatcher->send(new RmaNotReceived($rmaId), [...$customer, ...$this->recipients->role('accounts')]);
+    }
+
+    private function rmaOrder(int $rmaId): ?Order
+    {
+        $rma = Rma::query()->find($rmaId, ['id', 'order_id']);
+
+        return $rma === null ? null : Order::query()->find($rma->order_id, ['id', 'user_id', 'company_id', 'guest_email']);
     }
 
     /** 05.12 §5.1 `refund.failed`: accounts repay by bank transfer (05.4 §13.6). */
