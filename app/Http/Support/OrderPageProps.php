@@ -139,10 +139,16 @@ final class OrderPageProps
             ->orderBy('id')
             ->get()
             ->map(fn (Rma $r) => [
+                'id' => $r->public_id,
                 'rma_number' => $r->rma_number,
                 'status' => $r->status,
                 'return_method' => $r->return_method,
                 'return_by_date' => $r->return_by_date?->toDateString(),
+                // 05.4 §13.5: proof of sending (upload time) and the refund deadline.
+                'proof_sent_at' => $r->goods_sent_at?->toIso8601ZuluString(),
+                'received_at' => $r->received_at?->toIso8601ZuluString(),
+                'refund_due_on' => $r->refund_due_on?->toDateString(),
+                'accepts_proof' => $r->status === 'awaiting_goods' && $r->return_method !== 'collection' && $r->return_reason === 'consumer_cancellation',
                 'lines' => array_values($r->lines->map(fn (RmaLine $l) => ['sku_code' => $l->sku_code_snapshot, 'name' => $l->name_snapshot, 'pack_qty' => $l->requested_pack_qty])->all()),
             ])
             ->all());

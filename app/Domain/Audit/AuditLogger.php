@@ -51,6 +51,7 @@ final class AuditLogger
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
             AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
             AuditAction::OrderClaimed => $this->validateOrderClaimed($entry),
+            AuditAction::RmaProofRejected => $this->validateRmaProofRejected($entry),
             AuditAction::LockedOut => $this->validateLockout($entry),
             AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
             AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
@@ -317,6 +318,29 @@ final class AuditLogger
             || $entry->subjectType !== 'order' || $entry->subjectId === null
             || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid order claim audit entry.');
+        }
+    }
+
+    /**
+     * 05.4 §13.5: by a staff user, about the return; `goods_sent_at` from the
+     * upload time (ISO 8601) to null, the last proof file the rejection
+     * covers, and the reason the customer was given. The files themselves
+     * are untouched.
+     */
+    private function validateRmaProofRejected(AuditEntry $entry): void
+    {
+        $sentAt = $entry->before['goods_sent_at'] ?? null;
+        $lastFile = $entry->before['last_proof_attachment_id'] ?? null;
+
+        if (array_keys($entry->before) !== ['goods_sent_at', 'last_proof_attachment_id'] || ! is_string($sentAt)
+            || ! is_int($lastFile) || $lastFile < 1
+            || \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $sentAt) === false
+            || $entry->after !== ['goods_sent_at' => null]
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'rma' || $entry->subjectId === null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid proof rejection audit entry.');
         }
     }
 

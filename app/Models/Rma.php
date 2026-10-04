@@ -29,6 +29,11 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $possession_on
  * @property string|null $possession_basis
  * @property Carbon|null $refund_due_on
+ * @property Carbon|null $goods_sent_at
+ * @property Carbon|null $received_at
+ * @property int|null $handled_by_user_id
+ * @property int|null $refund_payment_id
+ * @property string|null $internal_note
  * @property Carbon $requested_at
  * @property Carbon|null $approved_at
  * @property Carbon|null $return_by_date
@@ -60,6 +65,8 @@ class Rma extends Model
         'possession_basis',
         'goods_sent_at',
         'refund_due_on',
+        'received_at',
+        'internal_note',
         'requested_at',
         'approved_at',
         'return_by_date',
@@ -72,6 +79,8 @@ class Rma extends Model
             'cancellation_notified_at' => 'datetime',
             'possession_on' => 'date',
             'refund_due_on' => 'date',
+            'goods_sent_at' => 'datetime',
+            'received_at' => 'datetime',
             'requested_at' => 'datetime',
             'approved_at' => 'datetime',
             'return_by_date' => 'date',

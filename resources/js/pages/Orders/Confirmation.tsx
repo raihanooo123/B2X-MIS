@@ -92,6 +92,8 @@ interface ConfirmationProps {
     cancel_url: string | null;
     /** Where "Cancel items" posts (05.4 §13.3). */
     cancel_items_url: string | null;
+    /** Proof of sending posts to `{returns_url}/{return id}/proof` (05.4 §13.5). */
+    returns_url: string | null;
 }
 
 interface CancellationView {
@@ -103,10 +105,15 @@ interface CancellationView {
 }
 
 interface ReturnView {
+    id: string;
     rma_number: string;
     status: string;
     return_method: string | null;
     return_by_date: string | null;
+    proof_sent_at: string | null;
+    received_at: string | null;
+    refund_due_on: string | null;
+    accepts_proof: boolean;
     lines: { sku_code: string; name: string; pack_qty: number }[];
 }
 
@@ -166,7 +173,7 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     return ['Your order is confirmed and your stock is reserved.', 'Payment is due before dispatch unless you have account terms.', common];
 }
 
-export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl }: ConfirmationProps) {
+export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl, returns_url: returnsUrl }: ConfirmationProps) {
     const { display_timezone: timeZone, auth, flash } = usePage<SharedProps>().props;
     const cancelled = order.status === 'cancelled';
     const status = guest ? guest.status : (flash?.status ?? null);
@@ -267,7 +274,7 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
 
                         {cancelUrl && order.can_cancel && <CancelOrder orderNumber={order.order_number} url={cancelUrl} />}
 
-                        {order.returns.length > 0 && <Returns returns={order.returns} />}
+                        {order.returns.length > 0 && <Returns returns={order.returns} returnsUrl={returnsUrl} />}
 
                         {cancelItemsUrl && order.cancellation && <CancelItems cancellation={order.cancellation} url={cancelItemsUrl} />}
 
@@ -394,8 +401,8 @@ const RETURN_STATUS: Record<string, string> = {
     rejected: 'Not accepted',
 };
 
-/** The cancellations already made on this order (05.4 §13.3). */
-function Returns({ returns }: { returns: ReturnView[] }) {
+/** The cancellations already made on this order (05.4 §13.3), with proof of sending (§13.5). */
+function Returns({ returns, returnsUrl }: { returns: ReturnView[]; returnsUrl: string | null }) {
     return (
         <section className="space-y-3">
             <h2 className="font-semibold">Your cancellations</h2>
@@ -417,6 +424,11 @@ function Returns({ returns }: { returns: ReturnView[] }) {
                         </p>
                     )}
                     {r.status === 'awaiting_goods' && r.return_method === 'collection' && <p className="mt-1 text-xs text-muted-foreground">We will contact you to collect them.</p>}
+                    {r.proof_sent_at && <p className="mt-1 text-xs text-emerald-800">We have your proof of sending.</p>}
+                    {r.refund_due_on && !['resolved', 'partially_resolved'].includes(r.status) && (
+                        <p className="mt-1 text-xs text-muted-foreground">We will refund you by {longDate(r.refund_due_on)}.</p>
+                    )}
+                    {returnsUrl && r.accepts_proof && <ProofUpload url={`${returnsUrl}/${r.id}/proof`} hasProof={r.proof_sent_at !== null} />}
                 </div>
             ))}
         </section>
@@ -503,5 +515,38 @@ function CancelItems({ cancellation, url }: { cancellation: CancellationView; ur
                 </Button>
             </form>
         </section>
+    );
+}
+
+/**
+ * 05.4 §13.5 "I've sent it back": a photo or PDF of the proof of postage or
+ * tracking. The refund deadline runs from the moment it is uploaded.
+ */
+function ProofUpload({ url, hasProof }: { url: string; hasProof: boolean }) {
+    const form = useForm<{ proof: File | null }>({ proof: null });
+    const id = `proof-${url.split('/').slice(-2, -1)[0]}`;
+
+    const submit = (e: FormEvent) => {
+        e.preventDefault();
+        form.post(url, { forceFormData: true, preserveScroll: true, onSuccess: () => form.reset() });
+    };
+
+    return (
+        <form onSubmit={submit} className="mt-2 space-y-1.5" noValidate>
+            <label htmlFor={id} className="block text-xs font-medium">
+                {hasProof ? 'Add more proof of sending' : "I've sent it back — upload proof of postage or tracking"}
+            </label>
+            <input
+                id={id}
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,.pdf"
+                onChange={(e) => form.setData('proof', e.target.files?.[0] ?? null)}
+                className="block w-full text-xs file:mr-2 file:rounded file:border file:border-input file:bg-background file:px-2 file:py-1"
+            />
+            {form.errors.proof && <p className="text-xs text-red-700">{form.errors.proof}</p>}
+            <Button type="submit" variant="outline" size="sm" className="h-9" disabled={form.data.proof === null || form.processing}>
+                Upload proof
+            </Button>
+        </form>
     );
 }

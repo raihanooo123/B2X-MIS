@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
+use App\Http\Controllers\Api\V1\Warehouse\ReturnController;
 use App\Http\Controllers\Api\V1\Warehouse\ShipmentController;
 use App\Http\Controllers\Api\V1\Warehouse\StocktakeController;
 use App\Http\Controllers\Api\V1\Webhooks\PostmarkWebhookController;
@@ -52,6 +53,12 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/shipments/{id}/short-picks', [ShipmentController::class, 'shortPick'])->whereUlid('id');
         Route::post('/shipments/{id}/substitutions', [ShipmentController::class, 'substitute'])->whereUlid('id');
         Route::post('/shipments/{id}/dispatch', [ShipmentController::class, 'dispatch'])->whereUlid('id');
+
+        // 05.4 §7.3, §13.5: returns. RmaPolicy decides who.
+        // Booking in requires an Idempotency-Key (06 §6).
+        Route::get('/returns/lookup', [ReturnController::class, 'lookup']);
+        Route::post('/returns/{id}/receive', [ReturnController::class, 'receive'])->whereUlid('id');
+        Route::post('/returns/{id}/reject-proof', [ReturnController::class, 'rejectProof'])->whereUlid('id');
 
         // 05.5 §8, 02 §24: stocktake. StocktakePolicy decides who.
         Route::post('/stocktakes', [StocktakeController::class, 'store']);

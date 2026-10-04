@@ -6,10 +6,14 @@ use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\OrderCancellationService;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
+use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
+use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
+use App\Http\Requests\Web\ProofOfSendingRequest;
 use App\Http\Support\OrderPageProps;
 use App\Http\Support\PriceDisplay;
 use App\Models\Order;
+use App\Models\Rma;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,6 +39,8 @@ class OrderConfirmationController extends Controller
             'guest' => null,
             'cancel_url' => OrderPageProps::canCancel($model) && Gate::allows('cancel', $model) ? route('orders.cancel', ['order' => $model->public_id]) : null,
             'cancel_items_url' => Gate::allows('cancel', $model) ? route('orders.cancel-items', ['order' => $model->public_id]) : null,
+            // 05.4 §13.5: proof uploads post to {returns_url}/{rma id}/proof.
+            'returns_url' => Gate::allows('cancel', $model) ? url("/orders/{$model->public_id}/returns") : null,
         ]);
     }
 
@@ -66,5 +72,21 @@ class OrderConfirmationController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.4 §13.5: a signed-in consumer uploads proof of sending for one of their returns. */
+    public function uploadProof(ProofOfSendingRequest $request, string $order, string $rma): RedirectResponse
+    {
+        $model = Order::query()->where('public_id', $order)->firstOrFail();
+        Gate::authorize('cancel', $model);
+        $return = Rma::query()->where('public_id', $rma)->where('order_id', $model->id)->firstOrFail();
+
+        try {
+            (new ProofOfSending)->upload($return->id, $request->file('proof'), $request->user()?->getAuthIdentifier());
+        } catch (ReturnActionRefusedException $e) {
+            return back()->withErrors(['proof' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'Thank you — we have your proof of sending. We refund within 14 days of it.');
     }
 }

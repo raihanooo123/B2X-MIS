@@ -496,6 +496,12 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - Web routes behind the order page, not the JSON `/returns` of §8: `POST /orders/{id}/cancel-items` (signed in, `OrderPolicy::cancel`) and `POST /orders/{id}/guest/{expires}/{signature}/cancel-items`, body `{ "lines": [{ "line_no", "pack_qty" }] }`, 10 a minute. A refused line comes back as a validation error on `lines.{line_no}`; success creates an approved RMA and sends `rma.approved`.
 - The JSON `/returns` endpoints in §8 stay for the trade return flow (05.4 §7).
 
+**As built (2026-10-04, 05.15 slice S6c) — sending back and the refund deadline (05.4 §13.5):**
+
+- Staff, as §8's `/warehouse/returns/*` (`RmaPolicy`): `GET /api/v1/warehouse/returns/lookup?rma_number=` (admin, warehouse, accounts); `POST /api/v1/warehouse/returns/{id}/receive` `{ "lines": [{ "line_no", "received_base_qty" }] }`, Idempotency-Key required (admin, warehouse) — no stock movement; `POST /api/v1/warehouse/returns/{id}/reject-proof` `{ "reason" }` (admin, accounts). A refused step is 422 with a stable code (`not_awaiting_goods`, `quantity_out_of_range`, `nothing_received`, `no_proof`, `already_received`). Responses carry `refund_due_on`, `goods_sent_at` and the proof files.
+- Customer proof of sending, web routes behind the order page: `POST /orders/{id}/returns/{rma}/proof` (signed in) and `POST /orders/{id}/guest/{expires}/{signature}/returns/{rma}/proof`, multipart `proof` (JPG, PNG, WebP or PDF, 10 MB), 10 a minute. The upload time is `goods_sent_at`.
+- Staff view proof at `GET /warehouse/returns/{rma}/proof/{attachment}` (RmaPolicy `view`); files are on the private default disk, never public.
+
 ### 9.4 Stock availability
 
 ```
