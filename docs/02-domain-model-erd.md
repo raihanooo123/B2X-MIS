@@ -1730,6 +1730,7 @@ CREATE INDEX orders_placed_at_brin     ON orders USING brin (placed_at);
 - `orders_unpaid_idx`, likewise, indexes only orders with money outstanding, which is what the credit and dunning jobs scan.
 - `orders_placed_at_brin` supports period reporting across the full history at a fraction of a B-tree's size, since `placed_at` correlates with physical order.
 - `total_cost_minor` aggregates line-level cost snapshots, making order-level margin a stored value rather than a runtime join across `sku_costs` history.
+- **Amended by §26 (signed off 2026-10-04):** `guest_email` with `orders_customer_chk` and `orders_guest_claim_idx` (guest checkout), and `standard_shipping_net_minor` (the consumer cancellation refund).
 
 ### 8.3 `order_lines` — where pack and price snapshots live
 
@@ -3395,7 +3396,7 @@ ALTER TABLE payments VALIDATE CONSTRAINT payments_owner_chk;
 
 **Notes**
 
-- **Every payment still belongs to someone.** A trade payment carries its company, as before. A public customer's payment carries its order, and the order carries the customer (`orders.user_id`, §8.2). `payments_owner_chk` makes a payment with neither impossible to persist. The one order-less case §14.5.1 names — a company's account-balance payout (05.4 §7.5A) — always has a company.
+- **Every payment still belongs to someone.** A trade payment carries its company, as before. A public customer's payment carries its order, and the order carries the customer (`orders.user_id`, §8.2). *Note 2026-10-04 (§26.1):* the customer is the order's `user_id` or, for a guest order, its `guest_email`; `orders_customer_chk` guarantees one of them (or a company). `payments_owner_chk` makes a payment with neither impossible to persist. The one order-less case §14.5.1 names — a company's account-balance payout (05.4 §7.5A) — always has a company.
 - **No `payments.user_id`.** The order already records the customer; a second copy on the payment could disagree with it.
 - **Superseded by §21.2:** public orders now receive a receipt on `invoices`, and their payments are allocated to it.
 - **Public payments are never allocated to an invoice**, because `invoices.company_id` is `NOT NULL` (§14.5.2): public orders are not invoiced on account. A public card payment settles its order directly and stays unallocated in `payment_allocations`, which is correct — there is nothing on account to settle.
@@ -3497,7 +3498,7 @@ ALTER TABLE invoices ADD CONSTRAINT invoices_kind_chk CHECK (
 ALTER TABLE invoices VALIDATE CONSTRAINT invoices_kind_chk;
 ```
 
-- **`company_id IS NULL` means receipt.** There is no separate kind column: the rule has one input, and `invoices_kind_chk` makes a half-receipt, half-invoice row impossible to persist. The customer is the order's `orders.user_id` (§8.2), as for §19's payments.
+- **`company_id IS NULL` means receipt.** There is no separate kind column: the rule has one input, and `invoices_kind_chk` makes a half-receipt, half-invoice row impossible to persist. The customer is the order's `orders.user_id` (§8.2), as for §19's payments. *Note 2026-10-04 (§26.1):* or, for a guest order, its `guest_email`; `orders_customer_chk` guarantees one of them (or a company).
 - **Receipts take their own gapless series**, `number_sequences.key_name = 'receipt_number'` (prefix `RCP-`), stored in `invoice_number`. `invoices_number_uq` still holds across both series because the prefixes differ. §11.3's gapless list gains `receipt_number`.
 - **Supersedes §19's allocation note.** A public card payment is now allocated to its receipt through `payment_allocations`, like any other payment. `invoices.paid_minor` (§11.4) stays a true projection for every row, so the rebuild needs no special case. Public payments still never touch any credit projection, since there is no company.
 - Existing indexes are unaffected. `invoices_company_issued_idx` and `invoices_unpaid_idx` hold the NULL rows but are only ever queried for a company.
@@ -3916,7 +3917,7 @@ CREATE TRIGGER terms_acceptances_immutable
 
 - **Where versions live:** here, not in the CMS (05.11, unwritten). A version is a legal record, not editable content. Rows are immutable, enforced by a trigger function like §15's. That function's message names `audit_log`, so a generic `reject_row_mutation()` names the table instead. Changing the terms means publishing a new version. `body_sha256` is the SHA-256 of `body_markdown`, so the exact text accepted can be proven later.
 - **Current version:** the row with the latest `effective_from <= now()` for the kind. A version can be published ahead of its effective date. The query runs when the application form loads and again when it is submitted. `terms_versions_kind_effective_uq` serves it by a backward scan, so no extra index is needed (§9 rule 10).
-- **`kind`:** `trade` (terms of trade, accepted on a trade application) and `sale` (terms of sale for public customers, 05.13 §5.2). A **public customer accepts the terms of sale at checkout**: source `checkout`, one row per order, linked by `order_id`. That write belongs to a later checkout slice (ROADMAP §6, ⚑1); this amendment only makes the schema ready for it. `terms_acceptances_order_uq` enforces one acceptance per order, and serves the order screen's lookup. `order_id` has no cascade: orders are never deleted within 7 years (07 §7.2), and neither is the proof of the terms they were sold on.
+- **`kind`:** `trade` (terms of trade, accepted on a trade application) and `sale` (terms of sale for public customers, 05.13 §5.2). A **public customer accepts the terms of sale at checkout**: source `checkout`, one row per order, linked by `order_id`. That write belongs to a later checkout slice (ROADMAP §6, ⚑1); this amendment only makes the schema ready for it. *Amended by §26.2 (signed off 2026-10-04):* `user_id` is nullable for a guest's checkout acceptance. `terms_acceptances_order_uq` enforces one acceptance per order, and serves the order screen's lookup. `order_id` has no cascade: orders are never deleted within 7 years (07 §7.2), and neither is the proof of the terms they were sold on.
 - **Acceptance** is append-only: the trigger rejects UPDATE. DELETE is allowed only through the application's cascade, so acceptance lives exactly as long as the application does under 07 §7.2 — 2 years for a rejection, indefinitely for an approval.
   - `terms_acceptances_application_uq` enforces one acceptance per application. It also serves the review screen's lookup by application.
   - No index on `user_id` yet: no query reads acceptances by user. One is added when a "has this user accepted the current version" check exists.
@@ -4293,6 +4294,81 @@ The codes are a PHP backed enum, `VerificationWarning`. They are computed at app
 - **Terms:** publish the first `trade` terms version **before** trade registration is opened, through the admin terms screen (§25.1). `RegisterTradeRequest` requires a current version, so without one every trade application is refused. Publish the first `sale` version before the checkout slice ships. **Production terms must be reviewed by a solicitor before publication** — the system does not check them.
 - **Local development:** `Database\Seeders\PlaceholderTermsSeeder` publishes one `trade` version, so registration works on a fresh `migrate:fresh --seed`.
   - **Version and text:** labelled `placeholder-1`. Its text opens with "PLACEHOLDER — NOT TERMS OF TRADE. Do not use in production." It is published by the demo administrator (`admin@example.com`, from `DemoDataSeeder`), effective now.
+  - *Added 2026-10-04 (05.15 S4):* it also publishes a `sale` version `placeholder-1`, opening "PLACEHOLDER — NOT TERMS OF SALE", so public checkout works locally. Same guards.
   - **Guards:** `DatabaseSeeder` calls it only when `app()->environment('local')`, and the seeder throws if it is run in any other environment. The `placeholder-` prefix is reserved: the terms screen refuses a label starting with it, so a placeholder can never be published by hand.
   - **Tests** do not use the seeder. They create a version through a `TermsVersionFactory`.
 - **Missing credentials** in any environment do not stop applications. Checks record `unchecked` / `not_configured`, and approval then needs acknowledgement.
+
+---
+
+## 26. Schema amendment 2026-10-04 — guest checkout and consumer cancellation (05.15 §9 A1–A3) (signed off 2026-10-04)
+
+> **Status: signed off 2026-10-04.** Migrations follow with slices S4 (A2, A3) and S5 (A1). Behaviour is in 05.15 §6 (guest checkout, order access, claim) and §7.2 (cancellation refund). Slices S4 (A2, A3) and S5 (A1) in 05.15 §11. A4, `collection_bookings.company_id` nullable, amends 05.6 §7.1 in its own commit. A5, `products.hygiene_sealed`, comes later with 05.4 and is not proposed here.
+
+The public channel (01 §4, §19, §21.2) assumed that every public buyer has an account, so `orders.user_id` names the customer. 05.15 adds guest checkout: a public buyer may order with no account (decided 2026-09-28, amends 05.13 §5.2). A guest order has no company and no user. Three things follow:
+
+- the order must still name its customer (§26.1);
+- the guest's acceptance of the terms of sale has no user to record (§26.2);
+- a consumer's cancellation refund depends on the standard delivery charge at placement, which nothing snapshots (§26.3).
+
+### 26.1 `orders.guest_email` — the guest's identity (A1)
+
+```sql
+ALTER TABLE orders ADD COLUMN guest_email text;
+
+ALTER TABLE orders ADD CONSTRAINT orders_customer_chk CHECK (
+  company_id IS NOT NULL OR user_id IS NOT NULL OR guest_email IS NOT NULL
+) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_customer_chk;
+
+CREATE INDEX orders_guest_claim_idx ON orders (lower(guest_email))
+  WHERE user_id IS NULL AND guest_email IS NOT NULL;
+```
+
+- **Written** by `ConsumerCheckout` for a guest, with `company_id` and `user_id` NULL (05.15 §6.1 step 5). It is stored trimmed and lower-cased. A trade order and a signed-in public order leave it NULL.
+- **Every order names a customer.** `orders_customer_chk` makes an order with no company, no user and no guest email impossible to persist. No phone column is added: the guest's phone is on `order_addresses.phone`.
+- **It stays set after a claim** (05.15 §6.3). When a verified account claims the order, `user_id` is set and `guest_email` is kept, so the row still records that the order was placed as a guest.
+- **`orders_guest_claim_idx`** serves the claim: every order where `lower(guest_email) = :email AND user_id IS NULL`. It is partial on unclaimed guest orders only, so it stays small. Queries must write `lower(guest_email)` to match the index expression, even though the value is stored lower-cased. *Find my order* (05.15 §6.2) looks the order up by `order_number` through `orders_number_uq`, then compares the email, so it needs no index of its own.
+- **Payments and receipts** (§19, §21.2): no column changes. A guest's card payment carries its `order_id`, so `payments_owner_chk` holds unchanged. Its receipt has `company_id IS NULL`, as for any public order. The customer is the order's `user_id` or, for a guest order, its `guest_email`. Code that reaches a public payment's customer through `order->user` (the Stripe receipt email, the receipt PDF's buyer block) must fall back to `guest_email`. That code change is part of S5.
+- `NOT VALID` then `VALIDATE` (§2.5). Every existing order has a company or a user, so validation cannot fail. Adding the nullable column is catalogue-only (07 §11.1).
+
+### 26.2 `terms_acceptances.user_id` nullable for a guest's checkout (A2)
+
+```sql
+ALTER TABLE terms_acceptances ALTER COLUMN user_id DROP NOT NULL;
+
+ALTER TABLE terms_acceptances ADD CONSTRAINT terms_acceptances_user_chk CHECK (
+  user_id IS NOT NULL OR source = 'checkout'
+) NOT VALID;
+ALTER TABLE terms_acceptances VALIDATE CONSTRAINT terms_acceptances_user_chk;
+```
+
+- **A guest's acceptance is identified by its order.** `terms_acceptances_source_subject_chk` (§25.1) already requires `order_id` for source `checkout`, and that order's `guest_email` names the buyer. A trade application's acceptance still needs a user.
+- **Written** in the order transaction by `ConsumerCheckout`: kind `sale`, source `checkout`, the order's `order_id`, and `user_id` set for a signed-in public customer or NULL for a guest (05.15 §6.1 step 4). `terms_acceptances_order_uq` keeps one acceptance per order.
+- **A claim does not rewrite the acceptance.** The row is append-only (§25.1's trigger). After a claim, the buyer is reached through the order's `user_id`.
+- `NOT VALID` then `VALIDATE`: every existing row has a user, so validation cannot fail.
+
+### 26.3 `orders.standard_shipping_net_minor` — the standard delivery charge at placement (A3)
+
+A consumer who cancels within 14 days is refunded delivery only up to the cost of the least expensive standard delivery offered (CCR 2013 reg. 34(2)–(3); 05.15 §7.2). If they paid for faster delivery, the difference is not refunded. That figure must be the one quoted at placement, not one re-resolved later.
+
+```sql
+ALTER TABLE orders ADD COLUMN standard_shipping_net_minor bigint;
+
+ALTER TABLE orders ADD CONSTRAINT orders_standard_shipping_chk CHECK (
+  standard_shipping_net_minor IS NULL
+  OR (standard_shipping_net_minor >= 0 AND standard_shipping_net_minor <= shipping_net_minor)
+) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_standard_shipping_chk;
+```
+
+- **Set at placement for every public or guest order.** It is the net charge of the least expensive standard method quoted for that consignment (`parcel` or `pallet`, 05.6 §5.2). It is 0 for collection and for carriage-paid delivery (§20.2), where `shipping_net_minor` is also 0.
+- **NULL for trade orders.** A trade buyer has no statutory cancellation refund.
+- **Snapshotted like every money-affecting figure** (§2.7, invariant 4). A later rate change cannot alter a refund. It is never re-resolved.
+- **Net, like `shipping_net_minor`.** How the refund is computed from it belongs to 05.4 (consumer cancellation, slice S6), not to this column.
+- **No index.** It is read only for the order being cancelled.
+- `NOT VALID` then `VALIDATE`: every existing row is NULL, so validation cannot fail.
+
+### 26.4 Lock order and transactions
+
+Unchanged. A guest order takes no `companies` lock, as for any public order. The `collection_slots` → `stock_levels` order (§11.1, 05.6 §7.2) applies as before. `guest_email`, the acceptance row and `standard_shipping_net_minor` are all written inside the existing order transaction, with no external call.
