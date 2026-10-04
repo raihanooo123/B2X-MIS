@@ -12,6 +12,13 @@
 
 {!! $mail->actionLabel !!}: {!! $mail->actionUrl !!}
 @endif
+@foreach ($mail->sections as $section)
+
+{!! $section['heading'] !!}
+@foreach ($section['paragraphs'] as $paragraph)
+{!! $paragraph !!}
+@endforeach
+@endforeach
 @if ($mail->closing !== [])
 
 @foreach ($mail->closing as $line)

@@ -17,6 +17,10 @@
  * Each distinct request body gets its own `Idempotency-Key`; retrying the
  * same body reuses it, so a lost response replays instead of ordering
  * twice (06 §6).
+ *
+ * A public buyer (05.15 §6.1, §7.1) also sees the pre-contract information
+ * and accepts the terms of sale before the button, which says the order
+ * carries an obligation to pay (CCR 2013 reg. 14(3)).
  */
 import { Head, Link, router } from '@inertiajs/react';
 import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
@@ -24,7 +28,7 @@ import { AlertTriangle, ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
-import { Field } from '@/components/auth/Field';
+import { Checkbox, Field } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ApiError } from '@/lib/api/client';
@@ -60,6 +64,10 @@ interface CheckoutProps {
     payment_methods: { value: PaymentMethod; label: string }[];
     /** Stripe publishable key; null when card payments are not configured. */
     stripe_key: string | null;
+    /** Public buyers: the terms of sale in force (null for trade, or when none is published). */
+    terms_of_sale: { id: number; version: string; html: string } | null;
+    /** Public buyers: the pre-contract information (05.15 §7.1); null for trade. */
+    pre_contract: { sections: { heading: string; paragraphs: string[] }[]; terms_version_id: number | null; terms_version: string | null } | null;
 }
 
 const NEW_ADDRESS = 'new';
@@ -121,6 +129,8 @@ function CheckoutForm(props: CheckoutProps) {
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [failure, setFailure] = useState<ApiError | null>(null);
     const [priceChange, setPriceChange] = useState<PriceChange | null>(null);
+    const [termsAccepted, setTermsAccepted] = useState(false);
+    const terms = props.terms_of_sale;
 
     const address: DeliveryAddressInput = useMemo(() => {
         const saved = addresses.find((a) => a.key === addressChoice);
@@ -162,8 +172,11 @@ function CheckoutForm(props: CheckoutProps) {
     const payingByCard = paymentMethod === 'card';
     const cardReady = !payingByCard || (stripe !== null && elements !== null && cardComplete);
 
+    // 05.15 §6.1 step 4: a public buyer accepts the terms of sale first.
+    const termsReady = isTrade || (terms !== null && termsAccepted);
+
     // Carriage must be known before anything is charged (05.6 §8).
-    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && carriageKnown && cardReady && stage === 'idle';
+    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && carriageKnown && cardReady && termsReady && stage === 'idle';
 
     const showFailure = (error: ApiError, shown: CheckoutPreview) => {
         if (error.code === 'price_changed') {
@@ -177,6 +190,11 @@ function CheckoutForm(props: CheckoutProps) {
             setFieldErrors(Object.fromEntries(error.details.filter((d) => d.field).map((d) => [String(d.field), d.message])));
         } else if (error.code === 'card_declined') {
             setCardError(error.message);
+        } else if (error.code === 'terms_changed') {
+            // The terms changed while the page was open: show the new ones.
+            setTermsAccepted(false);
+            router.reload({ only: ['terms_of_sale', 'pre_contract'] });
+            setFailure(error);
         } else {
             setFailure(error);
         }
@@ -260,6 +278,7 @@ function CheckoutForm(props: CheckoutProps) {
             customer_reference: isTrade ? reference : '',
             delivery_address: address,
             ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
+            ...(!isTrade && terms !== null ? { terms_version_id: terms.id } : {}),
         };
         const body = JSON.stringify(input);
         if (idempotency.current?.body !== body) {
@@ -360,6 +379,13 @@ function CheckoutForm(props: CheckoutProps) {
                                 />
                             )}
                         </Section>
+
+                        {!isTrade && props.pre_contract && (
+                            <Section title="Before you order">
+                                <PreContract sections={props.pre_contract.sections} />
+                                {terms !== null && <TermsOfSale terms={terms} accepted={termsAccepted} onChange={setTermsAccepted} disabled={stage !== 'idle'} error={fieldErrors.terms_version_id} />}
+                            </Section>
+                        )}
                     </div>
 
                     <aside className="space-y-4 rounded-md border p-4 lg:sticky lg:top-4" aria-label="Order summary">
@@ -393,12 +419,13 @@ function CheckoutForm(props: CheckoutProps) {
                                 <>
                                     <Loader2 className="animate-spin" /> Placing order…
                                 </>
-                            ) : priceChange ? (
-                                'Place order at the new total'
+                            ) : isTrade ? (
+                                priceChange ? 'Place order at the new total' : 'Place order'
                             ) : (
-                                'Place order'
+                                payButtonLabel(paymentMethod, preview.data?.total_gross_minor)
                             )}
                         </Button>
+                        {!isTrade && terms !== null && !termsAccepted && <p className="text-center text-xs text-muted-foreground">Accept the terms of sale to place your order.</p>}
                         {!addressComplete && <p className="text-center text-xs text-muted-foreground">Complete the delivery address to place your order.</p>}
                         {addressComplete && delivery === null && !preview.isFetching && (
                             <p className="text-center text-xs text-muted-foreground">Enter your full delivery postcode to see the delivery cost.</p>
@@ -416,6 +443,58 @@ function CheckoutForm(props: CheckoutProps) {
                 </form>
             </div>
         </>
+    );
+}
+
+/**
+ * CCR 2013 reg. 14(3): the button that places a consumer's order says it
+ * carries an obligation to pay (05.15 §6.1 step 4).
+ */
+function payButtonLabel(method: PaymentMethod, totalMinor: number | undefined): string {
+    if (method === 'card' && totalMinor !== undefined) {
+        return `Pay ${formatMinor(totalMinor)} — order with obligation to pay`;
+    }
+
+    return 'Order with obligation to pay';
+}
+
+/** 05.15 §7.1: the pre-contract information, as the server generated it. */
+function PreContract({ sections }: { sections: { heading: string; paragraphs: string[] }[] }) {
+    return (
+        <div className="max-h-80 space-y-3 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs leading-relaxed" tabIndex={0} aria-label="Information about your order and your rights">
+            {sections.map((section) => (
+                <div key={section.heading}>
+                    <h3 className="font-semibold text-foreground">{section.heading}</h3>
+                    {section.paragraphs.map((p, i) => (
+                        <p key={i} className="mt-1 text-muted-foreground">
+                            {p}
+                        </p>
+                    ))}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/**
+ * 05.15 §6.1 step 4: the terms of sale in force, readable in full, and an
+ * explicit tick. The HTML is the server's Markdown rendering with raw HTML
+ * escaped (CheckoutPageController), as on the registration form.
+ */
+function TermsOfSale({ terms, accepted, onChange, disabled, error }: { terms: { id: number; version: string; html: string }; accepted: boolean; onChange: (v: boolean) => void; disabled: boolean; error?: string }) {
+    return (
+        <div className="space-y-2">
+            <details className="rounded-md border p-3 text-sm">
+                <summary className="cursor-pointer font-medium">Read our terms of sale (version {terms.version})</summary>
+                <div
+                    tabIndex={0}
+                    aria-label="Terms of sale"
+                    className="mt-2 max-h-64 space-y-2 overflow-y-auto [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+                    dangerouslySetInnerHTML={{ __html: terms.html }}
+                />
+            </details>
+            <Checkbox label={`I have read and accept the terms of sale (version ${terms.version}).`} checked={accepted} onChange={(v) => !disabled && onChange(v)} error={error} />
+        </div>
     );
 }
 

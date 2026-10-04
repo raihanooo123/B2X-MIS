@@ -2,6 +2,8 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Accounts\TermsAcceptanceSource;
+use App\Domain\Accounts\TermsKind;
 use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\InvoiceService;
 use App\Domain\Delivery\ConsignmentWeigher;
@@ -18,6 +20,7 @@ use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\Events\OrderPlaced;
 use App\Domain\Ordering\Exceptions\BatchTrackedCheckoutNotSupportedException;
 use App\Domain\Ordering\Exceptions\PriceChangedException;
+use App\Domain\Ordering\Exceptions\TermsOfSaleChangedException;
 use App\Domain\Pricing\OrderLineRequest;
 use App\Domain\Pricing\OrderPricingPipeline;
 use App\Domain\Pricing\OrderPricingResult;
@@ -29,6 +32,8 @@ use App\Models\Location;
 use App\Models\Order;
 use App\Models\OrderAddress;
 use App\Models\OrderLine;
+use App\Models\TermsAcceptance;
+use App\Models\TermsVersion;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -60,7 +65,9 @@ use RuntimeException;
  *      compare against expectedTotalGrossMinor. A mismatch throws
  *      PriceChangedException and opens no transaction at all — the same
  *      reasoning 05.2 §8.2 gives for checking credit before locking
- *      stock: a doomed request should take no lock of any kind.
+ *      stock: a doomed request should take no lock of any kind. Accepted
+ *      terms of sale that are no longer in force throw
+ *      TermsOfSaleChangedException at the same point, for the same reason.
  *   1. INSERT orders (placeholder order_number — see below) and
  *      order_lines, with full price/cost/pack snapshots (CLAUDE.md
  *      invariants 2 and 4). Inserting new rows this transaction owns
@@ -75,6 +82,8 @@ use RuntimeException;
  *      nested one (see AllocationService's docblock for why that split
  *      exists) — a deadlock retries the whole checkout, order insert
  *      included, never just the allocation.
+ *   2a. The terms of sale acceptance, when given (02 §25.1, §26.2):
+ *      one `terms_acceptances` row for the order, in this transaction.
  *   3. NumberSequenceService::next('order_number') — taken LAST, per 02
  *      §11.3, then written over the placeholder. A rolled-back checkout
  *      (any exception above) consumes no number.
@@ -104,6 +113,7 @@ final class CheckoutService
 
     /**
      * @throws PriceChangedException
+     * @throws TermsOfSaleChangedException
      * @throws CarriageQuoteRequiredException
      * @throws BatchTrackedCheckoutNotSupportedException
      * @throws InsufficientCreditException
@@ -171,6 +181,13 @@ final class CheckoutService
             throw new PriceChangedException($request->expectedTotalGrossMinor, $pricing->totalGrossMinor);
         }
 
+        if ($request->saleTerms !== null) {
+            $current = TermsVersion::current(TermsKind::Sale)?->id;
+            if ($current !== $request->saleTerms->termsVersionId) {
+                throw new TermsOfSaleChangedException($request->saleTerms->termsVersionId, $current);
+            }
+        }
+
         // A card authorisation must cover exactly what is being charged.
         $card = $request->cardAuthorisation;
         if ($card !== null && ($card->amountMinor !== $pricing->totalGrossMinor || ! $card->isAuthorised())) {
@@ -210,6 +227,19 @@ final class CheckoutService
                     CardPayments::recordAuthorisation($order->id, $request->companyId, $request->cardAuthorisation);
                 }
 
+                // 05.15 §6.1 step 4: the terms the contract was made on,
+                // exactly as accepted (02 §25.1). NULL user for a guest (§26.2).
+                if ($request->saleTerms !== null) {
+                    TermsAcceptance::query()->create([
+                        'terms_version_id' => $request->saleTerms->termsVersionId,
+                        'user_id' => $request->userId,
+                        'order_id' => $order->id,
+                        'source' => TermsAcceptanceSource::Checkout->value,
+                        'ip' => $request->saleTerms->ip,
+                        'user_agent' => $request->saleTerms->userAgent,
+                    ]);
+                }
+
                 // Step 3 — taken last, per 02 §11.3.
                 $orderNumber = $this->numberSequenceService->next('order_number');
                 $now = now();
@@ -239,6 +269,30 @@ final class CheckoutService
         return $request->companyId !== null ? $this->tradeCheckout : $this->consumerCheckout;
     }
 
+    /**
+     * 02 §26.3: the least expensive standard delivery quoted for the
+     * consignment, snapshotted for a public order's cancellation refund
+     * (05.15 §7.2); NULL for trade, which has no statutory refund.
+     *
+     * The quoter rates exactly one method, the standard one the weigher
+     * chose (`parcel` or `pallet`, 05.6 §5.1), and checkout offers no
+     * upgrade yet, so the standard charge is the carriage charged: 0 when
+     * carriage-paid (§20.2). An upgrade method must rate the standard one
+     * separately — refused here rather than snapshotting the wrong figure.
+     */
+    private function standardShippingNetMinor(CheckoutRequest $request, OrderPricingResult $pricing, ?DeliveryQuote $delivery): ?int
+    {
+        if ($request->companyId !== null) {
+            return null;
+        }
+
+        if ($delivery !== null && ! in_array($delivery->method, ['parcel', 'pallet'], true)) {
+            throw new RuntimeException("Delivery method '{$delivery->method}' is not a standard method; rate the standard method to snapshot standard_shipping_net_minor (02 §26.3).");
+        }
+
+        return $pricing->shippingNetMinor;
+    }
+
     private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery): Order
     {
         return Order::create([
@@ -259,6 +313,7 @@ final class CheckoutService
             'currency' => 'GBP',
             'subtotal_net_minor' => $pricing->subtotalNetMinor,
             'shipping_net_minor' => $pricing->shippingNetMinor,
+            'standard_shipping_net_minor' => $this->standardShippingNetMinor($request, $pricing, $delivery),
             // 02 §20.2: the carriage snapshot, never re-resolved (05.6 §8).
             'shipping_tax_minor' => $pricing->shippingTaxMinor,
             'shipping_tax_rate_bp' => $pricing->shippingTaxRateBp,

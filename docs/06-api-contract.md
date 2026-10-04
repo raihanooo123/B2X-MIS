@@ -471,6 +471,12 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - Idempotency (§6) is held in the cache for 24 hours, scoped to the caller; a repeat while the first is running is 409 `idempotency_in_progress`. §16's guarantee after expiry "via the underlying unique constraint" needs an `orders` column 02 does not have yet.
 - 201 body: `{ "data": { "id", "order_number", "total_gross_minor", "confirmation_url" } }`.
 
+**As built (2026-10-04, 05.15 slice S4), additive per §2 — public buyers (no company):**
+
+- **GB only** (05.15 §6.1 rule G). Preview, `checkout/card-intent` and checkout answer 422 `country_not_served` for any delivery country other than `GB` (`JE`, `GG` and `IM` included). Trade buyers are unaffected.
+- **Terms of sale** (05.15 §6.1 step 4, 02 §26.2). Checkout takes `terms_version_id`, the terms of sale version the buyer accepted; a public buyer without it gets 422 `terms_not_accepted`. A version that is no longer in force is 409 `terms_changed` (`details[0].meta.accepted_terms_version_id`, `current_terms_version_id`), committing nothing. The acceptance is a `terms_acceptances` row in the order's transaction. Ignored for trade buyers.
+- Preview adds the blocker `terms_of_sale_unavailable` for a public buyer while no terms of sale version is published (02 §25.10).
+
 ### 9.4 Stock availability
 
 ```

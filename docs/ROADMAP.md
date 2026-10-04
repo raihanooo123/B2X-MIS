@@ -1381,7 +1381,7 @@ B2C first, then back to trade (decided 2026-09-28). Decisions: guest checkout ye
 prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 
 - [x] 05.15 signed off 2026-09-28.
-- [ ] Amend 02 with 05.15 §9 A1–A3 (and the §19/§21.2 guest-customer note), and 05.6 with A4, each in its own signed-off commit, before S4/S5.
+- [x] Amend 02 with 05.15 §9 A1–A3 (and the §19/§21.2 guest-customer note), and 05.6 with A4, each in its own signed-off commit, before S4/S5. 02 §26 and 05.6 §7.1, signed off 2026-10-04.
 - [x] S1 demo seeder (branding, images, featured, stock variety, trade and public sign-ins) and
       S2 shell, branding settings, price display switch, home page, error pages. 2026-09-28,
       pending verification.
@@ -1394,7 +1394,12 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 - [x] Marketplace stock disclosure ("Only N left" at 10 or fewer; shortage messages without a
       figure above 10) and shopping aids: quick add, search suggestions, recently viewed, sticky
       mobile add-to-basket (05.15 §5.3, §5.3a). 2026-09-28, pending verification.
-- [ ] S4 cart gross + terms of sale + pre-contract info · S5 guest checkout and order access
+- [x] S4: migrations A2/A3 (`2026_10_15_090100`, `090200`); terms of sale accepted at checkout and recorded per order;
+      `standard_shipping_net_minor` snapshotted on public orders; GB-only rule (422 `country_not_served`);
+      pre-contract information and return-cost statement on checkout and in full in the confirmation email,
+      with the model cancellation form; "order with obligation to pay" button; cart copy for the public;
+      placeholder `sale` terms locally. 2026-10-04, pending verification.
+- [ ] S5 guest checkout and order access
 - [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 
 ---

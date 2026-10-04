@@ -529,7 +529,12 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers, is
             <div className="mt-1 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600 border border-slate-200/80">
                 <p className="flex items-start gap-1.5">
                     <Check className="size-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                    <span>Prices calculated using estimated delivery to <strong>{country}</strong>. Taxes and shipping options confirmed at checkout.</span>
+                    {/* 05.15 §4.3: public delivery is GB only, so the public VAT is exact, not an estimate. */}
+                    {isTrade ? (
+                        <span>Prices calculated using estimated delivery to <strong>{country}</strong>. Taxes and shipping options confirmed at checkout.</span>
+                    ) : (
+                        <span>We deliver to Great Britain. Delivery is confirmed at checkout once you enter your postcode.</span>
+                    )}
                 </p>
             </div>
 

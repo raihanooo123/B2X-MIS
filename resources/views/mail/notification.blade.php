@@ -40,6 +40,16 @@
                         </td>
                     </tr>
                 @endif
+                @foreach ($mail->sections as $section)
+                    <tr>
+                        <td style="padding:0 32px 16px;font-size:14px;">
+                            <h2 style="margin:0 0 8px;font-size:16px;line-height:1.3;color:#18181b;">{{ $section['heading'] }}</h2>
+                            @foreach ($section['paragraphs'] as $paragraph)
+                                <p style="margin:0 0 8px;">{{ $paragraph }}</p>
+                            @endforeach
+                        </td>
+                    </tr>
+                @endforeach
                 @if ($mail->closing !== [])
                     <tr>
                         <td style="padding:0 32px 32px;color:#52525b;font-size:14px;">

@@ -2,14 +2,25 @@
 
 namespace App\Domain\Notifications\Notices;
 
+use App\Domain\Accounts\TermsAcceptanceSource;
 use App\Domain\Notifications\MailContent;
 use App\Domain\Notifications\Notice;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\Recipient;
 use App\Domain\Ordering\PaymentMethod;
+use App\Domain\Storefront\Branding;
+use App\Domain\Storefront\PreContractInformation;
 use App\Models\Order;
+use App\Models\TermsAcceptance;
 
-/** 05.12 §5.1 `order.confirmed` — 04 §4.4, 05.3 §8. */
+/**
+ * 05.12 §5.1 `order.confirmed` — 04 §4.4, 05.3 §8.
+ *
+ * A public order's confirmation is also the confirmation on a durable
+ * medium (CCR reg. 16, 05.15 §7.1): it carries the pre-contract
+ * information in full, the terms of sale version accepted, and the model
+ * cancellation form. A trade order's does not.
+ */
 final class OrderConfirmed extends Notice
 {
     use FormatsForMail;
@@ -54,6 +65,28 @@ final class OrderConfirmed extends Notice
             facts: $facts,
             actionLabel: 'View your order',
             actionUrl: route('orders.confirmation', ['order' => $order->public_id]),
+            sections: $order->company_id === null ? $this->consumerSections($order) : [],
         );
+    }
+
+    /**
+     * 05.15 §7.1: the terms are the version this order accepted, not
+     * whatever is current when the email is rendered.
+     *
+     * @return list<array{heading: string, paragraphs: list<string>}>
+     */
+    private function consumerSections(Order $order): array
+    {
+        $brand = Branding::current();
+        $terms = TermsAcceptance::query()
+            ->with('termsVersion')
+            ->where('order_id', $order->id)
+            ->where('source', TermsAcceptanceSource::Checkout->value)
+            ->first()?->termsVersion;
+
+        return [
+            ...PreContractInformation::build($brand, $terms, self::money($order->total_gross_minor))->sections,
+            PreContractInformation::modelCancellationForm($brand),
+        ];
     }
 }

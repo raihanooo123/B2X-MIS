@@ -2,6 +2,7 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Accounts\TermsKind;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
@@ -24,6 +25,7 @@ use App\Models\Location;
 use App\Models\OrderSpendBreak;
 use App\Models\Sku;
 use App\Models\StockLevel;
+use App\Models\TermsVersion;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use RuntimeException;
@@ -63,7 +65,8 @@ use RuntimeException;
  * the user (05.13): a guest must sign in (§4.1), an applicant waits for
  * approval (`application_pending`, §7), a public customer must confirm
  * their email (`email_unverified`, §11), and a company `viewer` cannot
- * order (05.2 §10).
+ * order (05.2 §10). A public customer also needs terms of sale to accept
+ * (05.15 §6.1 step 4): with none published, `terms_of_sale_unavailable`.
  */
 final class CheckoutPreviewService
 {
@@ -255,9 +258,15 @@ final class CheckoutPreviewService
             return [new CheckoutBlocker(null, 'application_pending', 'Your trade account application is being reviewed. You can check out once it is approved.')];
         }
 
-        return $user->hasVerifiedEmail()
-            ? []
-            : [new CheckoutBlocker(null, 'email_unverified', 'Confirm your email address to check out — we have sent you a link.')];
+        if (! $user->hasVerifiedEmail()) {
+            return [new CheckoutBlocker(null, 'email_unverified', 'Confirm your email address to check out — we have sent you a link.')];
+        }
+
+        // 05.15 §6.1 step 4: nothing to accept means no contract terms to
+        // sell on (02 §25.10: publish the first `sale` version first).
+        return TermsVersion::current(TermsKind::Sale) === null
+            ? [new CheckoutBlocker(null, 'terms_of_sale_unavailable', 'Online ordering is not available yet. Please contact us to order.')]
+            : [];
     }
 
     /**

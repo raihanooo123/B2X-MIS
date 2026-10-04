@@ -10,8 +10,9 @@ use Illuminate\Database\Seeder;
 use RuntimeException;
 
 /**
- * 02 §25.10: clearly marked placeholder terms of trade, so trade
- * registration works on a fresh local database. Local only — it throws
+ * 02 §25.10: clearly marked placeholder terms of trade and terms of sale,
+ * so trade registration and public checkout (05.15 §6.1 step 4) work on a
+ * fresh local database. Local only — it throws
  * anywhere else, and TermsPublisher refuses placeholder labels outside
  * `local` as a second guard. Production terms must be reviewed by a
  * solicitor and published through Settings → Terms.
@@ -24,6 +25,16 @@ class PlaceholderTermsSeeder extends Seeder
     public const VERSION = 'placeholder-1';
 
     public const ADMIN_EMAIL = 'admin@example.com';
+
+    private const SALE_BODY = <<<'MD'
+        # PLACEHOLDER — NOT TERMS OF SALE
+
+        **Do not use in production.** This text exists only so public checkout can be
+        exercised on a development machine. It has no legal effect.
+
+        Real terms of sale must be written or reviewed by a solicitor and published by an
+        administrator under Settings → Terms.
+        MD;
 
     private const BODY = <<<'MD'
         # PLACEHOLDER — NOT TERMS OF TRADE
@@ -41,15 +52,17 @@ class PlaceholderTermsSeeder extends Seeder
             throw new RuntimeException('PlaceholderTermsSeeder may only run in the local environment.');
         }
 
-        if (TermsVersion::query()->where('kind', TermsKind::Trade->value)->where('version', self::VERSION)->exists()) {
-            return;
-        }
+        foreach ([[TermsKind::Trade, self::BODY], [TermsKind::Sale, self::SALE_BODY]] as [$kind, $body]) {
+            if (TermsVersion::query()->where('kind', $kind->value)->where('version', self::VERSION)->exists()) {
+                continue;
+            }
 
-        $admin = User::query()->where('email', self::ADMIN_EMAIL)->first();
-        if ($admin === null) {
-            throw new RuntimeException('Run DemoDataSeeder first: placeholder terms are published by '.self::ADMIN_EMAIL.'.');
-        }
+            $admin = User::query()->where('email', self::ADMIN_EMAIL)->first();
+            if ($admin === null) {
+                throw new RuntimeException('Run DemoDataSeeder first: placeholder terms are published by '.self::ADMIN_EMAIL.'.');
+            }
 
-        app(TermsPublisher::class)->publishPlaceholder($admin, TermsKind::Trade, self::VERSION, self::BODY);
+            app(TermsPublisher::class)->publishPlaceholder($admin, $kind, self::VERSION, $body);
+        }
     }
 }

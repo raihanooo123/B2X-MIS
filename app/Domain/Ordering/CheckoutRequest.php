@@ -2,6 +2,7 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Accounts\AcceptedTerms;
 use App\Domain\Billing\CardIntent;
 
 /**
@@ -23,6 +24,12 @@ use App\Domain\Billing\CardIntent;
  *
  * `deliveryAddress`, when given, is snapshotted onto `order_addresses`
  * (02 §8.4) in the order's own transaction.
+ *
+ * `saleTerms`, when given, is the terms of sale version a public buyer
+ * accepted (05.15 §6.1 step 4). It must be the version in force, and is
+ * recorded as a `terms_acceptances` row in the order's transaction
+ * (02 §25.1, §26.2). Requiring it for web checkout is the caller's job:
+ * a phone or rep order has no browser acceptance to record.
  */
 final readonly class CheckoutRequest
 {
@@ -45,5 +52,6 @@ final readonly class CheckoutRequest
          * caller after commit.
          */
         public ?CardIntent $cardAuthorisation = null,
+        public ?AcceptedTerms $saleTerms = null,
     ) {}
 }

@@ -24,6 +24,7 @@ use App\Models\StockAllocation;
 use App\Models\StockLevel;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
+use App\Models\TermsVersion;
 use App\Models\User;
 use Database\Seeders\DeliveryZoneSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -340,12 +341,16 @@ it("refuses another buyer's authorisation", function () {
 });
 
 it('records a public customer\'s card payment against the order, with no company (02 §19)', function () {
+    // 05.15 §6.1 step 4: a public buyer accepts the terms of sale in force.
+    $terms = TermsVersion::factory()->sale()->create();
     $user = User::factory()->create();
     $total = cardFillCart($user);
     $intent = cardIntentFor($user, $total);
     $this->gateway->authorise($intent, 'mastercard', '4444');
 
-    cardPlace($user, $total, $intent)->assertCreated();
+    $this->actingAs($user)->withHeader('Idempotency-Key', (string) Str::ulid())
+        ->postJson('/api/v1/checkout', cardOrderBody($total, $intent) + ['terms_version_id' => $terms->id])
+        ->assertCreated();
 
     $payment = Payment::query()->sole();
     expect($payment->company_id)->toBeNull()

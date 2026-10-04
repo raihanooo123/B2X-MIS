@@ -13,6 +13,7 @@ final readonly class MailContent
      * @param  list<string>  $paragraphs
      * @param  list<array{label: string, value: string}>  $facts
      * @param  list<string>  $closing
+     * @param  list<array{heading: string, paragraphs: list<string>}>  $sections  headed blocks after the action, before the closing (05.15 §7.1)
      */
     public function __construct(
         public string $subject,
@@ -22,5 +23,6 @@ final readonly class MailContent
         public ?string $actionLabel = null,
         public ?string $actionUrl = null,
         public array $closing = [],
+        public array $sections = [],
     ) {}
 }
