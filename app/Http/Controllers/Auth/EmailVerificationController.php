@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Domain\Identity\EmailVerificationLink;
 use App\Domain\Notifications\Notices\EmailVerification;
 use App\Domain\Notifications\Notifications;
+use App\Domain\Ordering\GuestOrderClaims;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -54,6 +55,8 @@ class EmailVerificationController extends Controller
 
         if (! $target->hasVerifiedEmail()) {
             $target->forceFill(['email_verified_at' => now()])->save();
+            // 05.15 §6.3: guest orders placed with this address are now theirs.
+            (new GuestOrderClaims)->claimFor($target);
         }
 
         return $request->user()?->is($target)

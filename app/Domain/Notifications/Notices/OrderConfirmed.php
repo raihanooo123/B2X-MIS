@@ -7,6 +7,7 @@ use App\Domain\Notifications\MailContent;
 use App\Domain\Notifications\Notice;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\Recipient;
+use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\PreContractInformation;
@@ -64,7 +65,7 @@ final class OrderConfirmed extends Notice
             paragraphs: ["We have received order {$order->order_number} and reserved the stock for it. We will email you again when it is dispatched."],
             facts: $facts,
             actionLabel: 'View your order',
-            actionUrl: route('orders.confirmation', ['order' => $order->public_id]),
+            actionUrl: GuestOrderLink::customerUrl($order),
             sections: $order->company_id === null ? $this->consumerSections($order) : [],
         );
     }

@@ -14,6 +14,9 @@ use InvalidArgumentException;
  *
  * Public delivery is GB only (05.15 §6.1 rule G): the HTTP layer answers
  * 422 `country_not_served` first; this is the domain's backstop.
+ *
+ * A guest (no user either, 05.15 §6.1) is identified by `guestEmail` and
+ * pays by card only (step 3): no BACS, no account, no credit.
  */
 final class ConsumerCheckout implements CheckoutStrategy
 {
@@ -31,6 +34,14 @@ final class ConsumerCheckout implements CheckoutStrategy
     {
         if (! self::servesCountry($request->deliveryCountryCode)) {
             throw new InvalidArgumentException("Public/guest orders are delivered to GB only, got '{$request->deliveryCountryCode}' (05.15 §6.1 rule G).");
+        }
+
+        if (($request->userId === null) !== ($request->guestEmail !== null)) {
+            throw new InvalidArgumentException('A public order names its customer by user or, for a guest, by guest email — exactly one of them (02 §26.1).');
+        }
+
+        if ($request->guestEmail !== null && $request->paymentMethod !== 'card') {
+            throw new InvalidArgumentException("Guest checkout is card only, got payment_method '{$request->paymentMethod}' (05.15 §6.1 step 3).");
         }
 
         if (! in_array($request->paymentMethod, self::ALLOWED_PAYMENT_METHODS, true)) {

@@ -30,6 +30,9 @@ export default function Login({ status }: { status: string | null }) {
                 <>
                     New here? <Link href="/register?type=trade" className="font-medium text-foreground underline underline-offset-4">Apply for a trade account</Link> or{' '}
                     <Link href="/register?type=public" className="font-medium text-foreground underline underline-offset-4">create a customer account</Link>.
+                    <span className="mt-2 block">
+                        Ordered as a guest? <Link href="/orders/lookup" className="font-medium text-foreground underline underline-offset-4">Find my order</Link>.
+                    </span>
                 </>
             }
         >

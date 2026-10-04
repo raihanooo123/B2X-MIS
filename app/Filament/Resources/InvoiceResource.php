@@ -178,7 +178,8 @@ class InvoiceResource extends Resource
 
         $user = $record->order?->user;
         if ($user === null) {
-            return null;
+            // 02 §26.1: a guest's receipt names the guest by email.
+            return $record->order?->guest_email;
         }
 
         $name = trim($user->first_name.' '.$user->last_name);

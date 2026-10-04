@@ -178,10 +178,11 @@ it('reports applicants, viewers and guests as preview blockers', function () {
         ->assertJsonPath('blockers.0.code', 'not_permitted_to_order');
 });
 
-it('requires sign-in to place an order', function () {
+it('lets a guest check out, but only with a cart of their own (05.15 §6.1)', function () {
     $this->withHeader('Idempotency-Key', '01J8XQK9V3FFFFFFFFFFFFFFFF')
-        ->postJson('/api/v1/checkout', checkoutBody(100))
-        ->assertUnauthorized();
+        ->postJson('/api/v1/checkout', checkoutBody(100, 'card', ['payment_intent_id' => 'pi_nocart12345', 'guest_email' => 'guest@example.com', 'delivery_address' => ['phone' => '07700 900123']]))
+        ->assertUnprocessable()
+        ->assertJsonPath('error.code', 'cart_empty');
 });
 
 it('offers on-account only to a company on credit terms', function () {

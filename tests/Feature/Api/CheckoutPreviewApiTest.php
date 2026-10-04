@@ -215,12 +215,12 @@ it('needs a delivery country rather than assuming one', function () {
         ->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB'])
         ->assertOk()
         ->assertJsonPath('credit', null)
-        // Priced, and nothing wrong with the cart — but a guest must sign
-        // in before checking out (05.13 §4.1).
+        // Priced, and nothing wrong with the cart. A guest may check out
+        // (05.15 §6.1) once terms of sale are published, and none are here.
         ->assertJsonPath('blockers', [[
             'field' => null,
-            'code' => 'sign_in_required',
-            'message' => 'Sign in or create an account to check out.',
+            'code' => 'terms_of_sale_unavailable',
+            'message' => 'Online ordering is not available yet. Please contact us to order.',
             'meta' => [],
         ]]);
 });

@@ -85,6 +85,12 @@ enum AuditAction: string
     /** 05.15 §3.1: storefront branding, the changed `brand.*` keys only. */
     case StorefrontSettingsChanged = 'configuration.storefront_settings_changed';
 
+    /*
+     * 05.15 §6.3: a guest's order attached to the account that verified
+     * its email. Changes who may see the order, so `permission`.
+     */
+    case OrderClaimed = 'order.claimed';
+
     public function family(): string
     {
         return match ($this) {
@@ -99,7 +105,8 @@ enum AuditAction: string
             self::CompanyMemberChanged, self::CompanyMemberRemoved,
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
-            self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested => 'permission',
+            self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
+            self::OrderClaimed => 'permission',
             self::CreditLimitChanged => 'credit_limit',
             self::TermsVersionPublished, self::StorefrontSettingsChanged => 'configuration',
         };
@@ -121,6 +128,7 @@ enum AuditAction: string
             self::ApplicationVerificationRequested => [],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished => [],
+            self::OrderClaimed => ['user_id'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
@@ -150,6 +158,7 @@ enum AuditAction: string
                 'verification_warnings', 'verification_acknowledged'],
             self::ApplicationVerificationRequested => ['checks'],
             self::CreditLimitChanged => ['credit_limit_minor'],
+            self::OrderClaimed => ['user_id'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],

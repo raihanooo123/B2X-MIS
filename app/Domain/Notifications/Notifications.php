@@ -48,7 +48,7 @@ final class Notifications
 
     public function orderConfirmed(int $orderId): void
     {
-        $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id']);
+        $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id', 'guest_email']);
         if ($order !== null) {
             $this->dispatcher->send(new OrderConfirmed($orderId), $this->recipients->orderCustomer($order));
         }
@@ -58,7 +58,7 @@ final class Notifications
     public function shipmentDispatched(int $shipmentId): void
     {
         $shipment = Shipment::query()->find($shipmentId, ['id', 'order_id']);
-        $order = $shipment === null ? null : Order::query()->find($shipment->order_id, ['id', 'user_id', 'company_id']);
+        $order = $shipment === null ? null : Order::query()->find($shipment->order_id, ['id', 'user_id', 'company_id', 'guest_email']);
         if ($shipment !== null && $order !== null) {
             $this->dispatcher->send(new ShipmentDispatched($shipmentId), $this->recipients->orderCustomer($order));
         }

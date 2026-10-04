@@ -14,13 +14,17 @@ use App\Models\Address;
 use App\Models\Company;
 use App\Models\TermsVersion;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * The checkout page (06 §9.2–9.3). Signed-in only (05.13 §4.1). The order
+ * The checkout page (06 §9.2–9.3), for signed-in buyers and for guests,
+ * who check out without an account (05.15 §6.1): email and phone, card
+ * only, and a neutral offer to sign in that never says whether the email
+ * has an account (05.13's no-enumeration rule). The order
  * summary and blockers come from `/checkout/preview`, re-run whenever the
  * delivery country changes; the order is placed through `/checkout`.
  *
@@ -37,19 +41,18 @@ class CheckoutPageController extends Controller
 {
     public function show(Request $request): Response
     {
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
-
-        $company = ActingCompany::current($request->session(), $user);
+        $user = $request->user() instanceof User ? $request->user() : null;
+        $company = $user === null ? null : ActingCompany::current($request->session(), $user);
         $terms = $company === null ? TermsVersion::current(TermsKind::Sale) : null;
 
         return Inertia::render('Checkout/Index', [
             'display_mode' => PriceDisplay::checkoutMode($request),
             'is_trade' => $company !== null,
+            'is_guest' => $user === null,
             'company_name' => $company?->name,
             'contact' => [
-                'name' => trim("{$user->first_name} {$user->last_name}"),
-                'phone' => $user->getAttribute('phone'),
+                'name' => $user === null ? '' : trim("{$user->first_name} {$user->last_name}"),
+                'phone' => $user?->getAttribute('phone'),
             ],
             'addresses' => $company === null ? [] : $this->savedAddresses($company),
             'countries' => $company === null
@@ -63,7 +66,7 @@ class CheckoutPageController extends Controller
             'pre_contract' => $company === null ? PreContractInformation::build(Branding::current(), $terms)->toArray() : null,
             'payment_methods' => array_map(
                 fn (PaymentMethod $m) => ['value' => $m->value, 'label' => $m->label()],
-                $this->paymentMethods($company),
+                $this->paymentMethods($company, guest: $user === null),
             ),
             // 07 §6.4: the publishable key only — Stripe Elements in the
             // browser takes the card; the secret never leaves the server.
@@ -72,17 +75,35 @@ class CheckoutPageController extends Controller
     }
 
     /**
+     * "Sign in for faster checkout" (05.15 §6.1 step 1): back to checkout
+     * after signing in, where the guest cart has merged into the account's.
+     */
+    public function signIn(Request $request): RedirectResponse
+    {
+        if ($request->user() instanceof User) {
+            return redirect()->route('checkout');
+        }
+
+        $request->session()->put('url.intended', route('checkout'));
+
+        return redirect()->route('login');
+    }
+
+    /**
      * 05.2 §8.1: on-account first for a company on credit terms; card and
-     * BACS for everyone (card only when Stripe is configured).
+     * BACS for everyone else signed in; card only for a guest (05.15 §6.1
+     * step 3). Card only when Stripe is configured.
      *
      * @return list<PaymentMethod>
      */
-    private function paymentMethods(?Company $company): array
+    private function paymentMethods(?Company $company, bool $guest = false): array
     {
         $onAccount = $company !== null && $company->payment_terms !== 'prepay';
-        $methods = $onAccount
-            ? [PaymentMethod::OnAccount, PaymentMethod::Card, PaymentMethod::Bacs]
-            : [PaymentMethod::Card, PaymentMethod::Bacs];
+        $methods = match (true) {
+            $onAccount => [PaymentMethod::OnAccount, PaymentMethod::Card, PaymentMethod::Bacs],
+            $guest => [PaymentMethod::Card],
+            default => [PaymentMethod::Card, PaymentMethod::Bacs],
+        };
 
         // No card option unless Stripe is configured: never offer a payment
         // method that cannot be taken.

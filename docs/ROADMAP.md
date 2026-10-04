@@ -1399,7 +1399,10 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
       pre-contract information and return-cost statement on checkout and in full in the confirmation email,
       with the model cancellation form; "order with obligation to pay" button; cart copy for the public;
       placeholder `sale` terms locally. 2026-10-04, pending verification.
-- [ ] S5 guest checkout and order access
+- [x] S5a guest checkout (delivery only), order page by signed link, find my order, claim on verification (A1,
+      `2026_10_16_090100`). 2026-10-04, pending verification.
+- [ ] S5b public collection — split from S5 on 2026-10-04: collection slots (05.6 §7) are not built for anyone yet,
+      so it ships with that work. Until then public checkout offers delivery only, as 05.15 §6.1 already says.
 - [ ] S6 consumer cancellation (with 05.4) · S7 legal pages, sitemap (with 05.11)
 
 ---

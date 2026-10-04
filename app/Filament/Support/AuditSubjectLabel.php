@@ -5,6 +5,7 @@ namespace App\Filament\Support;
 use App\Domain\Accounts\TermsKind;
 use App\Models\B2bApplication;
 use App\Models\Company;
+use App\Models\Order;
 use App\Models\TermsVersion;
 use App\Models\User;
 
@@ -44,6 +45,10 @@ final class AuditSubjectLabel
                 $name = B2bApplication::query()->whereKey($id)->value('company_name');
 
                 return is_string($name) ? "Application: {$name}" : null;
+            case 'order':
+                $number = Order::query()->whereKey($id)->value('order_number');
+
+                return is_string($number) ? "Order {$number}" : null;
             case 'terms_version':
                 $terms = TermsVersion::query()->find($id, ['kind', 'version']);
 

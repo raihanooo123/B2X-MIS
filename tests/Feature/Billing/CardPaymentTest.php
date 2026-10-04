@@ -24,10 +24,12 @@ use App\Models\StockAllocation;
 use App\Models\StockLevel;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
+use App\Models\TermsAcceptance;
 use App\Models\TermsVersion;
 use App\Models\User;
 use Database\Seeders\DeliveryZoneSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -464,4 +466,39 @@ it('authorises the card for goods, carriage and carriage VAT together', function
     $intent = cardIntentFor($user, $total);
 
     expect($this->gateway->intents[$intent]->amountMinor)->toBe($total);
+});
+
+it('places a guest card order with no account, names the guest, and links them to it (05.15 §6.1–6.2)', function () {
+    $terms = TermsVersion::factory()->sale()->create();
+    $guest = ['cart.session_token' => str_repeat('g', 64)];
+
+    $this->withSession($guest)->postJson('/api/v1/cart/lines', ['sku_id' => $this->sku->public_id, 'pack_qty' => 3])->assertSuccessful();
+    $total = (int) $this->withSession($guest)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
+        ->assertOk()->assertJsonPath('blockers', [])->json('total_gross_minor');
+    $intent = (string) $this->withSession($guest)
+        ->postJson('/api/v1/checkout/card-intent', ['expected_total_gross_minor' => $total, 'delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
+        ->assertOk()->json('data.id');
+    $this->gateway->authorise($intent);
+
+    $body = cardOrderBody($total, $intent) + ['terms_version_id' => $terms->id, 'guest_email' => ' Sam.Lee@Example.com '];
+    $body['delivery_address']['phone'] = '07700 900123';
+    $response = $this->withSession($guest)->withHeader('Idempotency-Key', (string) Str::ulid())
+        ->postJson('/api/v1/checkout', $body)
+        ->assertCreated();
+
+    $order = Order::query()->sole();
+    expect($order->user_id)->toBeNull()
+        ->and($order->company_id)->toBeNull()
+        ->and($order->guest_email)->toBe('sam.lee@example.com')
+        ->and($order->payment_status)->toBe('paid')
+        ->and($response->json('data.confirmation_url'))->toStartWith(url("/orders/{$order->public_id}/guest/"))
+        ->and(TermsAcceptance::query()->sole()->user_id)->toBeNull()
+        ->and(DB::table('notification_log')->where('notification_key', 'order.confirmed')->value('recipient'))->toBe('sam.lee@example.com');
+
+    // The link opens the order page, signed out.
+    $this->get($response->json('data.confirmation_url'))->assertOk()
+        ->assertInertia(fn ($page) => $page->component('Orders/Confirmation', false)
+            ->where('order.order_number', $order->order_number)
+            ->where('guest.email', 'sam.lee@example.com')
+            ->where('guest.can_save_details', true));
 });

@@ -15,13 +15,18 @@ use App\Models\User;
 final class RecipientResolver
 {
     /**
-     * The customer user on the order — never the rep who placed it for them (05.8 §8).
+     * The customer user on the order — never the rep who placed it for them
+     * (05.8 §8). For a guest order, its `guest_email` (02 §26.1, 05.15 §6).
      *
      * @return list<Recipient>
      */
     public function orderCustomer(Order $order): array
     {
-        $user = $order->user_id === null ? null : $this->activeUser($order->user_id);
+        if ($order->user_id === null) {
+            return $order->company_id === null && $order->guest_email !== null ? [new Recipient($order->guest_email)] : [];
+        }
+
+        $user = $this->activeUser($order->user_id);
 
         return $user === null ? [] : [Recipient::user($user, $order->company_id)];
     }
@@ -37,7 +42,7 @@ final class RecipientResolver
     public function invoiceRecipients(Invoice $invoice): array
     {
         if ($invoice->company_id === null) {
-            $order = Order::query()->find($invoice->order_id, ['id', 'user_id', 'company_id']);
+            $order = Order::query()->find($invoice->order_id, ['id', 'user_id', 'company_id', 'guest_email']);
 
             return $order === null ? [] : $this->orderCustomer($order);
         }
