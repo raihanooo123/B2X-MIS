@@ -150,9 +150,9 @@ function Gallery({ images, name }: { images: ProductData['images']; name: string
 
     return (
         <div>
-            <div className="aspect-square overflow-hidden rounded-2xl border bg-muted/40">
+            <div className="aspect-square overflow-hidden rounded-3xl border border-border/70 bg-muted/20 p-6">
                 {current ? (
-                    <img src={current.url} alt={current.alt ?? name} className="size-full object-cover" />
+                    <img src={current.url} alt={current.alt ?? name} className="size-full object-contain" />
                 ) : (
                     <div className="flex size-full items-center justify-center text-muted-foreground">
                         <ImageOff className="size-10" aria-hidden />
@@ -171,7 +171,7 @@ function Gallery({ images, name }: { images: ProductData['images']; name: string
                                 aria-label={`Show image ${i + 1}`}
                                 className={cn('size-16 overflow-hidden rounded-lg border-2', i === active ? 'border-primary' : 'border-transparent')}
                             >
-                                <img src={image.url} alt="" className="size-full object-cover" />
+                                <img src={image.url} alt="" className="size-full object-contain" />
                             </button>
                         </li>
                     ))}
@@ -253,11 +253,11 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
             <p className="mt-1 text-sm text-muted-foreground">SKU {variant.sku_code}</p>
             {product.short_description && <p className="mt-4 leading-relaxed text-muted-foreground">{product.short_description}</p>}
 
-            <div className="mt-6 rounded-2xl border p-5 sm:p-6">
+            <div className="mt-6 rounded-2xl border border-border/70 bg-background p-5 shadow-sm sm:p-6">
                 {variant.price ? (
                     <div className="flex flex-wrap items-end justify-between gap-3">
                         <div>
-                            <p className="text-3xl font-semibold tabular-nums">{shelfPrice(unitAt(variant.price, baseQty), variant.price.tax_rate_bp, mode)}</p>
+                            <p className="text-4xl font-semibold tracking-tight tabular-nums">{shelfPrice(unitAt(variant.price, baseQty), variant.price.tax_rate_bp, mode)}</p>
                             <p className="text-sm text-muted-foreground">each, {vatLabel(mode)}</p>
                             {product.rrp_minor !== null && <p className="mt-1 text-sm text-muted-foreground">RRP {formatMinor(product.rrp_minor)}</p>}
                         </div>

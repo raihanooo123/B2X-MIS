@@ -44,7 +44,7 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
     const content = (
         <>
             {!auth?.public_customer && <Head title={title} />}
-            <div className="min-h-screen bg-muted/30">
+            <div className="min-h-[70vh] bg-gradient-to-b from-primary/5 via-muted/30 to-background">
                 {!auth?.public_customer && <div className="border-b bg-background">
                     <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3">
                         <Link href="/order-pad" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground md:min-h-0">
@@ -54,9 +54,13 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
                     </div>
                 </div>}
 
-                <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 md:grid-cols-[13rem_1fr] md:py-8">
-                    <nav aria-label="Account sections" className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-                        <p className="mb-2 hidden px-3 text-xs font-medium uppercase tracking-wide text-muted-foreground md:block">Your account</p>
+                <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[15rem_1fr] md:gap-8 md:py-8">
+                    <nav aria-label="Account sections" className="overflow-x-auto rounded-2xl border bg-background p-3 shadow-sm md:sticky md:top-36 md:self-start md:p-4">
+                        <div className="mb-4 hidden border-b border-border/60 px-3 pb-5 pt-2 md:block">
+                            <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-sm">{auth?.user.first_name.slice(0, 1).toUpperCase()}</div>
+                            <p className="text-lg font-semibold tracking-tight">Hello, {auth?.user.first_name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">Your account</p>
+                        </div>
                         <ul className="flex gap-1 md:flex-col">
                             {items
                                 .filter((item) => item.show)
@@ -68,8 +72,8 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
                                                 href={item.href}
                                                 aria-current={active ? 'page' : undefined}
                                                 className={cn(
-                                                    'flex min-h-11 items-center gap-2.5 whitespace-nowrap rounded-md px-3 text-sm md:min-h-9',
-                                                    active ? 'bg-background font-medium text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                                                    'flex min-h-11 items-center gap-2.5 whitespace-nowrap rounded-xl px-3 text-sm',
+                                                    active ? 'bg-primary font-semibold text-primary-foreground shadow-sm' : 'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
                                                 )}
                                             >
                                                 <item.icon className="size-4" aria-hidden />
@@ -82,11 +86,11 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
                     </nav>
 
                     <section aria-label={title} className="min-w-0">
-                        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+                        <div className="mb-7 flex flex-wrap items-end justify-between gap-4 border-b border-border/60 pb-6">
                             <div className="min-w-0">
                                 {eyebrow && <p className="mb-1 text-sm text-muted-foreground">{eyebrow}</p>}
-                                <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-                                {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+                                <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{title}</h1>
+                                {description && <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>}
                             </div>
                             {actions}
                         </div>
@@ -109,9 +113,9 @@ export function AccountLayout({ title, eyebrow, description, actions, status, ch
 /** A white section card on the account pages. */
 export function AccountCard({ title, description, children, className }: { title?: string; description?: ReactNode; children: ReactNode; className?: string }) {
     return (
-        <section className={cn('rounded-xl border bg-background shadow-sm', className)}>
+        <section className={cn('overflow-hidden rounded-2xl border bg-background shadow-sm', className)}>
             {title && (
-                <header className="border-b px-5 py-4">
+                <header className="border-b bg-muted/20 px-6 py-5">
                     <h2 className="text-base font-semibold">{title}</h2>
                     {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
                 </header>

@@ -305,19 +305,19 @@ function CheckoutForm(props: CheckoutProps) {
     return (
         <>
             <Head title="Checkout" />
-            <div className="mx-auto max-w-[1100px] px-4 py-4">
-                <header className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div className="mx-auto max-w-7xl px-4 py-8">
+                <header className="mb-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b pb-5">
                     <div className="flex items-center gap-3">
                         <Link href="/cart" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:min-h-0">
                             <ArrowLeft className="size-4" aria-hidden /> Cart
                         </Link>
-                        <h1 className="text-lg font-semibold tracking-tight">Checkout</h1>
+                        <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
                     </div>
                     <AccountMenu />
                 </header>
 
                 <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-[1fr_380px] lg:items-start">
-                    <div className="space-y-8">
+                    <div className="space-y-5">
                         {isGuest && (
                             <Section title="Your details">
                                 <p className="text-sm text-muted-foreground">
@@ -415,8 +415,8 @@ function CheckoutForm(props: CheckoutProps) {
                         )}
                     </div>
 
-                    <aside className="space-y-4 rounded-md border p-4 lg:sticky lg:top-4" aria-label="Order summary">
-                        <h2 className="text-sm font-semibold">Order summary</h2>
+                    <aside className="space-y-5 rounded-2xl border bg-background p-6 shadow-sm lg:sticky lg:top-6" aria-label="Order summary">
+                        <h2 className="text-lg font-semibold">Order summary</h2>
 
                         {priceChange && preview.data && <PriceChangeNotice change={priceChange} now={preview.data} cartLines={cart.data?.lines ?? []} mode={mode} />}
 
@@ -437,7 +437,7 @@ function CheckoutForm(props: CheckoutProps) {
                             </div>
                         )}
 
-                        <Button type="submit" className="h-12 w-full text-base" disabled={!canPlace}>
+                        <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={!canPlace}>
                             {stage === 'authorising' ? (
                                 <>
                                     <Loader2 className="animate-spin" /> Checking your card…
@@ -592,7 +592,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
-        <section className="space-y-3">
+        <section className="space-y-4 rounded-2xl border bg-background p-5 shadow-sm sm:p-6">
             <h2 className="text-base font-semibold">{title}</h2>
             {children}
         </section>
@@ -603,7 +603,7 @@ function Choice({ name, value, checked, onChange, children }: { name: string; va
     const id = useId();
 
     return (
-        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent')}>
+        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent')}>
             <input id={id} type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} className="mt-0.5 size-4 shrink-0 accent-primary" />
             <span className="min-w-0 flex-1">{children}</span>
         </label>

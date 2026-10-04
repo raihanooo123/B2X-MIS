@@ -35,20 +35,20 @@ export default function Home({ shell, products, departments }: HomeProps) {
 
     return (
         <StorefrontLayout title={brand.name} description={brand.tagline ?? `Shop online with ${brand.name}.`} shell={shell}>
-            <section className="relative overflow-hidden border-b bg-gradient-to-br from-primary/10 via-background to-background">
-                <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-10 sm:py-14 lg:grid-cols-[1.1fr_1fr] lg:py-16">
+            <section className="relative overflow-hidden border-b border-border/60 bg-gradient-to-br from-primary/5 via-background to-muted/40">
+                <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-12 sm:py-16 lg:grid-cols-[1.1fr_1fr] lg:py-16">
                     <div>
                         <p className="inline-flex items-center rounded-full border border-primary/20 bg-background/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
                             Trade and retail
                         </p>
-                        <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">{brand.name}</h1>
-                        <p className="mt-4 max-w-xl text-lg text-muted-foreground">{brand.tagline ?? 'Everyday essentials at wholesale value, delivered across the UK.'}</p>
+                        <h1 className="mt-4 max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">{brand.name}</h1>
+                        <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted-foreground">{brand.tagline ?? 'Everyday essentials at wholesale value, delivered across the UK.'}</p>
                         <HeroSearch />
                         {departments.length > 0 && (
                             <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
                                 <span className="text-muted-foreground">Popular:</span>
                                 {departments.slice(0, 4).map((d) => (
-                                    <Link key={d.slug} href={storefrontLinks.category(d.slug)} className="inline-flex min-h-9 items-center rounded-full border bg-background px-3 font-medium hover:border-primary/50 hover:text-primary">
+                                    <Link key={d.slug} href={storefrontLinks.category(d.slug)} className="inline-flex min-h-11 items-center rounded-full border bg-background px-3 font-medium hover:border-primary/50 hover:text-primary">
                                         {d.name}
                                     </Link>
                                 ))}
@@ -60,9 +60,9 @@ export default function Home({ shell, products, departments }: HomeProps) {
                         <ul className="grid grid-cols-2 gap-3 pb-6 sm:gap-4" aria-label="Featured products">
                             {showcase.map((card, i) => (
                                 <li key={card.id} className={i % 2 === 1 ? 'translate-y-6' : ''}>
-                                    <Link href={storefrontLinks.product(card)} className="group block overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-lg">
-                                        <div className="aspect-[4/3] overflow-hidden bg-muted/40">
-                                            <img src={card.thumbnail_url ?? ''} alt="" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                    <Link href={storefrontLinks.product(card)} className="group block overflow-hidden rounded-2xl border border-border/70 bg-card shadow-md transition-shadow hover:shadow-xl">
+                                        <div className="aspect-[4/3] overflow-hidden bg-muted/20">
+                                            <img src={card.thumbnail_url ?? ''} alt="" className="size-full object-contain p-3 transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-105" />
                                         </div>
                                         <div className="flex items-center justify-between gap-2 px-3 py-2.5">
                                             <span className="line-clamp-1 text-sm font-medium">{card.name}</span>
@@ -92,10 +92,10 @@ export default function Home({ shell, products, departments }: HomeProps) {
                     <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
                         {departments.map((d) => (
                             <li key={d.slug}>
-                                <Link href={storefrontLinks.category(d.slug)} className="group block overflow-hidden rounded-xl border bg-card transition-all hover:border-primary/40 hover:shadow-md">
-                                    <div className="aspect-[4/3] overflow-hidden bg-muted/40">
+                                <Link href={storefrontLinks.category(d.slug)} className="group block overflow-hidden rounded-2xl border border-border/70 bg-card transition-shadow hover:border-primary/40 hover:shadow-md">
+                                    <div className="aspect-[4/3] overflow-hidden bg-muted/20">
                                         {d.image_url ? (
-                                            <img src={d.image_url} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                            <img src={d.image_url} alt="" loading="lazy" className="size-full object-contain p-3 transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-105" />
                                         ) : (
                                             <div className="flex size-full items-center justify-center text-muted-foreground">
                                                 <ImageOff className="size-6" aria-hidden />
@@ -126,7 +126,7 @@ export default function Home({ shell, products, departments }: HomeProps) {
                     }
                 />
                 {products.length > 0 ? (
-                    <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-6">
+                    <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
                         {products.map((card) => (
                             <ProductCard key={card.id} card={card} mode={price_display.mode} />
                         ))}
@@ -141,7 +141,7 @@ export default function Home({ shell, products, departments }: HomeProps) {
             {/* Guests and public customers only: not trade users or staff. */}
             {price_display.can_switch && (
                 <section className="mx-auto max-w-7xl px-4 pt-12">
-                    <div className="flex flex-col items-start justify-between gap-4 rounded-2xl bg-primary px-6 py-8 text-primary-foreground sm:flex-row sm:items-center sm:px-10">
+                    <div className="flex flex-col items-start justify-between gap-4 rounded-3xl bg-primary px-6 py-10 text-primary-foreground sm:flex-row sm:items-center sm:px-10">
                         <div>
                             <h2 className="text-lg font-semibold">Buying for a business?</h2>
                             <p className="mt-1 text-sm opacity-90">Open a trade account for trade prices, credit terms and fast bulk ordering.</p>
@@ -162,7 +162,7 @@ export default function Home({ shell, products, departments }: HomeProps) {
 function SectionHeading({ id, title, action }: { id: string; title: string; action?: ReactNode }) {
     return (
         <div className="flex items-end justify-between gap-4">
-            <h2 id={id} className="text-xl font-semibold tracking-tight sm:text-2xl">
+            <h2 id={id} className="text-2xl font-semibold tracking-tight sm:text-3xl">
                 {title}
             </h2>
             {action}
@@ -234,7 +234,7 @@ function RecentlyViewed() {
                         <Link href={storefrontLinks.product(item)} className="group block">
                             <div className="aspect-square overflow-hidden rounded-xl border bg-muted/40">
                                 {item.thumbnail_url ? (
-                                    <img src={item.thumbnail_url} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                    <img src={item.thumbnail_url} alt="" loading="lazy" className="size-full object-contain p-3 transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-105" />
                                 ) : (
                                     <div className="flex size-full items-center justify-center text-muted-foreground">
                                         <ImageOff className="size-6" aria-hidden />

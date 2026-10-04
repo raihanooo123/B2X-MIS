@@ -18,8 +18,8 @@ export function WarehouseNavigation() {
     if (visible.length === 0) return null;
 
     return (
-        <nav aria-label="Warehouse" className="overflow-x-auto border-b border-slate-300 bg-white">
-            <div className="mx-auto flex w-max min-w-full max-w-6xl items-center px-4 sm:w-full">
+        <nav aria-label="Warehouse" className="overflow-x-auto border-b border-border bg-background shadow-sm">
+            <div className="mx-auto flex w-max min-w-full max-w-6xl items-center gap-2 px-4 py-2 sm:w-full">
                 {visible.map((link) => {
                     const active = page.url.split('?')[0] === link.href;
                     return (
@@ -27,7 +27,7 @@ export function WarehouseNavigation() {
                             key={link.href}
                             href={link.href}
                             aria-current={active ? 'page' : undefined}
-                            className={`inline-flex min-h-12 shrink-0 items-center border-b-2 px-4 text-base font-medium ${active ? 'border-slate-800 text-slate-900' : 'border-transparent text-slate-600 hover:border-slate-400 hover:text-slate-900'}`}
+                            className={`inline-flex min-h-12 shrink-0 items-center rounded-xl px-4 text-sm font-semibold transition-colors ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
                         >
                             {link.label}
                         </Link>

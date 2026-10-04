@@ -15,6 +15,7 @@ use Filament\Navigation\NavigationItem;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
+use Filament\Support\Assets\Css;
 use Filament\Support\Colors\Color;
 use Filament\Widgets;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -42,6 +43,7 @@ class AdminPanelProvider extends PanelProvider
                 'primary' => Color::Indigo,
             ])
             ->font('Inter')
+            ->assets([Css::make('b2x-design', asset('css/b2x-admin.css'))])
             ->darkMode()
             ->sidebarCollapsibleOnDesktop()
             ->spa()

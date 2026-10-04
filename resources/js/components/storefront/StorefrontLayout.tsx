@@ -9,7 +9,7 @@
  * the `--primary` token for everything inside the layout.
  */
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
+import { ChevronDown, LogOut, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 
 import { storefrontLinks } from '@/lib/storefront/links';
@@ -45,7 +45,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
     ) as CSSProperties;
 
     return (
-        <div style={brandStyle} className="flex min-h-screen flex-col bg-background text-foreground">
+        <div style={brandStyle} className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
             <Head title={title === brand.name ? title : `${title} · ${brand.name}`}>{description && <meta name="description" content={description} />}</Head>
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:shadow">
                 Skip to content
@@ -53,7 +53,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
 
             <UtilityBar brand={brand} />
 
-            <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 shadow-[0_2px_12px_-8px_rgba(0,0,0,0.15)] backdrop-blur supports-[backdrop-filter]:bg-background/90">
                 <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 md:gap-6">
                     <button
                         type="button"
@@ -69,7 +69,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
                         {brand.logo_url ? (
                             <img src={brand.logo_url} alt="" className="h-9 w-auto max-w-[10rem] object-contain" />
                         ) : (
-                            <span className="text-lg font-semibold tracking-tight">{brand.name}</span>
+                            <span className="text-lg font-bold tracking-tight">{brand.name}</span>
                         )}
                     </Link>
 
@@ -79,7 +79,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
                         <AccountLink />
                         <Link
                             href={storefrontLinks.cart()}
-                            className="relative inline-flex min-h-11 items-center gap-2 rounded-md px-3 font-medium hover:bg-muted"
+                            className="relative inline-flex min-h-11 items-center gap-2 rounded-xl px-3 font-medium transition-colors hover:bg-primary/5 hover:text-primary"
                             aria-label={`Basket, ${shell?.cart_count ?? 0} ${shell?.cart_count === 1 ? 'item' : 'items'}`}
                         >
                             <ShoppingBag className="size-5" aria-hidden />
@@ -342,7 +342,7 @@ function SearchBox({ className }: { className?: string }) {
 
 function AccountLink() {
     const { auth } = usePage<SharedProps>().props;
-    const cls = 'inline-flex min-h-11 items-center gap-2 rounded-md px-3 hover:bg-muted';
+    const cls = 'inline-flex min-h-11 items-center gap-2 rounded-xl px-3 transition-colors hover:bg-primary/5 hover:text-primary';
 
     if (auth === null) {
         return (
@@ -359,11 +359,18 @@ function AccountLink() {
     }
 
     return (
-        <Link href="/account" className={cls}>
-            <User className="size-5" aria-hidden />
-            <span className="hidden sm:inline">{auth.company ? auth.company.name : auth.user.first_name}</span>
-            <span className="sr-only sm:hidden">Your account</span>
-        </Link>
+        <>
+            <Link href="/account" className={cls}>
+                <User className="size-5" aria-hidden />
+                <span className="hidden sm:inline">{auth.company ? auth.company.name : auth.user.first_name}</span>
+                <span className="sr-only sm:hidden">Your account</span>
+            </Link>
+            <Link href="/logout" method="post" as="button" className={cls}>
+                <LogOut className="size-5" aria-hidden />
+                <span className="hidden sm:inline">Sign out</span>
+                <span className="sr-only sm:hidden">Sign out</span>
+            </Link>
+        </>
     );
 }
 
@@ -480,7 +487,7 @@ function CategoryDrawer({ open, onClose, categories, brand }: { open: boolean; o
                 <nav aria-label="Categories" className="flex-1 overflow-y-auto p-2">
                     {categories.map((category) => (
                         <details key={category.slug} className="group">
-                            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-md px-3 font-medium hover:bg-muted">
+                            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between rounded-xl px-3 font-medium transition-colors hover:bg-primary/5 hover:text-primary">
                                 {category.name}
                                 <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
                             </summary>

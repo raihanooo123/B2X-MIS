@@ -32,14 +32,14 @@ export default function Addresses({ addresses, shell, status }: { addresses: Sav
     };
     return <AccountLayout title="Delivery addresses" shell={shell} status={status} description="Save delivery details for faster checkout." actions={<Button onClick={() => start()}>Add address</Button>}>
         <div className="space-y-5">
-            {addresses.length === 0 && <AccountCard><p className="p-5">No saved delivery addresses. Add your first address to use it at checkout.</p></AccountCard>}
-            {addresses.map((address) => <AccountCard key={address.public_id}><div className="p-5">
-                <p className="font-semibold">{address.label || address.contact_name}{address.is_default && <span className="ml-2 rounded bg-muted px-2 py-1 text-xs">Default</span>}</p>
+            {addresses.length === 0 && <AccountCard><p className="p-6">No saved delivery addresses. Add your first address to use it at checkout.</p></AccountCard>}
+            {addresses.map((address) => <AccountCard key={address.public_id}><div className="p-6">
+                <p className="font-semibold">{address.label || address.contact_name}{address.is_default && <span className="ml-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">Default</span>}</p>
                 <p>{address.contact_name}</p><p>{[address.line1, address.line2, address.city, address.county, address.postcode].filter(Boolean).join(', ')}</p>
                 {address.phone && <p>{address.phone}</p>}
                 <div className="mt-3 flex flex-wrap gap-2"><Button variant="outline" onClick={() => start(address)}>Edit</Button>{!address.is_default && <Button variant="outline" disabled={busy} onClick={() => mutate(address, 'default')}>Make default</Button>}<Button variant="outline" disabled={busy} onClick={() => mutate(address, 'delete')}>Delete</Button></div>
             </div></AccountCard>)}
-            {open && <AccountCard title={editing ? 'Edit address' : 'Add address'}><form onSubmit={submit} className="space-y-4 p-5">
+            {open && <AccountCard title={editing ? 'Edit address' : 'Add address'}><form onSubmit={submit} className="grid gap-5 p-6 sm:grid-cols-2">
                 {fields.map((field) => <div key={field.key}><label htmlFor={`saved-${field.key}`} className="block text-sm font-medium">{field.label}</label><input id={`saved-${field.key}`} value={form.data[field.key]} onChange={(e) => form.setData(field.key, e.target.value)} required={'required' in field} maxLength={field.max} className="mt-1 h-11 w-full rounded-md border bg-background px-3" />{form.errors[field.key] && <p className="text-sm text-red-700">{form.errors[field.key]}</p>}</div>)}
                 <p className="text-sm">Country: United Kingdom (GB)</p>{form.errors.country_code && <p className="text-sm text-red-700">{form.errors.country_code}</p>}
                 <label className="flex items-center gap-2"><input type="checkbox" checked={form.data.is_default} onChange={(e) => form.setData('is_default', e.target.checked)} />Use as default</label>

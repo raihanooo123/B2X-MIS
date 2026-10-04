@@ -76,7 +76,7 @@ export default function Listing({ shell, category, filters, products, next_curso
 
     return (
         <StorefrontLayout title={category?.meta_title ?? title} description={category?.meta_description ?? undefined} shell={shell}>
-            <div className="border-b bg-muted/30">
+            <div className="border-b border-border/60 bg-gradient-to-r from-primary/5 to-muted/20">
                 <div className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
                     <nav aria-label="Breadcrumb">
                         <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
@@ -109,14 +109,14 @@ export default function Listing({ shell, category, filters, products, next_curso
                             )}
                         </ol>
                     </nav>
-                    <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+                    <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
                     {category && category.children.length > 0 && (
                         <ul className="mt-4 flex flex-wrap gap-2" aria-label={`Ranges in ${category.name}`}>
                             {category.children.map((child) => (
                                 <li key={child.slug}>
                                     <Link
                                         href={storefrontLinks.category(child.slug)}
-                                        className="inline-flex min-h-10 items-center rounded-full border bg-background px-4 text-sm font-medium hover:border-primary/50 hover:text-primary"
+                                        className="inline-flex min-h-11 items-center rounded-full border bg-background px-4 text-sm font-medium hover:border-primary/50 hover:text-primary"
                                     >
                                         {child.name}
                                     </Link>

@@ -82,9 +82,9 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
             <Head title="Order pad" />
 
             <div className="mx-auto max-w-[1400px] px-4 pb-56 pt-4 md:pb-36">
-                <header className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <header className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-2xl border bg-background px-5 py-4 shadow-sm">
                     <div className="flex items-baseline gap-4">
-                        <h1 className="text-lg font-semibold tracking-tight">Order pad</h1>
+                        <h1 className="text-2xl font-semibold tracking-tight">Order pad</h1>
                         {rows.length > 0 && (
                             <p className="text-xs tabular-nums text-muted-foreground">
                                 Rows {start_row.toLocaleString('en-GB')}–{lastRow.toLocaleString('en-GB')}

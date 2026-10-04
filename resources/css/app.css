@@ -64,3 +64,20 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* Shared storefront controls: keyboard visibility and a consistent shape. */
+@layer components {
+    .storefront :is(a, button, input, select, textarea):focus-visible {
+        @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    }
+
+    .storefront input:not([type="checkbox"]):not([type="radio"]),
+    .storefront select,
+    .storefront textarea {
+        @apply rounded-xl;
+    }
+
+    .storefront ::selection {
+        background: hsl(var(--primary) / 0.15);
+    }
+}

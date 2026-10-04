@@ -51,19 +51,19 @@ export function StockBadge({ stock, left = null }: { stock: StockLabel; left?: n
 
 export function ProductCard({ card, mode }: { card: ProductCardData; mode: DisplayMode }) {
     return (
-        <li className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md">
-            <div className="aspect-square overflow-hidden bg-muted/50">
+        <li className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm transition-shadow hover:border-primary/30 hover:shadow-lg">
+            <div className="aspect-square overflow-hidden border-b border-border/40 bg-muted/20 p-4">
                 {card.thumbnail_url ? (
-                    <img src={card.thumbnail_url} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                    <img src={card.thumbnail_url} alt="" loading="lazy" className="size-full object-contain transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-[1.03]" />
                 ) : (
                     <div className="flex size-full items-center justify-center text-muted-foreground">
                         <ImageOff className="size-8" aria-hidden />
                     </div>
                 )}
             </div>
-            <div className="flex flex-1 flex-col gap-1 p-3 sm:p-4">
+            <div className="flex flex-1 flex-col gap-2 p-4 sm:p-5">
                 {card.brand && <p className="text-xs uppercase tracking-wide text-muted-foreground">{card.brand}</p>}
-                <h3 className="line-clamp-2 text-sm font-medium leading-snug">
+                <h3 className="line-clamp-2 text-sm font-semibold leading-relaxed">
                     <Link href={storefrontLinks.product(card)} className="after:absolute after:inset-0 focus:outline-none">
                         {card.name}
                     </Link>
@@ -72,7 +72,7 @@ export function ProductCard({ card, mode }: { card: ProductCardData; mode: Displ
                     {card.price ? (
                         <p className="leading-tight">
                             {card.price.varies && <span className="text-xs text-muted-foreground">From </span>}
-                            <span className="text-base font-semibold tabular-nums">{shelfPrice(card.price.unit_net_e4, card.price.tax_rate_bp, mode)}</span>
+                            <span className="text-lg font-semibold tracking-tight tabular-nums">{shelfPrice(card.price.unit_net_e4, card.price.tax_rate_bp, mode)}</span>
                             <span className="block text-[11px] text-muted-foreground">each, {vatLabel(mode)}</span>
                         </p>
                     ) : (
@@ -112,12 +112,12 @@ function QuickAdd({ item, name }: { item: { sku_id: string; pack_code: string };
                 disabled={add.isPending}
                 aria-label={`Add ${name} to basket`}
                 className={cn(
-                    'inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-60',
+                    'inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-60',
                     done ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground',
                 )}
             >
                 {done ? <Check className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}
-                {done ? 'Added' : add.isPending ? 'Adding…' : 'Add'}
+                {done ? 'Added' : add.isPending ? 'Adding…' : 'Add to basket'}
             </button>
             {add.isError && (
                 <p role="alert" className="mt-1 text-xs text-red-700">

@@ -1,0 +1,9 @@
+/* B2X staff surfaces: preserve Filament behaviour and dark-mode colours. */
+.fi-sidebar { border-inline-end: 1px solid rgb(148 163 184 / .15); }
+.fi-sidebar-header { border-bottom: 1px solid rgb(148 163 184 / .15); }
+.fi-sidebar-item-button { border-radius: .75rem; }
+.fi-section, .fi-ta-ctn { border-radius: 1rem; }
+.fi-topbar nav { box-shadow: 0 2px 12px -8px rgb(15 23 42 / .18); }
+.fi-header-heading { letter-spacing: -.035em; }
+.fi-btn { border-radius: .625rem; }
+.fi-sidebar-item-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
