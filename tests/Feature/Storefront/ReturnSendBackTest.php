@@ -73,7 +73,7 @@ function proofFile(): UploadedFile
 
 function staff(string $role): User
 {
-    $user = User::factory()->create();
+    $user = User::factory()->withTwoFactor()->create(); // staff without 2FA are refused everywhere
     RoleUser::create(['role_id' => (Role::query()->where('code', $role)->first() ?? Role::factory()->create(['code' => $role]))->id, 'user_id' => $user->id]);
 
     return $user;
