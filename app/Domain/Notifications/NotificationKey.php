@@ -18,6 +18,7 @@ enum NotificationKey: string
     case OrderAccessLink = 'order.access_link';
     case OrderCancelled = 'order.cancelled';
     case RefundFailed = 'refund.failed';
+    case RmaApproved = 'rma.approved';
     case PaymentReceived = 'payment.received';
     case ShipmentDispatched = 'shipment.dispatched';
     case InvoiceIssued = 'invoice.issued';

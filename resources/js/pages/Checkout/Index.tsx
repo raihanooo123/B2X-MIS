@@ -413,7 +413,7 @@ function CheckoutForm(props: CheckoutProps) {
 
                         {!isTrade && props.pre_contract && (
                             <Section title="Before you order">
-                                <PreContract sections={props.pre_contract.sections} />
+                                <PreContract sections={props.pre_contract.sections} returnStatement={preview.data?.return_estimate?.statement ?? null} />
                                 {terms !== null && <TermsOfSale terms={terms} accepted={termsAccepted} onChange={setTermsAccepted} disabled={stage !== 'idle'} error={fieldErrors.terms_version_id} />}
                             </Section>
                         )}
@@ -493,11 +493,20 @@ function payButtonLabel(method: PaymentMethod, totalMinor: number | undefined): 
     return 'Order with obligation to pay';
 }
 
-/** 05.15 §7.1: the pre-contract information, as the server generated it. */
-function PreContract({ sections }: { sections: { heading: string; paragraphs: string[] }[] }) {
+/** The section whose first paragraph is the return-cost statement (PreContractInformation). */
+const RETURNS_HEADING = 'Returning goods';
+
+/**
+ * 05.15 §7.1: the pre-contract information, as the server generated it. A
+ * pallet consignment's return cost (02 §27) depends on the basket and the
+ * address, so it comes from preview and replaces the standard statement.
+ */
+function PreContract({ sections, returnStatement }: { sections: { heading: string; paragraphs: string[] }[]; returnStatement: string | null }) {
+    const shown = returnStatement === null ? sections : sections.map((s) => (s.heading === RETURNS_HEADING ? { ...s, paragraphs: [returnStatement, ...s.paragraphs.slice(1)] } : s));
+
     return (
         <div className="max-h-80 space-y-3 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs leading-relaxed" tabIndex={0} aria-label="Information about your order and your rights">
-            {sections.map((section) => (
+            {shown.map((section) => (
                 <div key={section.heading}>
                     <h3 className="font-semibold text-foreground">{section.heading}</h3>
                     {section.paragraphs.map((p, i) => (

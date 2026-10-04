@@ -40,6 +40,9 @@ final readonly class CheckoutPreview
         /** 05.6: null when no destination was given; otherwise the carriage, or why there is none. */
         public ?DeliveryQuote $delivery = null,
         public int $shippingTaxMinor = 0,
+        /** 02 §27: a consumer's pallet consignment — estimated return cost, null when we collect at our cost. */
+        public bool $palletReturn = false,
+        public ?int $returnCostEstimateGrossMinor = null,
     ) {}
 
     public function amountDueMinor(): int

@@ -4376,3 +4376,28 @@ ALTER TABLE orders VALIDATE CONSTRAINT orders_standard_shipping_chk;
 ### 26.4 Lock order and transactions
 
 Unchanged. A guest order takes no `companies` lock, as for any public order. The `collection_slots` → `stock_levels` order (§11.1, 05.6 §7.2) applies as before. `guest_email`, the acceptance row and `standard_shipping_net_minor` are all written inside the existing order transaction, with no external call.
+
+---
+
+## 27. Schema amendment 2026-10-04 — `orders.return_cost_estimate_gross_minor` (05.15 §9 A9) (signed off 2026-10-04)
+
+> **Status: signed off 2026-10-04** (05.15 §12 Q13, approved as recommended). Migration follows with slice S6b.
+
+A consumer who cancels for a change of mind pays the direct cost of returning the goods, but only if they were told before ordering. For goods that cannot normally be returned by post, the pre-contract information must state that cost, or the trader bears it (CCR Sch. 2 para (l), reg. 35(5); 05.15 §7.2). A pallet consignment cannot be posted.
+
+```sql
+ALTER TABLE orders ADD COLUMN return_cost_estimate_gross_minor bigint;
+
+ALTER TABLE orders ADD CONSTRAINT orders_return_cost_estimate_chk CHECK (
+  return_cost_estimate_gross_minor IS NULL
+  OR (return_cost_estimate_gross_minor >= 0 AND company_id IS NULL)
+) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_return_cost_estimate_chk;
+```
+
+- **Set at placement** for a consumer order (`company_id IS NULL`) whose consignment is `pallet` (§20.2 `delivery_method`): our own pallet rate for that zone and weight, from the same `delivery_rates` lookup checkout uses (05.6 §5.3), **ignoring the carriage-paid threshold**, plus VAT at carriage's own rate (05.6 §5.2), with one half-up rounding (03 §6.3). Gross, because it is what the consumer would pay.
+- **Why its own column.** A carriage-paid order has `standard_shipping_net_minor = 0` (§26.3), so the estimate cannot be derived from what was charged. It is snapshotted like every money figure shown before ordering (§2.7, invariant 4): a later rate change cannot alter what the customer was told.
+- **NULL** for trade orders (`orders_return_cost_estimate_chk`), parcel and collection orders, and a pallet order for which no rate is found. In that last case checkout states that we collect the goods at our cost, and we bear the return cost (reg. 35(5)).
+- Shown in the pre-contract information before the pay button and in the confirmation email (05.15 §7.1, 05.4 §13.3), and in `rma.approved`.
+- **No index.** It is read only for the order it belongs to.
+- `NOT VALID` then `VALIDATE` (§2.5): every existing row is NULL. Adding the nullable column is catalogue-only (07 §11.1).

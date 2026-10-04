@@ -2,6 +2,7 @@
 
 namespace App\Domain\Storefront;
 
+use App\Filament\Support\MoneyFormatter;
 use App\Models\TermsVersion;
 
 /**
@@ -34,8 +35,10 @@ final readonly class PreContractInformation
      * @param  string|null  $total  the order's formatted total, inc VAT and
      *                              delivery, once known (the email); on
      *                              checkout the page shows it by the button
+     * @param  bool  $pallet  the consignment is a pallet, which cannot be posted back (02 §27)
+     * @param  int|null  $returnCostGrossMinor  the estimated return cost of that pallet; null: we collect at our cost
      */
-    public static function build(Branding $brand, ?TermsVersion $terms, ?string $total = null): self
+    public static function build(Branding $brand, ?TermsVersion $terms, ?string $total = null, bool $pallet = false, ?int $returnCostGrossMinor = null): self
     {
         $seller = $brand->seller;
         $tradingName = $seller->legalName ?? $brand->name;
@@ -74,7 +77,7 @@ final readonly class PreContractInformation
                 'We refund you within 14 days after we receive the goods back, or after you show us that you have sent them, whichever is earlier. We refund the delivery you paid up to the cost of our least expensive standard delivery. We refund to the card or account you paid with.',
             ]],
             ['heading' => 'Returning goods', 'paragraphs' => [
-                'If you cancel because you changed your mind, you pay the direct cost of returning the goods to us.',
+                $pallet ? self::palletReturnStatement($returnCostGrossMinor) : 'If you cancel because you changed your mind, you pay the direct cost of returning the goods to us.',
                 'If goods are faulty, damaged or not what you ordered, we pay the cost of returning them, including collecting goods that cannot reasonably be sent by post.',
             ]],
             ['heading' => 'Faulty goods', 'paragraphs' => [
@@ -94,6 +97,19 @@ final readonly class PreContractInformation
         }
 
         return new self($sections, $terms?->id, $terms?->version);
+    }
+
+    /**
+     * 02 §27, CCR Sch. 2 para (l): goods that cannot be posted back, with the
+     * estimated cost of returning them, or our undertaking to collect them.
+     * One wording for the checkout page, the confirmation email and
+     * `rma.approved`.
+     */
+    public static function palletReturnStatement(?int $returnCostGrossMinor): string
+    {
+        return $returnCostGrossMinor === null
+            ? 'These goods are delivered on a pallet and cannot be returned by post. If you cancel, we collect them at our cost.'
+            : 'These goods are delivered on a pallet and cannot be returned by post. If you cancel because you changed your mind, you pay the direct cost of returning them, which we estimate at '.MoneyFormatter::minor($returnCostGrossMinor).' including VAT (our own pallet rate for this delivery).';
     }
 
     /**

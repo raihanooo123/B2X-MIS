@@ -86,7 +86,7 @@ final class OrderConfirmed extends Notice
             ->first()?->termsVersion;
 
         return [
-            ...PreContractInformation::build($brand, $terms, self::money($order->total_gross_minor))->sections,
+            ...PreContractInformation::build($brand, $terms, self::money($order->total_gross_minor), $order->delivery_method === 'pallet', $order->return_cost_estimate_gross_minor)->sections,
             PreContractInformation::modelCancellationForm($brand),
         ];
     }

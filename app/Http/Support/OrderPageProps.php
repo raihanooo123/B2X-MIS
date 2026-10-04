@@ -4,11 +4,16 @@ namespace App\Http\Support;
 
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
+use App\Domain\Returns\CancellationEligibility;
+use App\Domain\Storefront\PreContractInformation;
 use App\Models\DeliveryZone;
 use App\Models\Order;
 use App\Models\OrderAddress;
 use App\Models\OrderLine;
 use App\Models\Payment;
+use App\Models\Rma;
+use App\Models\RmaLine;
+use Carbon\CarbonImmutable;
 
 /**
  * The order page's `order` prop, for the signed-in confirmation page and a
@@ -36,6 +41,9 @@ final class OrderPageProps
             'can_cancel' => self::canCancel($model),
             'cancelled_at' => $model->cancelled_at?->toIso8601ZuluString(),
             'refunds' => self::refunds($model),
+            // 05.4 §13.3: cancelling some or all of a dispatched consumer order.
+            'cancellation' => self::cancellation($model),
+            'returns' => self::returns($model),
             'payment_status' => $model->payment_status,
             // 02 §18. Null only for orders placed before the column existed.
             'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
@@ -81,6 +89,63 @@ final class OrderPageProps
                 'country' => DeliveryCountries::name(trim($address->country_code)),
             ] : null,
         ];
+    }
+
+    /**
+     * What may be cancelled now, line by line (CancellationEligibility is
+     * the authority; ConsumerCancellations re-checks under lock). Null for
+     * a trade order or one not yet dispatched.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function cancellation(Order $order): ?array
+    {
+        if ($order->company_id !== null || ! in_array($order->status, ['part_dispatched', 'dispatched', 'completed'], true)) {
+            return null;
+        }
+
+        $eligibility = CancellationEligibility::for($order, CarbonImmutable::now());
+
+        return [
+            'available' => $eligibility->available,
+            'message' => $eligibility->message,
+            'last_day' => $eligibility->possession?->lastDay()->toDateString(),
+            'return_statement' => $order->delivery_method === 'pallet'
+                ? PreContractInformation::palletReturnStatement($order->return_cost_estimate_gross_minor)
+                : 'You pay the cost of posting the items back.',
+            'lines' => array_values(array_map(fn (array $l) => [
+                'line_no' => $l['order_line']->line_no,
+                'sku_code' => $l['order_line']->sku_code_snapshot,
+                'name' => $l['order_line']->name_snapshot,
+                'pack_label' => $l['order_line']->pack_label_snapshot,
+                'returnable_pack_qty' => $l['returnable_pack_qty'],
+                'eligible' => $l['eligible'],
+                'refusal' => $l['refusal'],
+                'notice' => $l['notice'],
+            ], $eligibility->lines)),
+        ];
+    }
+
+    /**
+     * The order's returns, for the customer.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function returns(Order $order): array
+    {
+        return array_values(Rma::query()
+            ->with(['lines' => fn ($q) => $q->orderBy('line_no')])
+            ->where('order_id', $order->id)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Rma $r) => [
+                'rma_number' => $r->rma_number,
+                'status' => $r->status,
+                'return_method' => $r->return_method,
+                'return_by_date' => $r->return_by_date?->toDateString(),
+                'lines' => array_values($r->lines->map(fn (RmaLine $l) => ['sku_code' => $l->sku_code_snapshot, 'name' => $l->name_snapshot, 'pack_qty' => $l->requested_pack_qty])->all()),
+            ])
+            ->all());
     }
 
     /** Mirrors OrderCancellationService's own check, which is the authority. */

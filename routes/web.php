@@ -50,6 +50,9 @@ Route::middleware('auth')->group(function (): void {
     // 05.4 §13.2: a consumer cancels before dispatch.
     Route::post('/orders/{order}/cancel', [OrderConfirmationController::class, 'cancel'])
         ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel');
+    // 05.4 §13.3: cancel items of a dispatched order.
+    Route::post('/orders/{order}/cancel-items', [OrderConfirmationController::class, 'cancelItems'])
+        ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel-items');
 });
 
 // 05.15 §6.2–6.3: a guest's order page by signed link (not a sign-in
@@ -63,6 +66,9 @@ Route::post('/orders/{order}/guest/{expires}/{signature}/account', [GuestOrderCo
 Route::post('/orders/{order}/guest/{expires}/{signature}/cancel', [GuestOrderController::class, 'cancel'])
     ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
     ->middleware('throttle:10,1')->name('orders.guest.cancel');
+Route::post('/orders/{order}/guest/{expires}/{signature}/cancel-items', [GuestOrderController::class, 'cancelItems'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->middleware('throttle:10,1')->name('orders.guest.cancel-items');
 Route::get('/orders/lookup', [OrderLookupController::class, 'show'])->name('orders.lookup');
 Route::post('/orders/lookup', [OrderLookupController::class, 'send'])->name('orders.lookup.send');
 

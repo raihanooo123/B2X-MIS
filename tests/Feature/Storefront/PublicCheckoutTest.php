@@ -243,10 +243,11 @@ it('allows a missing user only on a checkout acceptance (02 §26.2)', function (
 
     // A trade application's acceptance, otherwise valid, still needs its user.
     $application = B2bApplication::factory()->create();
-    expect(fn () => DB::table('terms_acceptances')->insert(['terms_version_id' => $terms->id, 'user_id' => null, 'b2b_application_id' => $application->id, 'source' => 'trade_application']))
+    // Each violation in its own savepoint, so the next one still reaches its constraint.
+    expect(fn () => DB::transaction(fn () => DB::table('terms_acceptances')->insert(['terms_version_id' => $terms->id, 'user_id' => null, 'b2b_application_id' => $application->id, 'source' => 'trade_application'])))
         ->toThrow(QueryException::class, 'terms_acceptances_user_chk');
 
     // Never more than the carriage charged (02 §26.3).
-    expect(fn () => DB::table('orders')->whereKey($order->id)->update(['standard_shipping_net_minor' => $order->shipping_net_minor + 1]))
-        ->toThrow(QueryException::class);
+    expect(fn () => DB::transaction(fn () => DB::table('orders')->where('id', $order->id)->update(['standard_shipping_net_minor' => $order->shipping_net_minor + 1])))
+        ->toThrow(QueryException::class, 'orders_standard_shipping_chk');
 });

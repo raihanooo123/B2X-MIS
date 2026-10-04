@@ -490,6 +490,12 @@ Success is 201 with the order, having run the whole transaction in the Doc 05.6 
 - Whole order only. Refused, with the order left as it was, when anything has been dispatched (`order_already_dispatched`), when it is already cancelled, or for a trade order (403 by policy).
 - The JSON endpoint in §8 stays for trade cancellation with 05.10.
 
+**As built (2026-10-04, 05.15 slice S6b) — cancelling items after dispatch (05.4 §13.3) and the pallet return cost (02 §27):**
+
+- Preview adds `return_estimate`: `null`, or for a consumer whose consignment is a pallet `{ "estimate_gross_minor": int|null, "statement": string }` — the estimated cost of returning it, and the sentence the checkout shows in place of the standard return-cost statement. `estimate_gross_minor` null means we collect at our cost. The same figure is saved on the order at placement.
+- Web routes behind the order page, not the JSON `/returns` of §8: `POST /orders/{id}/cancel-items` (signed in, `OrderPolicy::cancel`) and `POST /orders/{id}/guest/{expires}/{signature}/cancel-items`, body `{ "lines": [{ "line_no", "pack_qty" }] }`, 10 a minute. A refused line comes back as a validation error on `lines.{line_no}`; success creates an approved RMA and sends `rma.approved`.
+- The JSON `/returns` endpoints in §8 stay for the trade return flow (05.4 §7).
+
 ### 9.4 Stock availability
 
 ```

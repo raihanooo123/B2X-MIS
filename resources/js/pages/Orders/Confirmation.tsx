@@ -52,6 +52,9 @@ interface ConfirmationProps {
         can_cancel: boolean;
         cancelled_at: string | null;
         refunds: { amount_minor: number; method: 'card' | 'bank_transfer'; status: 'refunded' | 'in_progress' }[];
+        /** 05.4 §13.3: what may be cancelled on a dispatched consumer order; null otherwise. */
+        cancellation: CancellationView | null;
+        returns: ReturnView[];
         payment_status: string;
         /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
         payment_method: PaymentMethod | 'prepay' | null;
@@ -87,6 +90,24 @@ interface ConfirmationProps {
     } | null;
     /** Where "Cancel order" posts, when this viewer may cancel (05.4 §13.2). */
     cancel_url: string | null;
+    /** Where "Cancel items" posts (05.4 §13.3). */
+    cancel_items_url: string | null;
+}
+
+interface CancellationView {
+    available: boolean;
+    message: string | null;
+    last_day: string | null;
+    return_statement: string;
+    lines: { line_no: number; sku_code: string; name: string; pack_label: string; returnable_pack_qty: number; eligible: boolean; refusal: string | null; notice: string | null }[];
+}
+
+interface ReturnView {
+    rma_number: string;
+    status: string;
+    return_method: string | null;
+    return_by_date: string | null;
+    lines: { sku_code: string; name: string; pack_qty: number }[];
 }
 
 const BRANDS: Record<string, string> = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', maestro: 'Maestro', discover: 'Discover', diners: 'Diners Club', jcb: 'JCB', unionpay: 'UnionPay' };
@@ -145,7 +166,7 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     return ['Your order is confirmed and your stock is reserved.', 'Payment is due before dispatch unless you have account terms.', common];
 }
 
-export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl }: ConfirmationProps) {
+export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl }: ConfirmationProps) {
     const { display_timezone: timeZone, auth, flash } = usePage<SharedProps>().props;
     const cancelled = order.status === 'cancelled';
     const status = guest ? guest.status : (flash?.status ?? null);
@@ -245,6 +266,10 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                         {guest?.can_save_details && !guest.status && <SaveDetails guest={guest} />}
 
                         {cancelUrl && order.can_cancel && <CancelOrder orderNumber={order.order_number} url={cancelUrl} />}
+
+                        {order.returns.length > 0 && <Returns returns={order.returns} />}
+
+                        {cancelItemsUrl && order.cancellation && <CancelItems cancellation={order.cancellation} url={cancelItemsUrl} />}
 
                         {address && (
                             <section>
@@ -347,6 +372,136 @@ function CancelOrder({ orderNumber, url }: { orderNumber: string; url: string })
                     Cancel order
                 </Button>
             )}
+        </section>
+    );
+}
+
+/** "26 October 2026" from a Y-m-d date, without a timezone shift. */
+function longDate(ymd: string): string {
+    const [y, m, d] = ymd.split('-').map(Number);
+
+    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+const RETURN_STATUS: Record<string, string> = {
+    awaiting_goods: 'Waiting for your return',
+    received: 'Received — being checked',
+    inspected: 'Checked — refund on its way',
+    resolved: 'Refunded',
+    partially_resolved: 'Partly refunded',
+    not_received: 'Not received in time',
+    cancelled: 'Withdrawn',
+    rejected: 'Not accepted',
+};
+
+/** The cancellations already made on this order (05.4 §13.3). */
+function Returns({ returns }: { returns: ReturnView[] }) {
+    return (
+        <section className="space-y-3">
+            <h2 className="font-semibold">Your cancellations</h2>
+            {returns.map((r) => (
+                <div key={r.rma_number} className="rounded-md border p-3">
+                    <p className="font-medium">
+                        <span className="font-mono">{r.rma_number}</span> · {RETURN_STATUS[r.status] ?? r.status}
+                    </p>
+                    <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                        {r.lines.map((l) => (
+                            <li key={l.sku_code}>
+                                {l.pack_qty} × {l.name}
+                            </li>
+                        ))}
+                    </ul>
+                    {r.status === 'awaiting_goods' && r.return_by_date && r.return_method !== 'collection' && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Send back by {longDate(r.return_by_date)}, with {r.rma_number} on the parcel.
+                        </p>
+                    )}
+                    {r.status === 'awaiting_goods' && r.return_method === 'collection' && <p className="mt-1 text-xs text-muted-foreground">We will contact you to collect them.</p>}
+                </div>
+            ))}
+        </section>
+    );
+}
+
+/**
+ * 05.4 §13.3 "Cancel items": the customer picks how many of each line to
+ * cancel. Lines that cannot be cancelled say why; sealed hygiene items say
+ * they must come back sealed. The server re-checks everything.
+ */
+function CancelItems({ cancellation, url }: { cancellation: CancellationView; url: string }) {
+    const form = useForm<{ lines: { line_no: number; pack_qty: number }[] }>({
+        lines: cancellation.lines.filter((l) => l.eligible).map((l) => ({ line_no: l.line_no, pack_qty: 0 })),
+    });
+    const errors = form.errors as Record<string, string | undefined>;
+    const chosen = form.data.lines.some((l) => l.pack_qty > 0);
+
+    if (!cancellation.available) {
+        return cancellation.message ? (
+            <section className="space-y-1 rounded-md border p-4">
+                <h2 className="font-semibold">Cancel items</h2>
+                <p className="text-muted-foreground">{cancellation.message}</p>
+            </section>
+        ) : null;
+    }
+
+    const setQty = (lineNo: number, qty: number) =>
+        form.setData(
+            'lines',
+            form.data.lines.map((l) => (l.line_no === lineNo ? { ...l, pack_qty: qty } : l)),
+        );
+
+    const submit = (e: FormEvent) => {
+        e.preventDefault();
+        form.post(url, { preserveScroll: true, onSuccess: () => form.reset() });
+    };
+
+    return (
+        <section className="space-y-3 rounded-md border p-4">
+            <div>
+                <h2 className="font-semibold">Cancel items</h2>
+                {cancellation.last_day && <p className="mt-1 text-muted-foreground">You can cancel any of these until {longDate(cancellation.last_day)}.</p>}
+            </div>
+            <form onSubmit={submit} className="space-y-3" noValidate>
+                {cancellation.lines.map((l) => {
+                    const value = form.data.lines.find((x) => x.line_no === l.line_no)?.pack_qty ?? 0;
+                    const error = errors[`lines.${l.line_no}`];
+
+                    return (
+                        <div key={l.line_no} className="space-y-1">
+                            <div className="flex items-start justify-between gap-3">
+                                <label htmlFor={`cancel-line-${l.line_no}`} className="min-w-0">
+                                    <span className="block font-medium leading-tight">{l.name}</span>
+                                    <span className="block text-xs text-muted-foreground">
+                                        <span className="font-mono">{l.sku_code}</span> · {l.pack_label}
+                                    </span>
+                                </label>
+                                {l.eligible && (
+                                    <select
+                                        id={`cancel-line-${l.line_no}`}
+                                        value={value}
+                                        onChange={(e) => setQty(l.line_no, Number(e.target.value))}
+                                        className="h-10 shrink-0 rounded-md border border-input bg-transparent px-2"
+                                    >
+                                        {Array.from({ length: l.returnable_pack_qty + 1 }, (_, n) => (
+                                            <option key={n} value={n}>
+                                                {n}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                            {l.refusal && <p className="text-xs text-muted-foreground">{l.refusal}</p>}
+                            {l.notice && <p className="text-xs text-amber-800">{l.notice}</p>}
+                            {error && <p className="text-xs text-red-700">{error}</p>}
+                        </div>
+                    );
+                })}
+                {errors.lines && <p className="text-xs text-red-700">{errors.lines}</p>}
+                <p className="text-xs text-muted-foreground">{cancellation.return_statement} We refund within 14 days of receiving the items, or of your proof that you sent them, whichever is earlier.</p>
+                <Button type="submit" variant="outline" className="h-11 w-full" disabled={!chosen || form.processing}>
+                    Cancel these items
+                </Button>
+            </form>
         </section>
     );
 }
