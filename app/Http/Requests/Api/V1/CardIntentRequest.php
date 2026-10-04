@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\V1;
 
 use App\Domain\Delivery\DeliveryDestination;
+use App\Http\Requests\Concerns\SavedDeliveryAddress;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -15,6 +16,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class CardIntentRequest extends FormRequest
 {
+    use SavedDeliveryAddress;
+
     public function authorize(): bool
     {
         return true;
@@ -33,6 +36,7 @@ class CardIntentRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'delivery_address_id' => $this->savedAddressRules(),
             'expected_total_gross_minor' => ['required', 'integer', 'min:1'],
             'delivery_country_code' => ['required', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
             // Carriage is part of the amount: no card is authorised before

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\PublicAccountController;
 use App\Http\Controllers\Auth\CompanyChoiceController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -166,4 +167,18 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');
+});
+
+
+// 05.15 §6.4: verified public shopping account, separate from staff/team settings.
+Route::middleware(['auth', \App\Http\Middleware\RequireVerifiedPublicAccount::class])->group(function (): void {
+    Route::get('/orders/{order}', [OrderConfirmationController::class, 'show'])->whereUlid('order')->name('account.orders.show');
+    Route::get('/account/orders', [PublicAccountController::class, 'orders'])->name('account.orders');
+    Route::get('/account/receipts', [PublicAccountController::class, 'receipts'])->name('account.receipts');
+    Route::get('/account/receipts/{receipt}/download', [PublicAccountController::class, 'download'])->whereUlid('receipt')->name('account.receipts.download');
+    Route::get('/account/addresses', [PublicAccountController::class, 'addresses'])->name('account.addresses');
+    Route::post('/account/addresses', [PublicAccountController::class, 'storeAddress'])->name('account.addresses.store');
+    Route::patch('/account/addresses/{address}', [PublicAccountController::class, 'updateAddress'])->whereUlid('address')->name('account.addresses.update');
+    Route::delete('/account/addresses/{address}', [PublicAccountController::class, 'deleteAddress'])->whereUlid('address')->name('account.addresses.delete');
+    Route::post('/account/addresses/{address}/default', [PublicAccountController::class, 'defaultAddress'])->whereUlid('address')->name('account.addresses.default');
 });

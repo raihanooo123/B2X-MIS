@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 
 interface SavedAddress {
     key: string;
+    public_id?: string;
     label: string | null;
     contact_name: string | null;
     phone: string | null;
@@ -128,8 +129,20 @@ function CheckoutForm(props: CheckoutProps) {
         country_code: defaultCountry,
     };
 
-    const [addressChoice, setAddressChoice] = useState<string>(addresses[0]?.key ?? NEW_ADDRESS);
-    const [newAddress, setNewAddress] = useState<DeliveryAddressInput>(blankAddress);
+    const initialSaved = addresses.find((a) => a.is_default) ?? addresses[0];
+    const fromSaved = (saved: SavedAddress): DeliveryAddressInput => ({
+        contact_name: saved.contact_name || props.contact.name, company_name: props.company_name ?? '',
+        phone: saved.phone ?? props.contact.phone ?? '', line1: saved.line1, line2: saved.line2 ?? '',
+        city: saved.city, county: saved.county ?? '', postcode: saved.postcode, country_code: saved.country_code,
+    });
+    const [addressChoice, setAddressChoice] = useState<string>(initialSaved?.key ?? NEW_ADDRESS);
+    const [address, setAddress] = useState<DeliveryAddressInput>(initialSaved ? fromSaved(initialSaved) : blankAddress);
+    const chooseAddress = (key: string) => {
+        setAddressChoice(key);
+        const saved = addresses.find((a) => a.key === key);
+        setAddress(saved ? fromSaved(saved) : blankAddress);
+    };
+    const savedAddressId = addresses.find((a) => a.key === addressChoice)?.public_id;
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(methods[0]?.value ?? 'card');
     const [reference, setReference] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -140,31 +153,14 @@ function CheckoutForm(props: CheckoutProps) {
     const isGuest = props.is_guest;
     const terms = props.terms_of_sale;
 
-    const address: DeliveryAddressInput = useMemo(() => {
-        const saved = addresses.find((a) => a.key === addressChoice);
-        if (saved === undefined) {
-            return newAddress;
-        }
-
-        return {
-            contact_name: saved.contact_name || props.contact.name,
-            company_name: props.company_name ?? '',
-            phone: saved.phone ?? props.contact.phone ?? '',
-            line1: saved.line1,
-            line2: saved.line2 ?? '',
-            city: saved.city,
-            county: saved.county ?? '',
-            postcode: saved.postcode,
-            country_code: saved.country_code,
-        };
-    }, [addressChoice, addresses, newAddress, props.company_name, props.contact.name, props.contact.phone]);
-
     const cart = useCart();
     // 05.6 §8: carriage is rated from the delivery postcode and shown before
     // payment. Debounced, and only once the postcode looks complete, so it
     // is not re-rated on every keystroke.
     const ratingPostcode = useDebounced(address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null, 400);
-    const preview = useCheckoutPreview(address.country_code, ratingPostcode);
+    const addressKey = JSON.stringify(address);
+    const ratingAddressKey = useDebounced(addressKey, 400);
+    const preview = useCheckoutPreview(address.country_code, ratingPostcode, { savedAddressId, addressKey: ratingAddressKey });
     const delivery = preview.data?.delivery ?? null;
     const carriageKnown = delivery !== null && (delivery.status === 'rated' || delivery.status === 'free');
     const placeOrder = usePlaceOrder();
@@ -184,7 +180,7 @@ function CheckoutForm(props: CheckoutProps) {
     const termsReady = isTrade || (terms !== null && termsAccepted);
 
     // Carriage must be known before anything is charged (05.6 §8).
-    const canPlace = preview.data !== undefined && !preview.isFetching && blockers.length === 0 && addressComplete && carriageKnown && cardReady && termsReady && stage === 'idle';
+    const canPlace = addressKey === ratingAddressKey && ratingPostcode === (address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null) && preview.data !== undefined && !preview.isFetching && !preview.isPlaceholderData && blockers.length === 0 && addressComplete && carriageKnown && cardReady && termsReady && stage === 'idle';
 
     const showFailure = (error: ApiError, shown: CheckoutPreview) => {
         if (error.code === 'price_changed') {
@@ -217,7 +213,7 @@ function CheckoutForm(props: CheckoutProps) {
      * nothing reserved, nothing charged. Returns the authorised intent's id.
      */
     const authoriseCard = async (expectedMinor: number): Promise<string | null> => {
-        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code, delivery_postcode: address.postcode });
+        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code, delivery_postcode: address.postcode, delivery_address_id: savedAddressId });
         if (intent.status === 'requires_capture') {
             return intent.id;
         }
@@ -285,6 +281,7 @@ function CheckoutForm(props: CheckoutProps) {
             expected_total_gross_minor: shown.total_gross_minor,
             customer_reference: isTrade ? reference : '',
             delivery_address: address,
+            delivery_address_id: savedAddressId,
             ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
             ...(!isTrade && terms !== null ? { terms_version_id: terms.id } : {}),
             ...(isGuest ? { guest_email: guestEmail.trim() } : {}),
@@ -348,7 +345,7 @@ function CheckoutForm(props: CheckoutProps) {
                                 <fieldset className="space-y-2">
                                     <legend className="sr-only">Choose a delivery address</legend>
                                     {addresses.map((a) => (
-                                        <Choice key={a.key} name="address" value={a.key} checked={addressChoice === a.key} onChange={setAddressChoice}>
+                                        <Choice key={a.key} name="address" value={a.key} checked={addressChoice === a.key} onChange={chooseAddress}>
                                             <span className="font-medium">{a.label || a.line1}</span>
                                             {a.is_default && <span className="ml-2 text-xs text-muted-foreground">Default</span>}
                                             <span className="block text-xs text-muted-foreground">
@@ -356,15 +353,14 @@ function CheckoutForm(props: CheckoutProps) {
                                             </span>
                                         </Choice>
                                     ))}
-                                    <Choice name="address" value={NEW_ADDRESS} checked={addressChoice === NEW_ADDRESS} onChange={setAddressChoice}>
+                                    <Choice name="address" value={NEW_ADDRESS} checked={addressChoice === NEW_ADDRESS} onChange={chooseAddress}>
                                         <span className="font-medium">A different address</span>
                                     </Choice>
                                 </fieldset>
                             )}
 
-                            {addressChoice === NEW_ADDRESS && (
-                                <AddressForm value={newAddress} onChange={setNewAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} phoneRequired={isGuest} />
-                            )}
+                            <AddressForm value={address} onChange={setAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} phoneRequired={isGuest} />
+                            {!isGuest && !isTrade && <Link href="/account/addresses" className="text-sm underline">Manage saved delivery addresses</Link>}
                             {addressChoice !== NEW_ADDRESS && (
                                 <p className="text-xs text-muted-foreground">
                                     Delivering to {countries.find((c) => c.code === address.country_code)?.name ?? address.country_code}. VAT is charged at that country's rates.

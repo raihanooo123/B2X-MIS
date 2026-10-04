@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Domain\Identity\CompanyMemberships;
 use App\Domain\Storefront\Branding;
+use App\Domain\Storefront\PublicCustomer;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
 use App\Models\GoodsReceipt;
@@ -82,6 +83,7 @@ class HandleInertiaRequests extends Middleware
                 'two_factor_enabled' => $user->two_factor_enabled,
             ],
             'company' => $company === null ? null : ['id' => $company->public_id, 'name' => $company->name],
+            'public_customer' => PublicCustomer::eligible($user),
             'can_switch_company' => count(CompanyMemberships::ids($user)) > 1,
             // An owner of the company being acted for sees the Team link.
             'can_manage_team' => $company !== null && ! $user->isStaff() && Gate::allows('manageMembers', $company),

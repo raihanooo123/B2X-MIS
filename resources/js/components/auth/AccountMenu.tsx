@@ -46,6 +46,7 @@ export function AccountMenu() {
             <Link href="/cart" className={linkClass}>
                 <ShoppingCart className="size-4" aria-hidden /> Cart
             </Link>
+            {auth.public_customer && <Link href="/account/orders" className={linkClass}>My orders</Link>}
             {auth.can_manage_team && (
                 <Link href="/account/team" className={linkClass}>
                     <Users className="size-4" aria-hidden /> Team

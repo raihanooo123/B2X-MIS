@@ -4458,7 +4458,7 @@ Serves authenticated public history with `user_id = :viewer`, `company_id IS NUL
 
 ### 28.3 Receipt history
 
-No receipt columns or new receipt table. Ownership comes from `invoices.order_id → orders.user_id`, with both company ids NULL. Start from owned orders using §28.2 and existing `invoices_order_idx`; filter non-draft/non-void receipts and keyset by `(issued_at, id)`. A bounded top-N sort across owned receipts is acceptable; verify the plan on representative data before proposing any further index. Archived PDFs and seller snapshots remain §21's existing mechanism.
+No receipt columns or new receipt table. Ownership comes from `invoices.order_id → orders.user_id`, with both company ids NULL. Start from owned orders using §28.2 and existing `invoices_order_idx`; filter non-void receipts and keyset by `(issued_at, id)`. A bounded top-N sort across owned receipts is acceptable; verify the plan on representative data before proposing any further index. Archived PDFs and seller snapshots remain §21's existing mechanism.
 
 ### 28.4 Implementation gate
 

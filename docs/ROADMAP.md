@@ -1418,7 +1418,7 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
       Not built: the replacement order itself (05.4 §7.5, via 04 §4.2) — a replacement is recorded, not shipped.
 **Remaining B2C delivery order (user decision, 2026-10-04):**
 
-1. [ ] **My account for public customers:** all my orders in one list, keyset-paginated newest first; open any order using the existing order page with cancel/return/report-a-problem actions; my receipts; saved delivery addresses (add, edit, delete, default) used at checkout. Guest orders claimed on verification appear here. Spec draft: 05.15 §6.4 and 02 §28; approval required before implementation.
+1. [x] **My account for public customers:** all my orders in one list, keyset-paginated newest first; open any order using the existing order page with cancel/return/report-a-problem actions; my receipts; saved delivery addresses (add, edit, delete, default) used at checkout. Guest orders claimed on verification appear here. Specs 05.15 §6.4 and 02 §28 signed off; implementation and migration `2026_10_19_090100` built, pending user test verification.
 2. [ ] **S7:** write and approve `05.11` first, then legal pages (terms, privacy, returns, cookies), cookie banner (PECR), sitemap and JSON-LD. Required legal work is a pre-go-live requirement; S7 is not deferred to deployment.
 3. [ ] **Replacement orders:** create and ship replacements for faulty goods (05.4 §7.5, via 04 §4.2).
 4. [ ] **S5b:** click & collect for public customers, with collection slots and the collection workflow (05.6 §7).

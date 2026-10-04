@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Domain\Storefront\PublicCustomer;
 use App\Models\User;
 use App\Policies\Concerns\DeniesDeletion;
 
@@ -24,6 +25,11 @@ use App\Policies\Concerns\DeniesDeletion;
 final class UserPolicy
 {
     use DeniesDeletion;
+
+    public function publicShopping(User $user): bool
+    {
+        return PublicCustomer::eligible($user) && $user->hasVerifiedEmail();
+    }
 
     public function accessAdminPanel(User $user): bool
     {

@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Models\CompanyUser;
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Auth\Access\Response;
 
 /**
  * Customer-side access to an order. A company order is visible to every
@@ -14,7 +15,7 @@ use App\Models\User;
  */
 final class OrderPolicy
 {
-    public function view(User $user, Order $order): bool
+    public function view(User $user, Order $order): bool|Response
     {
         if ($order->company_id !== null) {
             return CompanyUser::query()
@@ -23,7 +24,7 @@ final class OrderPolicy
                 ->exists();
         }
 
-        return $order->user_id === $user->id;
+        return $order->user_id === $user->id && $user->hasVerifiedEmail() ? Response::allow() : Response::denyAsNotFound();
     }
 
     /**
@@ -33,6 +34,6 @@ final class OrderPolicy
      */
     public function cancel(User $user, Order $order): bool
     {
-        return $order->company_id === null && $this->view($user, $order);
+        return $order->company_id === null && $order->user_id === $user->id && $user->hasVerifiedEmail();
     }
 }

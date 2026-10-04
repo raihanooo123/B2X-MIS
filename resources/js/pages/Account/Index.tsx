@@ -19,7 +19,10 @@ import { cn } from '@/lib/utils';
 
 import { PendingInvitations, type PendingInvitation } from './components/team';
 
+import type { ShellProps } from '@/components/storefront/StorefrontLayout';
+
 interface AccountProps {
+    shell: ShellProps | null;
     user: { name: string; email: string; email_verified: boolean };
     company: { name: string; account_code: string } | null;
     team: { members: number; pending_invitations: number } | null;
@@ -34,9 +37,9 @@ interface AccountProps {
     status: string | null;
 }
 
-export default function AccountIndex({ user, company, team, invitations, two_factor: tf, status }: AccountProps) {
+export default function AccountIndex({ user, company, team, invitations, two_factor: tf, status, shell }: AccountProps) {
     return (
-        <AccountLayout title="Account & security" description="Your details, and how you sign in." status={status}>
+        <AccountLayout shell={shell} title="Account & security" description="Your details, and how you sign in." status={status}>
             <div className="space-y-6">
                 {invitations.length > 0 && (
                     <AccountCard title="Invitations for you" description="Accept to start ordering for that company.">
