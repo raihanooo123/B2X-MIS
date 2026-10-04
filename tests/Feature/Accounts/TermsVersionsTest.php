@@ -192,7 +192,8 @@ it('seeds placeholder terms locally only, published by the demo admin, once', fu
     $seeder();
     $seeder();
 
-    $terms = TermsVersion::query()->sole();
+    // The seeder also publishes a sale placeholder (05.15 S4); this test is about trade.
+    $terms = TermsVersion::query()->where('kind', 'trade')->sole();
     expect($terms->version)->toBe('placeholder-1')
         ->and($terms->kind)->toBe('trade')
         ->and($terms->published_by_user_id)->toBe($admin->id)

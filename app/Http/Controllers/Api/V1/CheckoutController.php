@@ -108,13 +108,6 @@ class CheckoutController extends Controller
         $address = $request->deliveryAddress();
         $this->assertCountryServed($address->countryCode, $companyId, 'delivery_address.country_code');
         $saleTerms = $request->saleTerms();
-        if ($companyId === null && $saleTerms === null) {
-            throw new ApiException(422, 'terms_not_accepted', 'Please read and accept our terms of sale to place your order.', [[
-                'field' => 'terms_version_id',
-                'code' => 'terms_not_accepted',
-                'message' => 'Accept the terms of sale to continue.',
-            ]]);
-        }
 
         // Card (07 §6.4, 04 §4.4): the browser has already authorised the
         // amount through Stripe Elements. Verify that authorisation before
@@ -159,6 +152,16 @@ class CheckoutController extends Controller
         $preview = $this->previewService->preview($cart, $companyId, $address->countryCode, 'delivery', user: $user, checkIdentity: true, destination: new DeliveryDestination($address->postcode, $address->countryCode));
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
+        }
+
+        // 05.15 §6.1 step 4, after the blockers: a buyer who cannot order yet
+        // (unverified email, empty cart, …) is told that first.
+        if ($companyId === null && $saleTerms === null) {
+            throw new ApiException(422, 'terms_not_accepted', 'Please read and accept our terms of sale to place your order.', [[
+                'field' => 'terms_version_id',
+                'code' => 'terms_not_accepted',
+                'message' => 'Accept the terms of sale to continue.',
+            ]]);
         }
 
         try {
