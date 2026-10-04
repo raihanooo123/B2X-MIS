@@ -61,24 +61,24 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
 
     return (
         <StorefrontLayout title="Your basket" shell={shell}>
-            <div className="bg-slate-100/70 pb-20 text-foreground">
+            <div className="text-foreground">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 pt-6 sm:px-6">
                     <Link href={storefrontLinks.continueShopping(isTrade)} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground">
                         <ArrowLeft className="size-4" aria-hidden /> Continue shopping
                     </Link>
-                    <ol className="hidden md:flex items-center gap-3 text-xs font-medium text-slate-400">
+                    <ol className="hidden md:flex items-center gap-3 text-xs font-medium text-slate-600">
                         <li className="flex items-center gap-1.5 text-foreground font-bold">
                             <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">1</span>
                             Shopping Cart
                         </li>
                         <span className="h-0.5 w-6 bg-slate-200" />
                         <li className="flex items-center gap-1.5">
-                            <span className="flex size-5 items-center justify-center rounded-full bg-slate-200 text-[10px] text-muted-foreground">2</span>
+                            <span className="flex size-5 items-center justify-center rounded-full bg-slate-200 text-[10px] text-slate-700">2</span>
                             Shipping & Delivery
                         </li>
                         <span className="h-0.5 w-6 bg-slate-200" />
                         <li className="flex items-center gap-1.5">
-                            <span className="flex size-5 items-center justify-center rounded-full bg-slate-200 text-[10px] text-muted-foreground">3</span>
+                            <span className="flex size-5 items-center justify-center rounded-full bg-slate-200 text-[10px] text-slate-700">3</span>
                             Payment & Confirm
                         </li>
                     </ol>
@@ -92,7 +92,7 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
                     </div>
                     {lines.length > 0 && (
                         <div className="text-right text-xs text-muted-foreground">
-                            Total items: <span className="font-bold text-foreground">{lines.reduce((acc, l) => acc + l.pack_qty, 0)} packs</span> ({lines.length} products)
+                            Total items: <span className="font-bold text-foreground">{plural(lines.reduce((acc, l) => acc + l.pack_qty, 0), 'pack')}</span> ({plural(lines.length, 'product')})
                         </div>
                     )}
                 </div>
@@ -213,7 +213,7 @@ function EmptyCart({ isTrade }: { isTrade: boolean }) {
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">
                 You haven't added anything yet. Browse the catalogue and add items to your basket.
             </p>
-            <Button asChild size="lg" className="mt-6 rounded-lg px-6 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-2xs">
+            <Button asChild size="lg" className="mt-6 min-h-11 rounded-lg px-6 font-semibold bg-primary text-primary-foreground hover:bg-primary/90 shadow-2xs">
                 <Link href={storefrontLinks.continueShopping(isTrade)}>{isTrade ? 'Go to the order pad' : 'Start shopping'}</Link>
             </Button>
         </div>
@@ -233,8 +233,8 @@ function CartRow({ rowNumber, line, priced, pricing, blockers, mode }: LineProps
     const hasBlockers = blockers.length > 0;
 
     return (
-        <TableRow className={cn('text-xs transition-colors', hasBlockers ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-muted/30/80')}>
-            <TableCell className="w-10 py-3.5 text-center font-mono text-slate-400 tabular-nums">
+        <TableRow className={cn('text-xs transition-colors', hasBlockers ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-muted/40')}>
+            <TableCell className="w-10 py-3.5 text-center font-mono text-slate-500 tabular-nums">
                 {rowNumber}
             </TableCell>
             <TableCell className="w-14 py-3.5 align-top">
@@ -248,7 +248,7 @@ function CartRow({ rowNumber, line, priced, pricing, blockers, mode }: LineProps
                 <div className="font-semibold text-slate-800">{line.pack.label}</div>
                 {line.pack.base_units > 1 && (
                     <div className="mt-0.5 inline-flex items-center text-[11px] text-muted-foreground">
-                        <Package className="mr-1 size-3 text-slate-400" />
+                        <Package className="mr-1 size-3 text-slate-500" />
                         {line.pack.base_units.toLocaleString('en-GB')} base units
                     </div>
                 )}
@@ -280,7 +280,7 @@ function CartCard({ rowNumber, line, priced, pricing, blockers, mode }: LineProp
             hasBlockers ? 'border-amber-300 bg-amber-50/40' : 'border-border'
         )}>
             <div className="flex gap-3.5">
-                <span className="shrink-0 text-xs font-mono font-bold text-slate-400">{rowNumber}</span>
+                <span className="shrink-0 text-xs font-mono font-bold text-slate-500">{rowNumber}</span>
                 <Thumbnail url={line.sku.thumbnail_url} className="size-16 rounded-lg" />
                 <div className="min-w-0 flex-1">
                     <ProductName line={line} />
@@ -300,7 +300,7 @@ function CartCard({ rowNumber, line, priced, pricing, blockers, mode }: LineProp
             <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
                 <QuantityEditor line={line} touch />
                 <div className="text-right">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Subtotal</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Subtotal</span>
                     <span className="text-base font-semibold text-foreground tabular-nums">
                         <LineTotal priced={priced} pricing={pricing} mode={mode} />
                     </span>
@@ -315,7 +315,7 @@ function Thumbnail({ url, className }: { url: string | null; className?: string 
 
     if (url === null || failed) {
         return (
-            <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30 text-slate-400', className)} aria-hidden>
+            <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30 text-slate-500', className)} aria-hidden>
                 <ImageOff className="size-4" />
             </div>
         );
@@ -350,7 +350,7 @@ function ProductName({ line }: { line: CartLine }) {
 
 function PackPrice({ priced, pricing, line, mode, inline = false }: { priced: PreviewLine | undefined; pricing: boolean; line: CartLine; mode: DisplayMode; inline?: boolean }) {
     if (priced === undefined || priced.unit_price_net_e4 === null || priced.tax_rate_bp === null) {
-        return pricing ? <Skeleton className={cn('h-4 w-14 bg-slate-200', !inline && 'ml-auto')} /> : <span className="text-slate-400">—</span>;
+        return pricing ? <Skeleton className={cn('h-4 w-14 bg-slate-200', !inline && 'ml-auto')} /> : <span className="text-slate-500">—</span>;
     }
 
     return (
@@ -364,7 +364,7 @@ function PackPrice({ priced, pricing, line, mode, inline = false }: { priced: Pr
 function LineTotal({ priced, pricing, mode }: { priced: PreviewLine | undefined; pricing: boolean; mode: DisplayMode }) {
     const total = priced ? lineTotalMinor(priced, mode) : null;
     if (total === null) {
-        return pricing ? <Skeleton className="ml-auto h-4 w-16 bg-slate-200" /> : <span className="text-slate-400">—</span>;
+        return pricing ? <Skeleton className="ml-auto h-4 w-16 bg-slate-200" /> : <span className="text-slate-500">—</span>;
     }
 
     return <>{formatMinor(total)}</>;
@@ -417,7 +417,7 @@ function QuantityEditor({ line, touch = false }: { line: CartLine; touch?: boole
         }
     };
 
-    const size = touch ? 'size-10' : 'size-7';
+    const size = touch ? 'size-11' : 'size-7';
 
     return (
         <div>
@@ -443,8 +443,8 @@ function QuantityEditor({ line, touch = false }: { line: CartLine; touch?: boole
                     onBlur={commitDraft}
                     onKeyDown={onKeyDown}
                     className={cn(
-                        'border-0 px-1 text-center font-bold tabular-nums focus-visible:ring-0 shadow-none focus-visible:bg-muted/30',
-                        touch ? 'h-10 w-16 text-base' : 'h-7 w-12 text-xs'
+                        'border-0 px-1 text-center font-bold tabular-nums shadow-none focus-visible:bg-muted/30',
+                        touch ? 'h-11 w-16 text-base' : 'h-7 w-12 text-xs'
                     )}
                 />
                 <Button
@@ -473,7 +473,7 @@ function RemoveButton({ line }: { line: CartLine }) {
             type="button"
             variant="ghost"
             size="icon"
-            className="size-8 text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+            className="size-11 text-slate-500 hover:bg-red-50 md:size-8 hover:text-red-600 transition-colors"
             onClick={() => remove.mutate(line.id)}
             disabled={remove.isPending}
             aria-label={`Remove ${line.sku.sku_code} from cart`}
@@ -509,7 +509,7 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers, is
                                 {row.label}
                                 {row.label.includes('VAT') && (
                                     <span title="VAT calculated based on destination country">
-                                        <HelpCircle className="size-3 text-slate-400 inline" aria-hidden />
+                                        <HelpCircle className="size-3 text-slate-500 inline" aria-hidden />
                                     </span>
                                 )}
                             </dt>
@@ -558,7 +558,7 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers, is
                     className="w-full h-12 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs rounded-lg flex items-center justify-center gap-2"
                     onClick={() => router.visit('/checkout')}
                 >
-                    <Lock className="size-4 text-slate-400" />
+                    <Lock className="size-4 opacity-80" aria-hidden />
                     Proceed to Checkout
                 </Button>
 
@@ -570,9 +570,9 @@ function CartSummary({ preview, loading, error, mode, country, orderBlockers, is
             {/* Baymard Security Trust Badge Block */}
             <div className="mt-6 border-t border-border pt-4 text-center">
                 <div className="inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
-                    <Lock className="size-3 text-slate-400" /> 256-Bit SSL Encrypted Checkout
+                    <Lock className="size-3 text-slate-500" /> 256-Bit SSL Encrypted Checkout
                 </div>
-                <p className="mt-1 text-[10px] text-slate-400">Need help with this order? Contact account support.</p>
+                <p className="mt-1 text-[10px] text-slate-500">Need help with this order? Contact account support.</p>
             </div>
         </aside>
     );
@@ -592,4 +592,8 @@ function lineBlockers(blockers: PreviewBlocker[]): Map<string, PreviewBlocker[]>
         }
     }
     return map;
+}
+
+function plural(count: number, noun: string): string {
+    return `${count.toLocaleString('en-GB')} ${noun}${count === 1 ? '' : 's'}`;
 }

@@ -51,34 +51,44 @@ export function StockBadge({ stock, left = null }: { stock: StockLabel; left?: n
 
 export function ProductCard({ card, mode }: { card: ProductCardData; mode: DisplayMode }) {
     return (
-        <li className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm transition-shadow hover:border-primary/30 hover:shadow-lg">
-            <div className="aspect-square overflow-hidden border-b border-border/40 bg-muted/20 p-4">
+        <li className="group relative flex flex-col">
+            <div className="relative aspect-square overflow-hidden rounded-2xl bg-muted/60 ring-offset-2 ring-offset-background transition-shadow group-hover:shadow-lg group-has-[a:focus-visible]:ring-2 group-has-[a:focus-visible]:ring-ring">
                 {card.thumbnail_url ? (
-                    <img src={card.thumbnail_url} alt="" loading="lazy" className="size-full object-contain transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-[1.03]" />
+                    <img
+                        src={card.thumbnail_url}
+                        alt=""
+                        loading="lazy"
+                        className="size-full object-contain p-5 mix-blend-multiply transition-transform duration-500 ease-out motion-reduce:transition-none motion-safe:group-hover:scale-105 sm:p-6"
+                    />
                 ) : (
                     <div className="flex size-full items-center justify-center text-muted-foreground">
                         <ImageOff className="size-8" aria-hidden />
                     </div>
                 )}
+                {card.stock === 'low_stock' && (
+                    <span className="absolute left-2.5 top-2.5 rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-semibold text-amber-800 shadow-sm">
+                        {card.stock_left !== null ? `Only ${card.stock_left} left` : 'Low stock'}
+                    </span>
+                )}
             </div>
-            <div className="flex flex-1 flex-col gap-2 p-4 sm:p-5">
-                {card.brand && <p className="text-xs uppercase tracking-wide text-muted-foreground">{card.brand}</p>}
-                <h3 className="line-clamp-2 text-sm font-semibold leading-relaxed">
-                    <Link href={storefrontLinks.product(card)} className="after:absolute after:inset-0 focus:outline-none">
+            <div className="flex flex-1 flex-col px-0.5 pt-3">
+                {card.brand && <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.brand}</p>}
+                <h3 className="mt-1 line-clamp-2 text-sm font-medium leading-snug text-foreground/90">
+                    <Link href={storefrontLinks.product(card)} className="after:absolute after:inset-0 after:z-0 focus:outline-none">
                         {card.name}
                     </Link>
                 </h3>
-                <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-2">
+                <div className="mt-auto flex flex-wrap items-end justify-between gap-x-2 gap-y-1 pt-2.5">
                     {card.price ? (
-                        <p className="leading-tight">
-                            {card.price.varies && <span className="text-xs text-muted-foreground">From </span>}
-                            <span className="text-lg font-semibold tracking-tight tabular-nums">{shelfPrice(card.price.unit_net_e4, card.price.tax_rate_bp, mode)}</span>
-                            <span className="block text-[11px] text-muted-foreground">each, {vatLabel(mode)}</span>
+                        <p className="leading-none">
+                            {card.price.varies && <span className="mr-1 text-xs text-muted-foreground">From</span>}
+                            <span className="text-lg font-bold tracking-tight tabular-nums">{shelfPrice(card.price.unit_net_e4, card.price.tax_rate_bp, mode)}</span>
+                            <span className="mt-1 block text-[11px] text-muted-foreground">each, {vatLabel(mode)}</span>
                         </p>
                     ) : (
                         <p className="text-sm text-muted-foreground">Price on request</p>
                     )}
-                    <StockBadge stock={card.stock} left={card.stock_left} />
+                    {card.stock !== 'low_stock' && <StockBadge stock={card.stock} left={card.stock_left} />}
                 </div>
                 {card.quick_add && <QuickAdd item={card.quick_add} name={card.name} />}
             </div>
@@ -112,8 +122,8 @@ function QuickAdd({ item, name }: { item: { sku_id: string; pack_code: string };
                 disabled={add.isPending}
                 aria-label={`Add ${name} to basket`}
                 className={cn(
-                    'inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-60',
-                    done ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground',
+                    'inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full border text-sm font-semibold transition-colors disabled:opacity-60',
+                    done ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-foreground/15 bg-background hover:border-primary hover:bg-primary hover:text-primary-foreground',
                 )}
             >
                 {done ? <Check className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}

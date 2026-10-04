@@ -360,7 +360,7 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
 
                             <AddressForm value={address} onChange={setAddress} countries={countries} errors={fieldErrors} isTrade={isTrade} phoneRequired={isGuest} />
-                            {!isGuest && !isTrade && <Link href="/account/addresses" className="text-sm underline">Manage saved delivery addresses</Link>}
+                            {!isGuest && !isTrade && <Link href="/account/addresses" className="inline-flex min-h-11 items-center text-sm underline md:min-h-0">Manage saved delivery addresses</Link>}
                             {addressChoice !== NEW_ADDRESS && (
                                 <p className="text-xs text-muted-foreground">
                                     Delivering to {countries.find((c) => c.code === address.country_code)?.name ?? address.country_code}. VAT is charged at that country's rates.
@@ -524,12 +524,12 @@ function PreContract({ sections, returnStatement }: { sections: { heading: strin
 function TermsOfSale({ terms, accepted, onChange, disabled, error }: { terms: { id: number; version: string; html: string }; accepted: boolean; onChange: (v: boolean) => void; disabled: boolean; error?: string }) {
     return (
         <div className="space-y-2">
-            <details className="rounded-md border p-3 text-sm">
-                <summary className="cursor-pointer font-medium">Read our terms of sale (version {terms.version})</summary>
+            <details className="rounded-md border text-sm">
+                <summary className="min-h-11 cursor-pointer px-3 py-3 font-medium">Read our terms of sale (version {terms.version})</summary>
                 <div
                     tabIndex={0}
                     aria-label="Terms of sale"
-                    className="mt-2 max-h-64 space-y-2 overflow-y-auto [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+                    className="max-h-64 space-y-2 overflow-y-auto px-3 pb-3 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
                     dangerouslySetInnerHTML={{ __html: terms.html }}
                 />
             </details>
@@ -603,7 +603,7 @@ function Choice({ name, value, checked, onChange, children }: { name: string; va
     const id = useId();
 
     return (
-        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent')}>
+        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent/50')}>
             <input id={id} type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} className="mt-0.5 size-4 shrink-0 accent-primary" />
             <span className="min-w-0 flex-1">{children}</span>
         </label>

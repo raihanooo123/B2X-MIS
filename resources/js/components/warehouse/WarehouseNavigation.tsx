@@ -19,7 +19,7 @@ export function WarehouseNavigation() {
 
     return (
         <nav aria-label="Warehouse" className="overflow-x-auto border-b border-border bg-background shadow-sm">
-            <div className="mx-auto flex w-max min-w-full max-w-6xl items-center gap-2 px-4 py-2 sm:w-full">
+            <div className="mx-auto flex w-max min-w-full max-w-5xl items-center gap-2 px-4 py-2 sm:w-full sm:min-w-0">
                 {visible.map((link) => {
                     const active = page.url.split('?')[0] === link.href;
                     return (

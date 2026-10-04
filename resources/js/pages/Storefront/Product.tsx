@@ -8,9 +8,10 @@
  * on the server, so what the buyer pays is always the server's figure.
  */
 import { Link, router, usePage } from '@inertiajs/react';
-import { Check, ChevronRight, ImageOff, Minus, Plus, ShoppingBag } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { BadgePercent, Check, ImageOff, Minus, Plus, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { Breadcrumb } from '@/components/storefront/Breadcrumb';
 import { ProductCard, StockBadge, type ProductCardData, type StockLabel } from '@/components/storefront/ProductCard';
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { useAddCartLine } from '@/lib/api/orderPad';
@@ -63,18 +64,18 @@ export default function ProductPage({ shell, product }: { shell: ShellProps; pro
 
     return (
         <StorefrontLayout title={product.meta_title ?? product.name} description={product.meta_description ?? product.short_description ?? undefined} shell={shell}>
-            <div className="mx-auto max-w-7xl px-4 py-6">
-                <Breadcrumb product={product} />
+            <div className="mx-auto max-w-7xl px-4 pb-6 pt-2 md:pt-6">
+                <Breadcrumb trail={product.breadcrumb.map((c) => ({ name: c.name, href: storefrontLinks.category(c.slug) }))} current={product.name} />
 
-                <div className="mt-4 grid gap-8 lg:grid-cols-2 lg:gap-12">
+                <div className="mt-2 grid gap-8 md:mt-5 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
                     <Gallery images={product.images} name={product.name} />
                     <BuyBox product={product} mode={mode} />
                 </div>
 
                 {(product.description || product.specifications.length > 0) && (
-                    <div className="mt-12 grid gap-8 border-t pt-8 lg:grid-cols-2 lg:gap-12">
+                    <div className="mt-14 grid gap-6 lg:grid-cols-2 lg:gap-8">
                         {product.description && (
-                            <section aria-labelledby="description">
+                            <section aria-labelledby="description" className="rounded-3xl bg-muted/40 p-6 sm:p-8">
                                 <h2 id="description" className="text-lg font-semibold">
                                     Description
                                 </h2>
@@ -82,11 +83,11 @@ export default function ProductPage({ shell, product }: { shell: ShellProps; pro
                             </section>
                         )}
                         {product.specifications.length > 0 && (
-                            <section aria-labelledby="specifications">
+                            <section aria-labelledby="specifications" className="rounded-3xl bg-muted/40 p-6 sm:p-8">
                                 <h2 id="specifications" className="text-lg font-semibold">
                                     Specifications
                                 </h2>
-                                <dl className="mt-3 divide-y rounded-lg border text-sm">
+                                <dl className="mt-4 divide-y overflow-hidden rounded-2xl border bg-background text-sm">
                                     {product.specifications.map((row) => (
                                         <div key={row.label} className="grid grid-cols-2 gap-4 px-4 py-2.5">
                                             <dt className="text-muted-foreground">{row.label}</dt>
@@ -100,11 +101,11 @@ export default function ProductPage({ shell, product }: { shell: ShellProps; pro
                 )}
 
                 {product.related.length > 0 && (
-                    <section aria-labelledby="related" className="mt-12 border-t pt-8">
-                        <h2 id="related" className="text-lg font-semibold">
+                    <section aria-labelledby="related" className="mt-16">
+                        <h2 id="related" className="text-2xl font-extrabold tracking-tight">
                             You may also need
                         </h2>
-                        <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+                        <ul className="mt-6 grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-5 lg:grid-cols-4">
                             {product.related.slice(0, 4).map((card) => (
                                 <ProductCard key={card.id} card={card} mode={mode} />
                             ))}
@@ -116,43 +117,15 @@ export default function ProductPage({ shell, product }: { shell: ShellProps; pro
     );
 }
 
-function Breadcrumb({ product }: { product: ProductData }) {
-    return (
-        <nav aria-label="Breadcrumb">
-            <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-                <li>
-                    <Link href="/" className="hover:text-foreground">
-                        Home
-                    </Link>
-                </li>
-                {product.breadcrumb.map((crumb) => (
-                    <li key={crumb.slug} className="flex items-center gap-1">
-                        <ChevronRight className="size-3.5" aria-hidden />
-                        <Link href={storefrontLinks.category(crumb.slug)} className="hover:text-foreground">
-                            {crumb.name}
-                        </Link>
-                    </li>
-                ))}
-                <li className="flex items-center gap-1">
-                    <ChevronRight className="size-3.5" aria-hidden />
-                    <span aria-current="page" className="line-clamp-1 text-foreground">
-                        {product.name}
-                    </span>
-                </li>
-            </ol>
-        </nav>
-    );
-}
-
 function Gallery({ images, name }: { images: ProductData['images']; name: string }) {
     const [active, setActive] = useState(0);
     const current = images[active];
 
     return (
-        <div>
-            <div className="aspect-square overflow-hidden rounded-3xl border border-border/70 bg-muted/20 p-6">
+        <div className="lg:sticky lg:top-36 lg:self-start">
+            <div className="aspect-square overflow-hidden rounded-[2rem] bg-muted/60">
                 {current ? (
-                    <img src={current.url} alt={current.alt ?? name} className="size-full object-contain" />
+                    <img src={current.url} alt={current.alt ?? name} className="size-full object-contain p-8 mix-blend-multiply sm:p-12" />
                 ) : (
                     <div className="flex size-full items-center justify-center text-muted-foreground">
                         <ImageOff className="size-10" aria-hidden />
@@ -169,9 +142,9 @@ function Gallery({ images, name }: { images: ProductData['images']; name: string
                                 onClick={() => setActive(i)}
                                 aria-pressed={i === active}
                                 aria-label={`Show image ${i + 1}`}
-                                className={cn('size-16 overflow-hidden rounded-lg border-2', i === active ? 'border-primary' : 'border-transparent')}
+                                className={cn('size-16 overflow-hidden rounded-xl bg-muted/60 ring-2 ring-offset-2 transition-shadow', i === active ? 'ring-primary' : 'ring-transparent hover:ring-border')}
                             >
-                                <img src={image.url} alt="" className="size-full object-contain" />
+                                <img src={image.url} alt="" className="size-full object-contain p-1.5 mix-blend-multiply" />
                             </button>
                         </li>
                     ))}
@@ -248,16 +221,16 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
 
     return (
         <div>
-            {product.brand && <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">{product.brand.name}</p>}
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{product.name}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">SKU {variant.sku_code}</p>
+            {product.brand && <p className="text-xs font-semibold uppercase tracking-wider text-primary">{product.brand.name}</p>}
+            <h1 className="mt-2 text-[1.75rem] font-extrabold leading-tight tracking-tight sm:text-4xl">{product.name}</h1>
+            <p className="mt-2 text-sm text-muted-foreground">SKU <span className="font-mono text-foreground/80">{variant.sku_code}</span></p>
             {product.short_description && <p className="mt-4 leading-relaxed text-muted-foreground">{product.short_description}</p>}
 
-            <div className="mt-6 rounded-2xl border border-border/70 bg-background p-5 shadow-sm sm:p-6">
+            <div className="mt-6 rounded-3xl border border-border/70 bg-background p-5 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.12)] sm:p-7">
                 {variant.price ? (
                     <div className="flex flex-wrap items-end justify-between gap-3">
                         <div>
-                            <p className="text-4xl font-semibold tracking-tight tabular-nums">{shelfPrice(unitAt(variant.price, baseQty), variant.price.tax_rate_bp, mode)}</p>
+                            <p className="text-4xl font-extrabold tracking-tight tabular-nums">{shelfPrice(unitAt(variant.price, baseQty), variant.price.tax_rate_bp, mode)}</p>
                             <p className="text-sm text-muted-foreground">each, {vatLabel(mode)}</p>
                             {product.rrp_minor !== null && <p className="mt-1 text-sm text-muted-foreground">RRP {formatMinor(product.rrp_minor)}</p>}
                         </div>
@@ -277,7 +250,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                                     type="button"
                                     aria-pressed={v.id === variant.id}
                                     onClick={() => chooseVariant(v)}
-                                    className={cn('min-h-11 rounded-lg border px-4 text-sm font-medium', v.id === variant.id ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-muted')}
+                                    className={cn('min-h-11 rounded-full border px-5 text-sm font-medium transition-colors', v.id === variant.id ? 'border-foreground bg-foreground text-background' : 'hover:border-foreground/40')}
                                 >
                                     {v.label ?? v.sku_code}
                                 </button>
@@ -296,13 +269,14 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                                     <label
                                         key={p.code}
                                         className={cn(
-                                            'flex cursor-pointer flex-col rounded-lg border p-3 text-sm transition-colors',
+                                            // The radio is visually hidden, so the card carries its keyboard focus.
+                                            'flex cursor-pointer flex-col rounded-xl border p-3.5 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2',
                                             p.code === pack?.code ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-muted/60',
                                         )}
                                     >
                                         <input type="radio" name="pack" value={p.code} checked={p.code === pack?.code} onChange={() => setPackCode(p.code)} className="sr-only" />
                                         <span className="font-medium">{p.label}</span>
-                                        <span className="text-muted-foreground">
+                                        <span className={p.code === pack?.code ? 'text-foreground/75' : 'text-muted-foreground'}>
                                             {p.base_units === 1 ? 'Single item' : `${p.base_units} items`} · {formatMinor(packPriceMinor)}
                                         </span>
                                     </label>
@@ -314,7 +288,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
 
                 {variant.price && pack && (
                     <div className="mt-6 flex flex-wrap items-center gap-3">
-                        <div className="inline-flex items-center rounded-lg border" role="group" aria-label="Quantity">
+                        <div className="inline-flex items-center rounded-full border" role="group" aria-label="Quantity">
                             <button type="button" onClick={() => setQty(Math.max(minPacks, packQty - 1))} disabled={packQty <= minPacks} className="inline-flex size-11 items-center justify-center disabled:opacity-40" aria-label="One fewer">
                                 <Minus className="size-4" aria-hidden />
                             </button>
@@ -336,7 +310,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                             type="button"
                             onClick={submit}
                             disabled={unavailable || add.isPending}
-                            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-primary px-6 font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:shadow-none"
                         >
                             <ShoppingBag className="size-5" aria-hidden />
                             {variant.stock === 'out_of_stock' ? 'Out of stock' : add.isPending ? 'Adding…' : 'Add to basket'}
@@ -358,7 +332,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                                 type="button"
                                 onClick={submit}
                                 disabled={unavailable || add.isPending}
-                                className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-primary px-5 font-semibold text-primary-foreground disabled:opacity-50"
+                                className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-6 font-semibold text-primary-foreground shadow-lg shadow-primary/25 disabled:opacity-50"
                             >
                                 <ShoppingBag className="size-5" aria-hidden />
                                 {added ? 'Added' : add.isPending ? 'Adding…' : 'Add'}
@@ -392,7 +366,7 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                     <h2 id="breaks" className="text-sm font-semibold">
                         Buy more, pay less
                     </h2>
-                    <table className="mt-2 w-full overflow-hidden rounded-lg border text-sm">
+                    <table className="mt-3 w-full overflow-hidden rounded-2xl border text-sm">
                         <thead className="bg-muted/50 text-left text-muted-foreground">
                             <tr>
                                 <th scope="col" className="px-4 py-2 font-medium">
@@ -414,6 +388,21 @@ function BuyBox({ product, mode }: { product: ProductData; mode: DisplayMode }) 
                     </table>
                 </section>
             )}
+
+            <ul className="mt-6 grid gap-2 text-sm sm:grid-cols-3">
+                <BuyPoint icon={<Truck className="size-4" aria-hidden />} text="UK delivery, cost shown before you pay" />
+                <BuyPoint icon={<BadgePercent className="size-4" aria-hidden />} text="Pack and case prices" />
+                <BuyPoint icon={<ShieldCheck className="size-4" aria-hidden />} text="Secure checkout by Stripe" />
+            </ul>
         </div>
+    );
+}
+
+function BuyPoint({ icon, text }: { icon: ReactNode; text: string }) {
+    return (
+        <li className="flex items-center gap-2.5 rounded-xl bg-muted/50 px-3 py-2.5 text-foreground/80">
+            <span className="text-primary">{icon}</span>
+            {text}
+        </li>
     );
 }

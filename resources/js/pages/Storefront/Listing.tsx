@@ -5,9 +5,10 @@
  * (02 §9 rule 8: never OFFSET, so no numbered pages).
  */
 import { Link, router, usePage } from '@inertiajs/react';
-import { ChevronRight, PackageSearch, SlidersHorizontal, X } from 'lucide-react';
+import { PackageSearch, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 
+import { Breadcrumb } from '@/components/storefront/Breadcrumb';
 import { ProductCard, type ProductCardData } from '@/components/storefront/ProductCard';
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { storefrontLinks } from '@/lib/storefront/links';
@@ -76,47 +77,20 @@ export default function Listing({ shell, category, filters, products, next_curso
 
     return (
         <StorefrontLayout title={category?.meta_title ?? title} description={category?.meta_description ?? undefined} shell={shell}>
-            <div className="border-b border-border/60 bg-gradient-to-r from-primary/5 to-muted/20">
-                <div className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
-                    <nav aria-label="Breadcrumb">
-                        <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-                            <li>
-                                <Link href="/" className="hover:text-foreground">
-                                    Home
-                                </Link>
-                            </li>
-                            {(category?.breadcrumb ?? []).map((crumb, i, all) => (
-                                <li key={crumb.slug} className="flex items-center gap-1">
-                                    <ChevronRight className="size-3.5" aria-hidden />
-                                    {i === all.length - 1 ? (
-                                        <span aria-current="page" className="text-foreground">
-                                            {crumb.name}
-                                        </span>
-                                    ) : (
-                                        <Link href={storefrontLinks.category(crumb.slug)} className="hover:text-foreground">
-                                            {crumb.name}
-                                        </Link>
-                                    )}
-                                </li>
-                            ))}
-                            {!category && (
-                                <li className="flex items-center gap-1">
-                                    <ChevronRight className="size-3.5" aria-hidden />
-                                    <span aria-current="page" className="text-foreground">
-                                        Search
-                                    </span>
-                                </li>
-                            )}
-                        </ol>
-                    </nav>
-                    <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
+            <div className="border-b border-border/60">
+                <div className="mx-auto max-w-7xl px-4 pb-5 pt-3 sm:pb-8 sm:pt-6">
+                    <Breadcrumb
+                        trail={(category?.breadcrumb ?? []).slice(0, -1).map((c) => ({ name: c.name, href: storefrontLinks.category(c.slug) }))}
+                        current={category ? category.name : 'Search'}
+                    />
+                    <h1 className="mt-1 text-[1.75rem] font-extrabold leading-tight tracking-tight sm:mt-3 sm:text-4xl">{title}</h1>
                     {category && category.children.length > 0 && (
-                        <ul className="mt-4 flex flex-wrap gap-2" aria-label={`Ranges in ${category.name}`}>
+                        <ul className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden" aria-label={`Ranges in ${category.name}`}>
                             {category.children.map((child) => (
-                                <li key={child.slug}>
+                                <li key={child.slug} className="shrink-0">
                                     <Link
                                         href={storefrontLinks.category(child.slug)}
-                                        className="inline-flex min-h-11 items-center rounded-full border bg-background px-4 text-sm font-medium hover:border-primary/50 hover:text-primary"
+                                        className="inline-flex min-h-11 items-center rounded-full border bg-muted/40 px-4 text-sm font-medium transition-colors hover:border-foreground/30 hover:bg-background"
                                     >
                                         {child.name}
                                     </Link>
@@ -139,7 +113,7 @@ export default function Listing({ shell, category, filters, products, next_curso
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <button
                             type="button"
-                            className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 text-sm font-medium lg:hidden"
+                            className="inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-semibold lg:hidden"
                             aria-expanded={filtersOpen}
                             onClick={() => setFiltersOpen((v) => !v)}
                         >
@@ -171,7 +145,7 @@ export default function Listing({ shell, category, filters, products, next_curso
                             )}
                         </div>
                     ) : (
-                        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
+                        <ul className="grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-5 xl:grid-cols-4">
                             {items.map((card) => (
                                 <ProductCard key={card.id} card={card} mode={price_display.mode} />
                             ))}
@@ -184,7 +158,7 @@ export default function Listing({ shell, category, filters, products, next_curso
                                 type="button"
                                 onClick={showMore}
                                 disabled={loadingMore}
-                                className="inline-flex min-h-11 items-center rounded-lg border bg-background px-6 text-sm font-semibold hover:bg-muted disabled:opacity-60"
+                                className="inline-flex min-h-12 items-center rounded-full border bg-background px-8 text-sm font-semibold shadow-sm transition-colors hover:bg-muted disabled:opacity-60"
                             >
                                 {loadingMore ? 'Loading…' : 'Show more products'}
                             </button>
@@ -213,7 +187,7 @@ function SortSelect({ value, onChange }: { value: Filters['sort']; onChange: (so
             <label htmlFor={id} className="text-muted-foreground">
                 Sort by
             </label>
-            <select id={id} value={value} onChange={(e) => onChange(e.target.value as Filters['sort'])} className="h-11 rounded-lg border bg-background px-3 font-medium md:h-9">
+            <select id={id} value={value} onChange={(e) => onChange(e.target.value as Filters['sort'])} className="h-11 rounded-full border bg-background px-4 font-medium md:h-9">
                 <option value="name">Name, A–Z</option>
                 <option value="newest">Newest</option>
             </select>

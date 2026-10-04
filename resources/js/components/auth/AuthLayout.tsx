@@ -22,7 +22,7 @@ export function AuthLayout({ title, description, status, wide = false, children,
         <>
             <Head title={title} />
             <div className="flex min-h-screen flex-col items-center bg-gradient-to-br from-primary/5 via-muted/30 to-background px-4 py-8 sm:justify-center sm:py-12">
-                <Link href="/order-pad" className="mb-8 text-lg font-semibold tracking-tight text-foreground">
+                <Link href="/order-pad" className="mb-6 inline-flex min-h-11 items-center text-lg font-semibold tracking-tight text-foreground">
                     B2X Wholesale
                 </Link>
                 <main className={cn('w-full rounded-2xl border border-border/70 bg-background p-6 shadow-lg sm:p-8', wide ? 'max-w-2xl' : 'max-w-md')}>
