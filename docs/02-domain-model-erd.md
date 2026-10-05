@@ -4576,12 +4576,13 @@ Signed off together on 2026-10-05. Each one's DDL is in the module spec that own
 
 ---
 
-## 31. B2B completion schema proposals — DRAFT, 2026-10-05
+## 31. B2B completion schema proposals — signed off 2026-10-05
 
-**Not signed off. SQL below is a proposed amendment, not a migration to run.**
+**Signed off 2026-10-05. Implement in new additive migrations, never execute these
+document snippets directly against live data.**
 The module additions in 05.1 §14, 05.2 §18, 05.3 §17, 05.4 §15, 05.7 §17,
 05.8 §16 and new 05.17 refer here for schema authority. Existing signed-off tables
-remain unchanged until approval. Re-adopted CREATE definitions below are for tables
+remain unchanged outside this signed-off amendment. Re-adopted CREATE definitions below are for tables
 absent from migrations, not replacements for migrated tables. Migration author must
 check the then-current schema and use additive ALTERs where a table already exists.
 All new public identifiers are ULIDs. Application validates GBP-only, integer money,
@@ -4598,7 +4599,8 @@ or rejected orders are terminal and must be copied into a new checkout to retry.
 
 ```sql
 ALTER TABLE company_users ADD CONSTRAINT company_users_order_limit_nonnegative_chk
-  CHECK (order_limit_minor IS NULL OR order_limit_minor >= 0);
+  CHECK (order_limit_minor IS NULL OR order_limit_minor >= 0) NOT VALID;
+ALTER TABLE company_users VALIDATE CONSTRAINT company_users_order_limit_nonnegative_chk;
 CREATE TABLE order_approval_requests (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   public_id text NOT NULL UNIQUE,
@@ -4623,8 +4625,10 @@ CREATE INDEX order_approvals_company_queue_idx
   ON order_approval_requests(company_id, status, requested_at DESC, id DESC);
 CREATE INDEX order_approvals_expiry_idx ON order_approval_requests(expires_at, id)
   WHERE status = 'pending';
-ALTER TABLE invoices ADD COLUMN credited_minor bigint NOT NULL DEFAULT 0
-  CHECK (credited_minor >= 0);
+ALTER TABLE invoices ADD COLUMN credited_minor bigint NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD CONSTRAINT invoices_credited_nonnegative_chk
+  CHECK (credited_minor >= 0) NOT VALID;
+ALTER TABLE invoices VALIDATE CONSTRAINT invoices_credited_nonnegative_chk;
 CREATE INDEX invoices_credit_unpaid_idx ON invoices(company_id, due_at, id)
   INCLUDE(total_gross_minor, paid_minor, credited_minor)
   WHERE status IN ('issued','part_paid','overdue');
@@ -4832,7 +4836,9 @@ for concurrent edits; imports are a staging object, not a shadow order/cart ledg
 
 
 ```sql
-ALTER TABLE saved_lists ADD COLUMN version bigint NOT NULL DEFAULT 0 CHECK (version >= 0);
+ALTER TABLE saved_lists ADD COLUMN version bigint NOT NULL DEFAULT 0;
+ALTER TABLE saved_lists ADD CONSTRAINT saved_lists_version_nonnegative_chk CHECK (version >= 0) NOT VALID;
+ALTER TABLE saved_lists VALIDATE CONSTRAINT saved_lists_version_nonnegative_chk;
 CREATE TABLE bulk_entry_imports (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   public_id text NOT NULL UNIQUE,
@@ -4869,7 +4875,7 @@ no database constraint alone can enforce SKU/pack/company cross-row ownership.
 
 Adopt the existing 05.3 §5.1/§5.2/§6.3 DDL into 02 with the small proposed changes
 below. These tables are absent from the current migrations. Existing quote SQL in
-05.3 remains historical until sign-off; **this DRAFT is the proposed canonical version**.
+05.3 remains historical until sign-off; **this signed-off amendment is canonical**.
 
 
 ```sql
@@ -5043,7 +5049,8 @@ CREATE INDEX rep_category_discount_limits_category_idx
 ```
 
 ```sql
-ALTER TABLE orders ADD CONSTRAINT orders_quote_fk FOREIGN KEY (quote_id) REFERENCES quotes(id);
+ALTER TABLE orders ADD CONSTRAINT orders_quote_fk FOREIGN KEY (quote_id) REFERENCES quotes(id) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_quote_fk;
 CREATE TABLE rfqs (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   public_id text NOT NULL UNIQUE,
@@ -5199,7 +5206,8 @@ CREATE INDEX commodity_duty_rates_resolve_idx
 
 ```sql
 ALTER TABLE containers ADD COLUMN public_id text;
--- Backfill ULIDs before applying NOT NULL; application generates ULIDs, never DB ids.
+-- REQUIRED inside migration: chunk existing rows, assign application-generated
+-- ULIDs to NULL public_id, verify none remain, then SET NOT NULL below.
 ALTER TABLE containers ALTER COLUMN public_id SET NOT NULL;
 ALTER TABLE containers ADD CONSTRAINT containers_public_id_uq UNIQUE(public_id);
 CREATE TABLE container_cost_runs (
@@ -5446,7 +5454,8 @@ clawbacks require rma_id and original accrual:
 ```sql
 ALTER TABLE rep_commissions ADD CONSTRAINT rep_commissions_source_chk CHECK (
   order_line_id IS NOT NULL AND invoice_id IS NOT NULL
-  AND (clawback_of_id IS NULL OR rma_id IS NOT NULL));
+  AND (clawback_of_id IS NULL OR rma_id IS NOT NULL)) NOT VALID;
+ALTER TABLE rep_commissions VALIDATE CONSTRAINT rep_commissions_source_chk;
 ``` Economic commission rows never update
 status/paid_at after insert: those legacy proposal columns stay fixed; payable/paid
 status is derived from immutable events. This resolves 05.8 §10.4 versus §14's
@@ -5454,7 +5463,12 @@ no-UPDATE requirement and permits two separate RMAs against one accrual.
 
 ### 31.8 Append-only enforcement and adoption dependencies
 
-DRAFT reusable PostgreSQL guard for account_credit_movements, account_credit_events,
+Existing-table CHECK/FK additions must be named, added NOT VALID, then VALIDATE
+CONSTRAINT (02 §2.5), including new-column checks. UNIQUE/NOT NULL cannot use
+NOT VALID in PostgreSQL: validate/backfill data first. Containers public_id must
+be backfilled with fresh ULIDs **inside the migration before SET NOT NULL**.
+
+Approved reusable PostgreSQL guard for account_credit_movements, account_credit_events,
 credit_note_allocations, container_cost_runs, container_cost_allocations,
 customer_activities, rep_commissions and rep_commission_events:
 

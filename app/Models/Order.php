@@ -40,6 +40,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $standard_shipping_net_minor
  * @property int|null $return_cost_estimate_gross_minor
  * @property int $tax_minor
+ * @property int $account_credit_applied_minor
  * @property int $total_gross_minor
  * @property int $spend_break_discount_minor
  * @property Carbon|null $placed_at

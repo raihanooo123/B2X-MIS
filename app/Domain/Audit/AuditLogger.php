@@ -48,6 +48,7 @@ final class AuditLogger
             AuditAction::ApplicationReviewStarted, AuditAction::ApplicationInfoRequested, AuditAction::ApplicationReviewResumed,
             AuditAction::ApplicationRejected, AuditAction::ApplicationApproved,
             AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
+            AuditAction::CreditOperation => $this->validateCreditOperation($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
             AuditAction::PagePublished => $this->validatePagePublished($entry),
@@ -128,6 +129,17 @@ final class AuditLogger
             ip: $context->ip,
             userAgent: $context->userAgent,
         ));
+    }
+
+    private function validateCreditOperation(AuditEntry $entry): void
+    {
+        if ($entry->companyId === null || $entry->subjectId === null
+            || ! in_array($entry->subjectType, ['company','order','account_credit_payout'], true)
+            || ! is_string($entry->before['status'] ?? null) || ! is_string($entry->after['status'] ?? null)
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
+            || ! in_array($entry->actorType, ['user','system'], true)) {
+            throw new InvalidArgumentException('Invalid credit operation audit.');
+        }
     }
 
     /** @return array{identifier_fingerprint: string, key_version: string} */

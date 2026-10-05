@@ -219,7 +219,7 @@ final class CheckoutService
 
         // A card authorisation must cover exactly what is being charged.
         $card = $request->cardAuthorisation;
-        if ($card !== null && ($card->amountMinor !== $pricing->totalGrossMinor || ! $card->isAuthorised())) {
+        if ($card !== null && (($request->companyId === null && $card->amountMinor !== $pricing->totalGrossMinor) || ! $card->isAuthorised())) {
             throw new PriceChangedException($card->amountMinor, $pricing->totalGrossMinor);
         }
 
@@ -283,6 +283,12 @@ final class CheckoutService
                     ]);
                 }
 
+                // Retain an unfunded collection selection without consuming capacity.
+                if ($lockedSlot === null && $request->fulfilmentType === 'collection') {
+                    CollectionBooking::query()->create(['collection_slot_id' => $request->collectionSlotId,
+                        'order_id' => $order->id, 'company_id' => $request->companyId, 'status' => 'cancelled']);
+                }
+
                 // 07 §6.4: the authorised card payment exists with its order
                 // or not at all. No gateway call here (04 §4.4) — capture
                 // is the caller's, after commit.
@@ -308,18 +314,20 @@ final class CheckoutService
                 $now = now();
                 $order->update([
                     'order_number' => $orderNumber,
-                    'status' => 'confirmed',
+                    'status' => $order->status === 'draft' ? 'confirmed' : $order->status,
                     'placed_at' => $now,
-                    'confirmed_at' => $now,
+                    'confirmed_at' => in_array($order->status, ['draft','confirmed'], true) ? $now : null,
                 ]);
 
                 $cart->lines()->delete();
 
-                DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
-                $this->notifications->orderConfirmed($order->id);
+                if ($order->status === 'confirmed') {
+                    DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
+                    $this->notifications->orderConfirmed($order->id);
+                }
                 // 05.5 §7.3: a trade BACS/prepay order is invoiced at placement,
                 // after commit, so a failure to invoice never loses the order.
-                $this->invoiceService->whenPlaced($order->id);
+                if ($order->status === 'confirmed') { $this->invoiceService->whenPlaced($order->id); }
 
                 return $order->load('lines');
             }),

@@ -645,10 +645,10 @@ Batch and serial detail are **not** exposed to customer-facing callers. Which ba
 
 ---
 
-## 18. B2B completion route proposals — DRAFT, 2026-10-05
+## 18. B2B completion route contracts — signed off 2026-10-05
 
-The following module sections propose the missing routes/screens and are pending
-approval together with 02 §31 SQL and 05.16 UX. They are not a declaration that the
+The following module sections propose the missing routes/screens and were approved
+on 2026-10-05 together with 02 §31 SQL and 05.16 UX. They are not a declaration that the
 API already implements them. Once signed off, merge each into the endpoint catalogue
 above; retain this index to make the dependency reviewable.
 

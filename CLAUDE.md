@@ -23,6 +23,7 @@ none of the trade-only machinery (tiers, contracts, credit, multi-user accounts)
 | Auth | Laravel Sanctum — session cookie + CSRF for the first-party app and admin (`06` §1, `05.13`) |
 | Payments | Stripe — `stripe/stripe-php` server-side, Stripe.js Elements (`@stripe/stripe-js`, `@stripe/react-stripe-js`) in the browser. Card data never reaches our servers (`07` §6.4, SAQ-A) |
 | Email | Postmark, through Laravel's `postmark` mail transport (`symfony/postmark-mailer`, `symfony/http-client`). Delivery, bounce and complaint webhooks feed `notification_log` (`05.12`) |
+| PDF | Puppeteer via `spatie/browsershot`, isolated queued Node/Chromium rendering; approved 2026-10-05 (05.17 §5) |
 | Quality | Pest, PHPStan level 8, Pint |
 
 Vue, Blade page views (beyond Inertia's single unavoidable root template), MySQL/MariaDB

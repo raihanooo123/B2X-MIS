@@ -33,6 +33,7 @@ enum NotificationKey: string
     case InvoiceIssued = 'invoice.issued';
     case InvoiceDueSoon = 'invoice.due_soon';
     case InvoiceOverdue = 'invoice.overdue';
+    case CreditApproval = 'order.approval';
     case CreditLimitReached = 'credit.limit_reached';
     case CreditLimitWarning = 'credit.limit_warning';
     case ApplicationSubmitted = 'application.submitted';

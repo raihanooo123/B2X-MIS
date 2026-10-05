@@ -77,6 +77,8 @@ enum AuditAction: string
     /** 02 §25.4: a reviewer re-ran the verification checks. */
     case ApplicationVerificationRequested = 'application.verification_requested';
 
+    case CreditOperation = 'credit.operation';
+
     case CreditLimitChanged = 'credit_limit.changed';
 
     /** 02 §25.1: 07 §6.5 "configuration changes". */
@@ -145,7 +147,7 @@ enum AuditAction: string
             self::PayAtCollectionSuspended, self::PayAtCollectionReinstated => 'permission',
             self::RmaProofRejected, self::RmaAdvanceReplacement => 'rma_disposition',
             self::OrderCancelBelowBreak => 'price_override',
-            self::CreditLimitChanged => 'credit_limit',
+            self::CreditLimitChanged, self::CreditOperation => 'credit_limit',
             self::TermsVersionPublished, self::StorefrontSettingsChanged, self::PagePublished => 'configuration',
         };
     }
@@ -164,6 +166,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::ApplicationVerificationRequested => [],
+            self::CreditOperation => ['status'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished, self::PagePublished => [],
             self::OrderClaimed => ['user_id'],
@@ -202,6 +205,7 @@ enum AuditAction: string
             self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor',
                 'verification_warnings', 'verification_acknowledged'],
             self::ApplicationVerificationRequested => ['checks'],
+            self::CreditOperation => ['status'],
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at'],
