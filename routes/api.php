@@ -61,6 +61,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/returns/{id}/reject-proof', [ReturnController::class, 'rejectProof'])->whereUlid('id');
         Route::post('/returns/{id}/inspect', [ReturnController::class, 'inspect'])->whereUlid('id');
         Route::post('/returns/{id}/resolve', [ReturnController::class, 'resolve'])->whereUlid('id');
+        Route::post('/returns/{id}/advance-replacement', [ReturnController::class, 'advanceReplacement'])->whereUlid('id');
         Route::post('/returns/{id}/approve', [ReturnController::class, 'approve'])->whereUlid('id');
         Route::post('/returns/{id}/reject', [ReturnController::class, 'reject'])->whereUlid('id');
         Route::post('/returns/{id}/bank-refund', [ReturnController::class, 'bankRefund'])->whereUlid('id');

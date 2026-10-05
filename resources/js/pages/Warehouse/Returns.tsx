@@ -49,6 +49,8 @@ interface ReturnData {
     is_cancellation: boolean;
     within_reject_period: boolean;
     resolution_type: string | null;
+    /** 05.4 §14: the zero-value order sending the replacement. */
+    replacement_order: { order_number: string; status: string } | null;
     remedy_record: { customer_choice?: string; decisions?: { reason: string; resolution_type: string }[] } | null;
     refund: { net_minor: number; tax_minor: number; delivery_net_minor: number; delivery_tax_minor: number; gross_minor: number; method: 'card' | 'bank_transfer' | null; status: string | null };
     order_number: string | null;
@@ -66,7 +68,22 @@ interface ReturnData {
     can_resolve: boolean;
     can_review: boolean;
     can_record_bank_refund: boolean;
+    can_advance_replacement: boolean;
 }
+
+/** 05.4 §14.2 R10: where a replacement goes, when not the original delivery address. */
+interface ReplacementAddressInput {
+    contact_name: string;
+    phone: string;
+    line1: string;
+    line2: string;
+    city: string;
+    county: string;
+    postcode: string;
+    country_code: string;
+}
+
+const EMPTY_ADDRESS: ReplacementAddressInput = { contact_name: '', phone: '', line1: '', line2: '', city: '', county: '', postcode: '', country_code: 'GB' };
 
 interface ExpectedReturn {
     rma_number: string;
@@ -225,6 +242,8 @@ function ReturnPanel({ rma }: { rma: ReturnData }) {
             {rma.reason_detail && <Notice tone="info">{`${rma.return_reason.replace('_', ' ')}: ${rma.reason_detail}`}</Notice>}
             {rma.can_review && <ReviewPanel rma={rma} />}
             {rma.can_receive ? <ReceiveForm rma={rma} /> : rma.can_inspect ? <InspectForm rma={rma} /> : <ReceivedLines rma={rma} />}
+            {rma.replacement_order && <Notice tone="ok">{`Replacement order ${rma.replacement_order.order_number} (${rma.replacement_order.status.replace('_', ' ')}).`}</Notice>}
+            {rma.can_advance_replacement && <AdvanceReplacementPanel rma={rma} />}
             {rma.can_resolve && <ResolvePanel rma={rma} />}
             {['resolved', 'partially_resolved'].includes(rma.status) && <RefundSummary rma={rma} />}
             {rma.can_record_bank_refund && <BankRefund rma={rma} />}
@@ -497,6 +516,7 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
     const [basis, setBasis] = useState('');
     const [outcome, setOutcome] = useState('');
     const [reason, setReason] = useState('');
+    const [address, setAddress] = useState<ReplacementAddressInput | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -504,7 +524,7 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
         setBusy(true);
         setError(null);
         try {
-            await post(`/warehouse/returns/${rma.id}/resolve`, { resolution_type: type, override_basis: basis || null, remedy_outcome: outcome || null, remedy_reason: reason || null }, true);
+            await post(`/warehouse/returns/${rma.id}/resolve`, { resolution_type: type, override_basis: basis || null, remedy_outcome: outcome || null, remedy_reason: reason || null, replacement_address: type === 'replacement' ? address : null }, true);
             router.reload();
         } catch (err) {
             setError(describeError(err));
@@ -532,6 +552,7 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
                 </select>}
                 <label className="block">Reason for override or failed/refused remedy<textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={2000} className={cn(FIELD, 'w-full rounded-md border px-2')} /></label>
                 {rma.remedy_record?.decisions?.map((d, i) => <p key={i}>{d.resolution_type}: {d.reason}</p>)}
+                {type === 'replacement' && !rma.replacement_order && <AddressChoice value={address} onChange={setAddress} />}
             </>}
             {error && <Notice tone="error">{error}</Notice>}
             <Button type="button" className={cn(TARGET, 'w-full')} disabled={busy} onClick={submit}>
@@ -541,8 +562,80 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
     );
 }
 
+/**
+ * 05.4 §14.2 R7 (Q-R2): send the replacement now, before the faulty goods
+ * come back. Staff only, always with a reason (kept in the audit log).
+ */
+function AdvanceReplacementPanel({ rma }: { rma: ReturnData }) {
+    const [reason, setReason] = useState('');
+    const [address, setAddress] = useState<ReplacementAddressInput | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const submit = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            await post(`/warehouse/returns/${rma.id}/advance-replacement`, { reason, replacement_address: address }, true);
+            router.reload();
+        } catch (err) {
+            setError(describeError(err));
+            setBusy(false);
+        }
+    };
+
+    return (
+        <section className="space-y-2 rounded-md border border-slate-300 bg-white p-4">
+            <h3 className="text-xl font-semibold">Send the replacement now</h3>
+            <p className="text-base text-slate-600">The customer chose a replacement. Send it before the faulty goods come back; the return stays open until they arrive.</p>
+            <label className="block">
+                Reason (kept in the audit log)
+                <textarea value={reason} onChange={(e) => setReason(e.target.value)} minLength={5} maxLength={500} className={cn(FIELD, 'w-full rounded-md border px-2')} />
+            </label>
+            <AddressChoice value={address} onChange={setAddress} />
+            {error && <Notice tone="error">{error}</Notice>}
+            <Button type="button" className={cn(TARGET, 'w-full')} disabled={busy || reason.trim().length < 5} onClick={submit}>
+                Send replacement now
+            </Button>
+        </section>
+    );
+}
+
+/** The original delivery address, or another one typed in (05.4 §14.2 R10). */
+function AddressChoice({ value, onChange }: { value: ReplacementAddressInput | null; onChange: (value: ReplacementAddressInput | null) => void }) {
+    const field = (key: keyof ReplacementAddressInput, label: string, required = false) => (
+        <label className="block">
+            {label}
+            {required && <span aria-hidden> *</span>}
+            <input value={value?.[key] ?? ''} required={required} onChange={(e) => onChange({ ...(value ?? EMPTY_ADDRESS), [key]: e.target.value })} className={cn(FIELD, 'w-full rounded-md border border-slate-300 px-2')} />
+        </label>
+    );
+
+    return (
+        <fieldset className="space-y-2">
+            <label className="flex min-h-11 items-center gap-2">
+                <input type="checkbox" className="size-5" checked={value !== null} onChange={(e) => onChange(e.target.checked ? { ...EMPTY_ADDRESS } : null)} />
+                Send to a different address
+            </label>
+            {value !== null && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                    {field('contact_name', 'Contact name', true)}
+                    {field('phone', 'Phone')}
+                    {field('line1', 'Address line 1', true)}
+                    {field('line2', 'Address line 2')}
+                    {field('city', 'Town or city', true)}
+                    {field('county', 'County')}
+                    {field('postcode', 'Postcode', true)}
+                    {field('country_code', 'Country (GB)', true)}
+                </div>
+            )}
+        </fieldset>
+    );
+}
+
 function RefundSummary({ rma }: { rma: ReturnData }) {
-    if (rma.resolution_type !== 'credit_note') {
+    // A failed replacement later refunded keeps resolution `replacement` (05.4 §14.3), so the refund shows whenever there is one.
+    if (rma.resolution_type !== 'credit_note' && rma.refund.gross_minor === 0) {
         return <Notice tone="ok">{`Settled by ${rma.resolution_type}.`}</Notice>;
     }
 

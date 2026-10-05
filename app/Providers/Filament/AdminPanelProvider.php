@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\RequireStaffTwoFactor;
 use App\Models\GoodsReceipt;
+use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\Stocktake;
 use Filament\Http\Middleware\Authenticate;
@@ -47,7 +48,7 @@ class AdminPanelProvider extends PanelProvider
             ->darkMode()
             ->sidebarCollapsibleOnDesktop()
             ->spa()
-            ->spaUrlExceptions([url('/warehouse/*')])
+            ->spaUrlExceptions([url('/warehouse/*'), url('/staff/*')])
             ->globalSearch()
             ->navigationGroups([
                 'Catalogue',
@@ -60,6 +61,12 @@ class AdminPanelProvider extends PanelProvider
                 'Settings',
             ])
             ->navigationItems([
+                NavigationItem::make('Order cancellations')
+                    ->group('Sales')
+                    ->icon('heroicon-o-x-circle')
+                    ->sort(30)
+                    ->url(fn (): string => route('staff.order-cancellations'))
+                    ->visible(fn (): bool => Gate::allows('recordUndispatchedCancellation', Order::class)),
                 NavigationItem::make('Goods in')
                     ->group('Warehouse')
                     ->icon('heroicon-o-inbox-arrow-down')

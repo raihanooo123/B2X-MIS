@@ -18,3 +18,7 @@ Schedule::command('notifications:prune-log')->dailyAt('03:30')->timezone('Europe
 // 05.4 §13.5, §7.6 — consumer returns: refund deadline alerts, then the not-received sweep.
 Schedule::command('returns:refund-due-alerts')->dailyAt('07:30')->timezone('Europe/London')->withoutOverlapping();
 Schedule::command('returns:sweep-not-received')->dailyAt('02:30')->timezone('Europe/London')->withoutOverlapping();
+
+// 02 §29.4 — the storefront price sort key: time boundaries every 5 minutes, a full rebuild nightly.
+Schedule::command('storefront:refresh-price-projection --stale')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('storefront:refresh-price-projection')->dailyAt('03:45')->timezone('Europe/London')->withoutOverlapping();

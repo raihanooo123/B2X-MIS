@@ -54,6 +54,8 @@ final class AuditLogger
             AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
             AuditAction::OrderClaimed => $this->validateOrderClaimed($entry),
             AuditAction::RmaProofRejected => $this->validateRmaProofRejected($entry),
+            AuditAction::RmaAdvanceReplacement => $this->validateRmaAdvanceReplacement($entry),
+            AuditAction::OrderCancelBelowBreak => $this->validateOrderCancelBelowBreak($entry),
             AuditAction::LockedOut => $this->validateLockout($entry),
             AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
             AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
@@ -364,6 +366,39 @@ final class AuditLogger
             || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
             || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid proof rejection audit entry.');
+        }
+    }
+
+    /**
+     * 05.4 §14.2 R7: by staff, about the RMA, with a reason; the replacement
+     * order from none to the new one.
+     */
+    private function validateRmaAdvanceReplacement(AuditEntry $entry): void
+    {
+        $orderId = $entry->after['replacement_order_id'] ?? null;
+
+        if ($entry->before !== ['replacement_order_id' => null]
+            || array_keys($entry->after) !== ['replacement_order_id'] || ! is_int($orderId) || $orderId < 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'rma' || $entry->subjectId === null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid advance replacement audit entry.');
+        }
+    }
+
+    /** The reason is mandatory and the only payload is the cancellation record. */
+    private function validateOrderCancelBelowBreak(AuditEntry $entry): void
+    {
+        $cancellationId = $entry->after['order_cancellation_id'] ?? null;
+
+        if ($entry->before !== [] || array_keys($entry->after) !== ['order_cancellation_id']
+            || ! is_int($cancellationId) || $cancellationId < 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'order' || $entry->subjectId === null
+            || $entry->companyId === null || $entry->actingForCompanyId !== null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500) {
+            throw new InvalidArgumentException('Invalid below-break cancellation audit entry.');
         }
     }
 

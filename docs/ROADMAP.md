@@ -1428,8 +1428,8 @@ orders (05.4 §14); price sorting (02 §29); partial cancellation before dispatc
 click & collect with pay at collection (05.6 §7A, 05.15 §6.1). Schema index: 02 §30.
 
 - [ ] S7 — 05.11: legal pages, cookies, head tags, JSON-LD, sitemap, robots.
-- [ ] Replacement orders — 05.4 §14 (no invoice pending the accountant, Q-R3).
-- [ ] Price sorting — 02 §29 (guests and public customers only).
+- [x] Replacement orders — 05.4 §14 (no invoice pending the accountant, Q-R3). Migration `2026_10_21_090100`. 2026-10-05, pending verification.
+- [x] Price sorting — 02 §29 (guests and public customers only). Migration `2026_10_22_090100`; run `storefront:refresh-price-projection` once after migrating. 2026-10-05, pending verification.
 - [ ] Partial cancellation before dispatch — 05.10 §2.
 - [ ] S5b click & collect and pay at collection — 05.6 §7A.
 

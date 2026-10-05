@@ -19,7 +19,7 @@ interface Filters {
     q: string | null;
     brand: string | null;
     in_stock: boolean;
-    sort: 'name' | 'newest';
+    sort: 'name' | 'newest' | 'price_asc' | 'price_desc';
 }
 
 interface ListingProps {
@@ -37,9 +37,11 @@ interface ListingProps {
     next_cursor: string | null;
     is_continuation: boolean;
     brands: { slug: string; name: string }[];
+    /** 02 §29 (Q-P1): price sorts, offered to guests and public customers only. */
+    price_sorts: boolean;
 }
 
-export default function Listing({ shell, category, filters, products, next_cursor, is_continuation, brands }: ListingProps) {
+export default function Listing({ shell, category, filters, products, next_cursor, is_continuation, brands, price_sorts: priceSorts }: ListingProps) {
     const { price_display } = usePage<SharedProps>().props;
     const [items, setItems] = useState(products);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -122,7 +124,7 @@ export default function Listing({ shell, category, filters, products, next_curso
                         <p className="text-sm text-muted-foreground">
                             {items.length === 0 ? 'No products' : `Showing ${items.length}${next_cursor ? '+' : ''} ${items.length === 1 ? 'product' : 'products'}`}
                         </p>
-                        <SortSelect value={filters.sort} onChange={(sort) => visit({ sort })} />
+                        <SortSelect value={filters.sort} priceSorts={priceSorts} onChange={(sort) => visit({ sort })} />
                     </div>
 
                     {openedMidList && (
@@ -179,7 +181,7 @@ function query(f: Filters): Record<string, string> {
     return q;
 }
 
-function SortSelect({ value, onChange }: { value: Filters['sort']; onChange: (sort: Filters['sort']) => void }) {
+function SortSelect({ value, priceSorts, onChange }: { value: Filters['sort']; priceSorts: boolean; onChange: (sort: Filters['sort']) => void }) {
     const id = useId();
 
     return (
@@ -190,6 +192,8 @@ function SortSelect({ value, onChange }: { value: Filters['sort']; onChange: (so
             <select id={id} value={value} onChange={(e) => onChange(e.target.value as Filters['sort'])} className="h-11 rounded-full border bg-background px-4 font-medium md:h-9">
                 <option value="name">Name, A–Z</option>
                 <option value="newest">Newest</option>
+                {priceSorts && <option value="price_asc">Price: low to high</option>}
+                {priceSorts && <option value="price_desc">Price: high to low</option>}
             </select>
         </div>
     );

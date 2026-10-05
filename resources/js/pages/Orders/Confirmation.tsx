@@ -34,6 +34,7 @@ interface OrderLineView {
     pack_qty: number;
     pack_base_units: number;
     base_qty: number;
+    cancelled_base_qty: number;
     unit_price_net_e4: number;
     tax_rate_bp: number;
     line_net_minor: number;
@@ -48,8 +49,13 @@ interface ConfirmationProps {
         order_number: string;
         placed_at: string | null;
         status: string;
+        /** 05.4 §14: `replacement` — zero value, sent to replace faulty goods. */
+        kind: 'sale' | 'replacement';
+        /** The order a replacement replaces. */
+        replaces: { order_number: string; url: string } | null;
         /** 05.4 §13.2: a consumer order not yet dispatched. */
         can_cancel: boolean;
+        undispatched_cancellation: UndispatchedCancellationView | null;
         cancelled_at: string | null;
         refunds: { amount_minor: number; method: 'card' | 'bank_transfer'; status: 'refunded' | 'in_progress' }[];
         /** 05.4 §13.3: what may be cancelled on a dispatched consumer order; null otherwise. */
@@ -94,6 +100,7 @@ interface ConfirmationProps {
     cancel_url: string | null;
     /** Where "Cancel items" posts (05.4 §13.3). */
     cancel_items_url: string | null;
+    cancel_undispatched_items_url: string | null;
     /** Proof of sending posts to `{returns_url}/{return id}/proof` (05.4 §13.5). */
     returns_url: string | null;
     /** Where "Report a problem" posts (05.4 §13.4). */
@@ -111,6 +118,20 @@ interface CancellationView {
     last_day: string | null;
     return_statement: string;
     lines: { line_no: number; sku_code: string; name: string; pack_label: string; returnable_pack_qty: number; eligible: boolean; refusal: string | null; notice: string | null }[];
+}
+
+interface UndispatchedCancellationView {
+    trade: boolean;
+    lines: {
+        line_no: number;
+        name: string;
+        sku_code: string;
+        pack_label: string;
+        max_pack_qty: number;
+        kept_base_qty: number;
+        pack_base_units: number;
+        applied_break_qty: number | null;
+    }[];
 }
 
 interface ReturnView {
@@ -140,6 +161,14 @@ function cardDescription(card: NonNullable<ConfirmationProps['order']['card_paym
 
 /** What the buyer should expect, by how they chose to pay. */
 function nextSteps(order: ConfirmationProps['order']): string[] {
+    if (order.kind === 'replacement' && order.status !== 'cancelled') {
+        return [
+            `This replaces faulty goods${order.replaces ? ` from order ${order.replaces.order_number}` : ''}, at no cost to you.`,
+            'We are now picking it.',
+            'We will email you when it is dispatched.',
+        ];
+    }
+
     if (order.status === 'cancelled') {
         if (order.refunds.length === 0) {
             return [order.card_payment ? 'The payment held on your card has been released. You have not been charged.' : 'No payment was taken for this order.'];
@@ -185,7 +214,7 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     return ['Your order is confirmed and your stock is reserved.', 'Payment is due before dispatch unless you have account terms.', common];
 }
 
-export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl, returns_url: returnsUrl, problems_url: problemsUrl }: ConfirmationProps) {
+export default function Confirmation({ display_mode: mode, order, guest, cancel_url: cancelUrl, cancel_items_url: cancelItemsUrl, cancel_undispatched_items_url: cancelUndispatchedItemsUrl, returns_url: returnsUrl, problems_url: problemsUrl }: ConfirmationProps) {
     const { display_timezone: timeZone, auth, flash } = usePage<SharedProps>().props;
     const cancelled = order.status === 'cancelled';
     const status = guest ? guest.status : (flash?.status ?? null);
@@ -208,13 +237,32 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                     )}
                     <div>
                         <h1 className="text-2xl font-semibold tracking-tight">
-                            {cancelled ? `Order ${order.order_number} is cancelled` : guest ? `Your order ${order.order_number}` : 'Thank you — your order is placed'}
+                            {cancelled
+                                ? `Order ${order.order_number} is cancelled`
+                                : order.kind === 'replacement'
+                                  ? `Your replacement order ${order.order_number}`
+                                  : guest
+                                    ? `Your order ${order.order_number}`
+                                    : 'Thank you — your order is placed'}
                         </h1>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Order number <strong className="font-mono text-foreground">{order.order_number}</strong>
                             {order.placed_at && <> · {formatDateTime(order.placed_at, timeZone)}</>}
                             {order.customer_reference && <> · Your reference {order.customer_reference}</>}
                         </p>
+                        {order.kind === 'replacement' && (
+                            <p className="mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-900">
+                                Replacement · No payment needed
+                                {order.replaces && (
+                                    <>
+                                        {' · for order '}
+                                        <Link href={order.replaces.url} className="underline underline-offset-2">
+                                            {order.replaces.order_number}
+                                        </Link>
+                                    </>
+                                )}
+                            </p>
+                        )}
                         {order.payment_status === 'paid' && !cancelled && (
                             <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
                                 <CheckCircle2 className="size-3.5" aria-hidden /> Paid{order.card_payment && ` · ${cardDescription(order.card_payment)}`}
@@ -245,6 +293,7 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                                                 <div className="text-xs text-muted-foreground">
                                                     <span className="font-mono">{l.sku_code}</span> · {l.pack_label}
                                                 </div>
+                                                {l.cancelled_base_qty > 0 && <div className="text-xs text-muted-foreground">Cancelled: {Math.floor(l.cancelled_base_qty / l.pack_base_units)} pack(s)</div>}
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap py-2 text-right align-top tabular-nums">{l.pack_qty.toLocaleString('en-GB')}</TableCell>
                                             <TableCell className="whitespace-nowrap py-2 text-right align-top tabular-nums">
@@ -285,6 +334,8 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                         {guest?.can_save_details && !guest.status && <SaveDetails guest={guest} />}
 
                         {cancelUrl && order.can_cancel && <CancelOrder orderNumber={order.order_number} url={cancelUrl} />}
+
+                        {cancelUndispatchedItemsUrl && order.undispatched_cancellation && <CancelUndispatchedItems cancellation={order.undispatched_cancellation} url={cancelUndispatchedItemsUrl} />}
 
                         {order.returns.length > 0 && <Returns returns={order.returns} returnsUrl={returnsUrl} />}
 
@@ -393,6 +444,72 @@ function CancelOrder({ orderNumber, url }: { orderNumber: string; url: string })
                     Cancel order
                 </Button>
             )}
+        </section>
+    );
+}
+
+/** 05.10 §2: whole packs not yet packed; the server locks and rechecks on submit. */
+function CancelUndispatchedItems({ cancellation, url }: { cancellation: UndispatchedCancellationView; url: string }) {
+    const [token, setToken] = useState(() => crypto.randomUUID());
+    const form = useForm<{ lines: { line_no: number; pack_qty: number }[]; reason_detail: string }>({
+        lines: cancellation.lines.map((line) => ({ line_no: line.line_no, pack_qty: 0 })),
+        reason_detail: '',
+    });
+    const errors = form.errors as Record<string, string | undefined>;
+    const selected = form.data.lines.some((line) => line.pack_qty > 0);
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(url, {
+            preserveScroll: true,
+            headers: { 'Idempotency-Key': token },
+            onSuccess: () => {
+                form.reset();
+                setToken(crypto.randomUUID());
+            },
+        });
+    };
+
+    return (
+        <section className="space-y-3 rounded-md border p-4">
+            <h2 className="font-semibold">Cancel items before dispatch</h2>
+            <form onSubmit={submit} className="space-y-3">
+                {cancellation.lines.map((line, index) => {
+                    const selectedLine = form.data.lines.find((item) => item.line_no === line.line_no);
+                    const after = line.kept_base_qty - (selectedLine?.pack_qty ?? 0) * line.pack_base_units;
+                    const belowBreak = cancellation.trade && line.applied_break_qty !== null && after > 0 && after < line.applied_break_qty;
+
+                    return (
+                        <div key={line.line_no} className="space-y-1">
+                            <label htmlFor={`undispatched-${line.line_no}`} className="block font-medium">{line.name}</label>
+                            <p className="text-xs text-muted-foreground">{line.sku_code} · {line.pack_label} · up to {line.max_pack_qty} pack(s)</p>
+                            <input
+                                id={`undispatched-${line.line_no}`}
+                                type="number"
+                                min={0}
+                                max={line.max_pack_qty}
+                                step={1}
+                                value={selectedLine?.pack_qty ?? 0}
+                                onChange={(event) => form.setData('lines', form.data.lines.map((item) => item.line_no === line.line_no ? { ...item, pack_qty: Number(event.target.value) } : item))}
+                                className="h-11 w-24 rounded-md border border-input bg-transparent px-2"
+                            />
+                            {belowBreak && <p className="text-xs text-red-700">Keep at least {line.applied_break_qty} units at this price break, or cancel the whole line.</p>}
+                            {errors[`lines.${index}.pack_qty`] && <p className="text-xs text-red-700">{errors[`lines.${index}.pack_qty`]}</p>}
+                        </div>
+                    );
+                })}
+                {cancellation.trade && (
+                    <div>
+                        <label htmlFor="cancellation-reason" className="block font-medium">Reason</label>
+                        <input id="cancellation-reason" value={form.data.reason_detail} onChange={(event) => form.setData('reason_detail', event.target.value)} maxLength={500} className="h-11 w-full rounded-md border border-input bg-transparent px-2" />
+                        {errors.reason_detail && <p className="text-xs text-red-700">{errors.reason_detail}</p>}
+                    </div>
+                )}
+                {errors.lines && <p role="alert" className="text-xs text-red-700">{errors.lines}</p>}
+                <Button type="submit" variant="outline" className="h-11 w-full" disabled={!selected || form.processing || (cancellation.trade && !form.data.reason_detail.trim())}>
+                    Cancel selected packs
+                </Button>
+            </form>
         </section>
     );
 }

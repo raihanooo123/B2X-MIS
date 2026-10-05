@@ -9,7 +9,12 @@ use App\Domain\Documents\NullPdfRenderer;
 use App\Domain\Documents\PdfRenderer;
 use App\Models\Category;
 use App\Models\CmsPageVersion;
+use App\Models\PriceList;
+use App\Models\PriceListItem;
 use App\Models\Product;
+use App\Models\Sku;
+use App\Models\TaxRate;
+use App\Observers\PriceProjectionObserver;
 use App\Observers\SitemapCacheObserver;
 use App\Support\DisplayTime;
 use Filament\Forms\Components\DateTimePicker;
@@ -60,5 +65,10 @@ class AppServiceProvider extends ServiceProvider
         Product::observe(SitemapCacheObserver::class);
         Category::observe(SitemapCacheObserver::class);
         CmsPageVersion::observe(SitemapCacheObserver::class);
+
+        // 02 §29.4: the storefront price sort key follows prices, SKUs and VAT.
+        foreach ([Product::class, Sku::class, PriceList::class, PriceListItem::class, TaxRate::class] as $model) {
+            $model::observe(PriceProjectionObserver::class);
+        }
     }
 }

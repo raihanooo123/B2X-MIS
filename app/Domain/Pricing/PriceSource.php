@@ -16,4 +16,6 @@ enum PriceSource: string
     case Tier = 'tier';
     case Base = 'base';
     case Manual = 'manual';
+    /** 05.4 §14: a zero-value line on a replacement order; never resolved, never charged. */
+    case Replacement = 'replacement';
 }

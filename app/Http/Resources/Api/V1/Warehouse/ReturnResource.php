@@ -52,6 +52,8 @@ class ReturnResource extends JsonResource
             ->value('before');
         $decoded = is_string($lastRejection) ? json_decode($lastRejection, true) : null;
         $rejectedUpTo = is_array($decoded) && is_int($decoded['last_proof_attachment_id'] ?? null) ? $decoded['last_proof_attachment_id'] : 0;
+        $replacement = $rma->replacement_order_id === null ? null : Order::query()->where('id', $rma->replacement_order_id)->first(['id', 'order_number', 'status']);
+        $remedy = json_decode($rma->internal_note ?? '{}', true);
 
         return [
             'id' => $rma->public_id,
@@ -63,6 +65,8 @@ class ReturnResource extends JsonResource
             // 05.4 §13.4: faulty goods within 30 days of possession are refunded in full.
             'within_reject_period' => $rma->return_reason !== 'consumer_cancellation' && FaultReports::withinRejectPeriod($rma),
             'resolution_type' => $rma->resolution_type,
+            // 05.4 §14: the zero-value order sending the replacement, once created.
+            'replacement_order' => $replacement === null ? null : ['order_number' => $replacement->order_number, 'status' => $replacement->status],
             'remedy_record' => json_decode($rma->internal_note ?? '{}', true),
             'refund' => [
                 'net_minor' => $rma->refund_net_minor,
@@ -117,6 +121,12 @@ class ReturnResource extends JsonResource
             'can_resolve' => $can('resolve') && $rma->credit_note_id === null && (($rma->status === 'resolved' && in_array($rma->resolution_type, ['repair', 'replacement'], true)) || $rma->status === 'inspected'
                 || ($rma->status === 'awaiting_goods' && $rma->goods_sent_at !== null && $rma->return_reason === 'consumer_cancellation')),
             'can_review' => $can('review') && $rma->status === 'requested',
+            // 05.4 §14.2 R7 (Q-R2): mirrors ReplacementOrders::createAdvance(), which is the authority.
+            'can_advance_replacement' => $can('resolve') && $rma->company_id === null && $rma->replacement_order_id === null
+                && $rma->return_reason !== 'consumer_cancellation' && $rma->approved_at !== null
+                && in_array($rma->status, ['approved', 'awaiting_goods', 'received'], true)
+                && ! FaultReports::withinRejectPeriod($rma)
+                && is_array($remedy) && ($remedy['customer_choice'] ?? null) === 'replacement',
             'can_record_bank_refund' => $can('recordRefund') && $refund !== null
                 && ($refund->status === 'failed' || ($refund->gateway === 'bacs' && $refund->status === 'pending')),
         ];

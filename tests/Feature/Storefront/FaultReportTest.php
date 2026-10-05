@@ -13,6 +13,7 @@ use App\Models\Attachment;
 use App\Models\CreditNote;
 use App\Models\DeliveryZone;
 use App\Models\Location;
+use App\Models\NumberSequence;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Pack;
@@ -22,6 +23,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\Shipment;
 use App\Models\Sku;
+use App\Models\StockLevel;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -231,7 +233,12 @@ it('requires the customer choice after day 30 and retains it through a reasoned 
 })->with(['impossible', 'disproportionate']);
 
 it('refunds after day 30 only with a recorded failed or refused remedy and never twice', function (string $outcome) {
-    $rma = faultReceived(faultReport(faultOrder(), '2026-11-16 12:00:00', choice: 'replacement'));
+    $order = faultOrder();
+    // Settling as a replacement now creates the replacement order (05.4 §14): it needs stock and an order number.
+    StockLevel::factory()->for(Sku::query()->findOrFail(OrderLine::query()->where('order_id', $order->id)->value('sku_id')))
+        ->for(test()->location)->create(['on_hand_base_qty' => 10, 'allocated_base_qty' => 0]);
+    NumberSequence::factory()->forSeries('order_number', 'SO-')->create();
+    $rma = faultReceived(faultReport($order, '2026-11-16 12:00:00', choice: 'replacement'));
     $accounts = faultStaff('accounts');
     expect(fn () => (new ReturnResolution)->resolve($rma->id, $accounts->id, 'credit_note'))
         ->toThrow(ReturnActionRefusedException::class);

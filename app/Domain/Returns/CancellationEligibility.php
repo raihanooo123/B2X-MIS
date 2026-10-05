@@ -2,6 +2,7 @@
 
 namespace App\Domain\Returns;
 
+use App\Domain\Ordering\OrderKind;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\RmaLine;
@@ -45,6 +46,10 @@ final readonly class CancellationEligibility
     {
         if ($order->company_id !== null) {
             return self::unavailable('not_consumer_order', 'Trade orders are returned under your account terms. Please contact us.');
+        }
+        // 05.4 §14.2 R13: no 14-day cancellation on a replacement; a fault is reported instead.
+        if ($order->order_kind === OrderKind::Replacement->value) {
+            return self::unavailable('replacement_order', 'This is a replacement for faulty goods, so it cannot be cancelled. If something is wrong with it, report a problem.');
         }
         if (in_array($order->status, ['confirmed', 'picking'], true)) {
             return self::unavailable('not_dispatched', 'This order has not been sent yet, so you can cancel the whole order instead.');

@@ -15,6 +15,8 @@ use App\Domain\Reference\NumberSequenceService;
 use App\Models\CreditNote;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderCancellation;
+use App\Models\OrderCancellationLine;
 use App\Models\OrderLine;
 use App\Models\Payment;
 use App\Models\Shipment;
@@ -64,11 +66,14 @@ final class OrderCancellationService
     /**
      * @throws OrderNotCancellableException
      */
-    public function cancel(int $orderId, ?int $actorUserId = null): Order
+    /**
+     * @param  string  $initiatedBy  `customer` (signed in or by guest link), or `staff` recording what the customer told us
+     */
+    public function cancel(int $orderId, ?int $actorUserId = null, string $initiatedBy = 'customer'): Order
     {
         /** @var array{release: list<string>, refunds: list<int>} $outcome */
         $outcome = (new DeadlockRetryPolicy)->run(
-            fn () => DB::transaction(fn () => $this->cancelWithinTransaction($orderId, $actorUserId)),
+            fn () => DB::transaction(fn () => $this->cancelWithinTransaction($orderId, $actorUserId, $initiatedBy)),
             self::class,
         );
 
@@ -80,7 +85,7 @@ final class OrderCancellationService
     /**
      * @return array{release: list<string>, refunds: list<int>}
      */
-    private function cancelWithinTransaction(int $orderId, ?int $actorUserId): array
+    private function cancelWithinTransaction(int $orderId, ?int $actorUserId, string $initiatedBy): array
     {
         $order = Order::query()->lockForUpdate()->findOrFail($orderId);
         $this->assertCancellable($order);
@@ -88,6 +93,9 @@ final class OrderCancellationService
         $shipments = Shipment::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
         if ($shipments->contains(fn (Shipment $s) => $s->status === 'dispatched' || $s->dispatched_at !== null)) {
             throw new OrderNotCancellableException('order_already_dispatched', 'Part of this order has already been sent. You can cancel by returning it once it arrives.');
+        }
+        if ($shipments->contains(fn (Shipment $s) => $s->status === 'packed')) {
+            throw new OrderNotCancellableException('line_packed', 'This order is already packed. Please contact us to unpack it before cancelling.');
         }
         Shipment::query()->whereIn('id', $shipments->pluck('id'))->update(['status' => 'cancelled', 'updated_at' => now()]);
 
@@ -115,7 +123,8 @@ final class OrderCancellationService
                 // Voided now, so a late capture webhook cannot mark a cancelled order paid.
                 $payment->update(['status' => 'voided']);
                 $release[] = $payment->gateway_reference;
-            } elseif ($payment->status === 'captured') {
+            } elseif (in_array($payment->status, ['captured', 'part_refunded'], true)) {
+                // part_refunded: an earlier partial cancellation refunded some of it (05.10 §2).
                 $due = $payment->amount_minor - Refunds::refundedOrPendingMinor($payment->id);
                 if ($due > 0) {
                     $refunds[] = Refunds::recordPending($payment, $due)->id;
@@ -123,18 +132,71 @@ final class OrderCancellationService
             }
         }
 
+        // 05.10 §2: what is left of each line, after any earlier partial cancellation.
+        $cancelledNet = 0;
+        $cancelledTax = 0;
+        $cancelledLines = [];
+        $lines = OrderLine::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
+        foreach ($lines as $line) {
+            $remaining = $line->base_qty - $line->dispatched_base_qty - $line->cancelled_base_qty;
+            if ($remaining <= 0) {
+                continue;
+            }
+            $net = PartialCancellations::billable($line->line_net_minor, $line->cancelled_base_qty, $line->base_qty);
+            $tax = PartialCancellations::billable($line->line_tax_minor, $line->cancelled_base_qty, $line->base_qty);
+            $cancelledNet += $net;
+            $cancelledTax += $tax;
+            $cancelledLines[] = [$line->id, intdiv($remaining, $line->pack_base_units), $remaining, $net, $tax];
+            $line->forceFill(['cancelled_base_qty' => $line->cancelled_base_qty + $remaining])->save();
+        }
+
+        $creditNoteId = null;
         $receipts = Invoice::query()->where('order_id', $order->id)->whereNull('company_id')->where('status', '<>', 'void')->orderBy('id')->get();
         foreach ($receipts as $receipt) {
-            CreditNote::query()->create([
+            // Only what earlier cancellation credit notes have not already credited.
+            $credited = (int) CreditNote::query()->where('invoice_id', $receipt->id)->where('status', '<>', 'void')->sum('total_gross_minor');
+            $creditedTax = (int) CreditNote::query()->where('invoice_id', $receipt->id)->where('status', '<>', 'void')->sum('tax_minor');
+            $gross = $receipt->total_gross_minor - $credited;
+            if ($gross <= 0) {
+                continue;
+            }
+            $creditNoteId ??= CreditNote::query()->create([
                 'credit_note_number' => $this->numbers->next('credit_note_number'),
                 'order_id' => $order->id,
                 'invoice_id' => $receipt->id,
                 'reason' => 'cancellation',
                 'currency' => $receipt->currency,
-                'subtotal_net_minor' => $receipt->total_gross_minor - $receipt->tax_minor,
-                'tax_minor' => $receipt->tax_minor,
-                'total_gross_minor' => $receipt->total_gross_minor,
+                'subtotal_net_minor' => $gross - ($receipt->tax_minor - $creditedTax),
+                'tax_minor' => $receipt->tax_minor - $creditedTax,
+                'total_gross_minor' => $gross,
                 'issued_at' => now(),
+            ])->id;
+        }
+
+        // 05.10 §2.3: every cancellation has one record, whole or part.
+        $cancellation = OrderCancellation::query()->create([
+            'order_id' => $order->id,
+            'kind' => 'whole',
+            'initiated_by' => $initiatedBy,
+            'actor_user_id' => $actorUserId,
+            'customer_notified_at' => now(),
+            'cancelled_net_minor' => $cancelledNet,
+            'cancelled_tax_minor' => $cancelledTax,
+            'cancelled_gross_minor' => $cancelledNet + $cancelledTax,
+            'delivery_refund_net_minor' => $order->shipping_net_minor,
+            'delivery_refund_tax_minor' => $order->shipping_tax_minor,
+            'credit_note_id' => $creditNoteId,
+            'refund_payment_id' => $refunds[0] ?? null,
+        ]);
+        foreach ($cancelledLines as [$lineId, $packQty, $baseQty, $net, $tax]) {
+            OrderCancellationLine::query()->create([
+                'order_cancellation_id' => $cancellation->id,
+                'order_line_id' => $lineId,
+                'cancelled_pack_qty' => $packQty,
+                'cancelled_base_qty' => $baseQty,
+                'line_net_minor' => $net,
+                'line_tax_minor' => $tax,
+                'line_gross_minor' => $net + $tax,
             ]);
         }
 
@@ -147,6 +209,10 @@ final class OrderCancellationService
     {
         if ($order->company_id !== null) {
             throw new OrderNotCancellableException('not_consumer_order', 'Trade orders are changed by contacting us.');
+        }
+        // 05.4 §14.2 R13: performance of the original contract, not a new sale.
+        if ($order->order_kind === OrderKind::Replacement->value) {
+            throw new OrderNotCancellableException('replacement_order', 'This is a replacement for faulty goods. Please contact us if you no longer want it.');
         }
         if ($order->status === 'cancelled') {
             throw new OrderNotCancellableException('already_cancelled', 'This order is already cancelled.');

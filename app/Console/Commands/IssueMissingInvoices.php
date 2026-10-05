@@ -38,6 +38,8 @@ class IssueMissingInvoices extends Command
     {
         $missing = Order::query()
             ->whereNotIn('status', ['draft', 'awaiting_approval', 'cancelled'])
+            // 05.4 §14 (Q-R3): a replacement is never invoiced.
+            ->where('order_kind', 'sale')
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('invoices')
                 ->whereColumn('invoices.order_id', 'orders.id')
                 ->whereNull('invoices.shipment_id')

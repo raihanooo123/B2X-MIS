@@ -17,6 +17,7 @@ enum NotificationKey: string
     case OrderConfirmed = 'order.confirmed';
     case OrderAccessLink = 'order.access_link';
     case OrderCancelled = 'order.cancelled';
+    case OrderItemsCancelled = 'order.items_cancelled';
     case RefundFailed = 'refund.failed';
     case RmaApproved = 'rma.approved';
     case RmaProofRejected = 'rma.proof_rejected';
@@ -25,6 +26,8 @@ enum NotificationKey: string
     case RmaRequested = 'rma.requested';
     case RmaRejected = 'rma.rejected';
     case RmaResolved = 'rma.resolved';
+    /** 05.4 §14.2 R16: a replacement order is on its way. */
+    case RmaReplacementCreated = 'rma.replacement_created';
     case PaymentReceived = 'payment.received';
     case ShipmentDispatched = 'shipment.dispatched';
     case InvoiceIssued = 'invoice.issued';

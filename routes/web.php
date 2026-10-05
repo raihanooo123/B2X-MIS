@@ -17,6 +17,7 @@ use App\Http\Controllers\GuestOrderController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderLookupController;
 use App\Http\Controllers\OrderPadController;
+use App\Http\Controllers\Staff\OrderCancellationPageController;
 use App\Http\Controllers\Storefront\CatalogueController;
 use App\Http\Controllers\Storefront\HomeController;
 use App\Http\Controllers\Storefront\LegalPageController;
@@ -70,6 +71,8 @@ Route::middleware('auth')->group(function (): void {
     // 05.4 §13.3: cancel items of a dispatched order.
     Route::post('/orders/{order}/cancel-items', [OrderConfirmationController::class, 'cancelItems'])
         ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel-items');
+    Route::post('/orders/{order}/cancel-undispatched-items', [OrderConfirmationController::class, 'cancelUndispatchedItems'])
+        ->whereUlid('order')->middleware('throttle:10,1')->name('orders.cancel-undispatched-items');
     // 05.4 §13.4: report faulty, damaged or wrong goods.
     Route::post('/orders/{order}/problems', [OrderConfirmationController::class, 'reportProblem'])
         ->whereUlid('order')->middleware('throttle:10,1')->name('orders.problems');
@@ -92,6 +95,9 @@ Route::post('/orders/{order}/guest/{expires}/{signature}/cancel', [GuestOrderCon
 Route::post('/orders/{order}/guest/{expires}/{signature}/cancel-items', [GuestOrderController::class, 'cancelItems'])
     ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
     ->middleware('throttle:10,1')->name('orders.guest.cancel-items');
+Route::post('/orders/{order}/guest/{expires}/{signature}/cancel-undispatched-items', [GuestOrderController::class, 'cancelUndispatchedItems'])
+    ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')
+    ->middleware('throttle:10,1')->name('orders.guest.cancel-undispatched-items');
 Route::post('/orders/{order}/guest/{expires}/{signature}/returns/{rma}/proof', [GuestOrderController::class, 'uploadProof'])
     ->whereUlid('order')->whereNumber('expires')->where('signature', '[a-f0-9]{64}')->whereUlid('rma')
     ->middleware('throttle:10,1')->name('orders.guest.returns.proof');
@@ -179,6 +185,10 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/warehouse/returns', [ReturnsPageController::class, 'show'])->name('warehouse.returns');
     Route::get('/warehouse/returns/{rma}/proof/{attachment}', [ReturnsPageController::class, 'proof'])
         ->whereUlid('rma')->whereUlid('attachment')->name('warehouse.returns.proof');
+
+    Route::get('/staff/order-cancellations', [OrderCancellationPageController::class, 'show'])->name('staff.order-cancellations');
+    Route::post('/staff/order-cancellations/{order}', [OrderCancellationPageController::class, 'store'])
+        ->whereUlid('order')->middleware('throttle:10,1')->name('staff.order-cancellations.store');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');

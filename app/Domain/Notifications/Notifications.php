@@ -9,6 +9,7 @@ use App\Domain\Notifications\Notices\InvoiceIssued;
 use App\Domain\Notifications\Notices\InvoiceOverdue;
 use App\Domain\Notifications\Notices\OrderCancelled;
 use App\Domain\Notifications\Notices\OrderConfirmed;
+use App\Domain\Notifications\Notices\OrderItemsCancelled;
 use App\Domain\Notifications\Notices\PaymentReceived;
 use App\Domain\Notifications\Notices\RefundFailed;
 use App\Domain\Notifications\Notices\RmaApproved;
@@ -16,12 +17,14 @@ use App\Domain\Notifications\Notices\RmaNotReceived;
 use App\Domain\Notifications\Notices\RmaProofRejected;
 use App\Domain\Notifications\Notices\RmaRefundDueSoon;
 use App\Domain\Notifications\Notices\RmaRejected;
+use App\Domain\Notifications\Notices\RmaReplacementCreated;
 use App\Domain\Notifications\Notices\RmaRequested;
 use App\Domain\Notifications\Notices\RmaResolved;
 use App\Domain\Notifications\Notices\ShipmentDispatched;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderCancellation;
 use App\Models\Rma;
 use App\Models\Shipment;
 use App\Models\User;
@@ -70,6 +73,25 @@ final class Notifications
         $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id', 'guest_email']);
         if ($order !== null) {
             $this->dispatcher->send(new OrderCancelled($orderId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.10 §2.6: a durable acknowledgement of items cancelled before dispatch. */
+    public function orderItemsCancelled(int $cancellationId): void
+    {
+        $cancellation = OrderCancellation::query()->find($cancellationId, ['id', 'order_id']);
+        $order = $cancellation === null ? null : Order::query()->find($cancellation->order_id, ['id', 'user_id', 'company_id', 'guest_email']);
+        if ($order !== null) {
+            $recipients = $this->recipients->orderCustomer($order);
+            if ($order->company_id !== null) {
+                $invoice = Invoice::query()->where('order_id', $order->id)->orderBy('id')->first();
+                if ($invoice !== null) {
+                    $recipients = [...$recipients, ...$this->recipients->invoiceRecipients($invoice)];
+                } else {
+                    $recipients = [...$recipients, ...$this->recipients->defaultContactAndOwners($order->company_id)];
+                }
+            }
+            $this->dispatcher->send(new OrderItemsCancelled($cancellationId), $recipients);
         }
     }
 
@@ -127,6 +149,15 @@ final class Notifications
         $order = $this->rmaOrder($rmaId);
         if ($order !== null) {
             $this->dispatcher->send(new RmaResolved($rmaId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.4 §14.2 R16 `rma.replacement_created`: to the customer, what is coming and when. */
+    public function rmaReplacementCreated(int $rmaId): void
+    {
+        $order = $this->rmaOrder($rmaId);
+        if ($order !== null) {
+            $this->dispatcher->send(new RmaReplacementCreated($rmaId), $this->recipients->orderCustomer($order));
         }
     }
 

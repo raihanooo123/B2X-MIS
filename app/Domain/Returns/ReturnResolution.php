@@ -5,6 +5,7 @@ namespace App\Domain\Returns;
 use App\Domain\Billing\Refunds;
 use App\Domain\Billing\RefundSettlement;
 use App\Domain\Notifications\Notifications;
+use App\Domain\Ordering\DeliveryAddress;
 use App\Domain\Reference\NumberSequenceService;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
 use App\Models\CreditNote;
@@ -28,7 +29,11 @@ use RuntimeException;
  *     within 30 days of possession are refunded in full (CRA s.22, §13.4);
  *     after 30 days the customer chooses repair or replacement; staff
  *     record any override or failed/refused remedy before a refund.
- *     Repair and replacement settle the return with no refund.
+ *     Repair and replacement settle the return with no refund. A
+ *     replacement creates its zero-value replacement order here, for the
+ *     quantities accepted at inspection (ReplacementOrders, 05.4 §14) —
+ *     unless staff already sent an advance replacement, which is reused.
+ *     A shortfall leaves the return as it was.
  *   - Refund (RefundCalculator): goods actually refunded, less diminished
  *     value; the outbound delivery — for a cancellation, the standard charge
  *     (02 §26.3) and only when nothing of the order is kept; for faulty goods
@@ -47,17 +52,19 @@ final class ReturnResolution
     public function __construct(
         private readonly NumberSequenceService $numbers = new NumberSequenceService,
         private readonly Notifications $notifications = new Notifications,
+        private readonly ReplacementOrders $replacements = new ReplacementOrders,
     ) {}
 
     /**
      * @param  string|null  $resolutionType  for faulty goods after 30 days: `repair`, `replacement` or `credit_note`
+     * @param  DeliveryAddress|null  $replacementAddress  a replacement sent somewhere other than the original delivery address (R10)
      *
      * @throws ReturnActionRefusedException
      */
-    public function resolve(int $rmaId, int $staffUserId, ?string $resolutionType = null, ?string $overrideBasis = null, ?string $remedyOutcome = null, ?string $remedyReason = null): Rma
+    public function resolve(int $rmaId, int $staffUserId, ?string $resolutionType = null, ?string $overrideBasis = null, ?string $remedyOutcome = null, ?string $remedyReason = null, ?DeliveryAddress $replacementAddress = null): Rma
     {
         /** @var array{rma: Rma, refund_id: int|null} $outcome */
-        $outcome = DB::transaction(fn () => $this->resolveWithinTransaction($rmaId, $staffUserId, $resolutionType, $overrideBasis, $remedyOutcome, $remedyReason));
+        $outcome = DB::transaction(fn () => $this->resolveWithinTransaction($rmaId, $staffUserId, $resolutionType, $overrideBasis, $remedyOutcome, $remedyReason, $replacementAddress));
 
         if ($outcome['refund_id'] !== null) {
             (new RefundSettlement($this->notifications))->settle([$outcome['refund_id']]);
@@ -69,7 +76,7 @@ final class ReturnResolution
     /**
      * @return array{rma: Rma, refund_id: int|null}
      */
-    private function resolveWithinTransaction(int $rmaId, int $staffUserId, ?string $resolutionType, ?string $overrideBasis, ?string $remedyOutcome, ?string $remedyReason): array
+    private function resolveWithinTransaction(int $rmaId, int $staffUserId, ?string $resolutionType, ?string $overrideBasis, ?string $remedyOutcome, ?string $remedyReason, ?DeliveryAddress $replacementAddress): array
     {
         $rma = Rma::query()->lockForUpdate()->findOrFail($rmaId);
         if ($rma->company_id !== null) {
@@ -111,6 +118,11 @@ final class ReturnResolution
         $refundable = [];
         foreach ($lines as $line) {
             $refundable[$line->id] = $onProof ? $line->requested_base_qty : $line->restocked_base_qty + $line->quarantined_base_qty + $line->written_off_base_qty;
+        }
+
+        // 05.4 §14: the replacement order itself, unless an advance one exists.
+        if ($type === 'replacement' && $rma->replacement_order_id === null) {
+            $this->replacements->createWithinTransaction($rma, $refundable, $staffUserId, $replacementAddress);
         }
 
         $refundId = null;
@@ -160,7 +172,11 @@ final class ReturnResolution
         $partial = $lines->contains(fn (RmaLine $l) => $refundable[$l->id] < $l->requested_base_qty);
         $rma->fill([
             'status' => $partial && $type === 'credit_note' ? 'partially_resolved' : 'resolved',
-            'resolution_type' => $type,
+            // A return that sent a replacement stays `replacement` even when a
+            // failed replacement is later refunded (§13.4): rmas_replacement_chk
+            // ties the replacement order to that type, and the refund is on
+            // record through its credit note, refund fields and decision log.
+            'resolution_type' => $rma->replacement_order_id !== null ? 'replacement' : $type,
             'resolved_at' => now(),
             'handled_by_user_id' => $staffUserId,
         ]);

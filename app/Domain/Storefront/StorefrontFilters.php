@@ -18,6 +18,11 @@ final readonly class StorefrontFilters
         public string $sort = 'name',
     ) {}
 
+    public function withSort(string $sort): self
+    {
+        return new self($this->search, $this->categoryId, $this->brandSlug, $this->inStockOnly, $sort);
+    }
+
     public function withoutBrand(): self
     {
         return new self($this->search, $this->categoryId, null, $this->inStockOnly, $this->sort);

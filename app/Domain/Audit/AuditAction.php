@@ -101,6 +101,15 @@ enum AuditAction: string
      */
     case RmaProofRejected = 'rma.proof_rejected';
 
+    /*
+     * 05.4 §14.2 R7 (Q-R2): staff send a replacement before the faulty goods
+     * come back, with a reason. A decision on a return, so `rma_disposition`.
+     */
+    case RmaAdvanceReplacement = 'rma.advance_replacement';
+
+    /** 05.10 §2 Q-X1: staff override a trade line's original price-break quantity. */
+    case OrderCancelBelowBreak = 'order.cancel_below_break';
+
     public function family(): string
     {
         return match ($this) {
@@ -117,7 +126,8 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
             self::OrderClaimed => 'permission',
-            self::RmaProofRejected => 'rma_disposition',
+            self::RmaProofRejected, self::RmaAdvanceReplacement => 'rma_disposition',
+            self::OrderCancelBelowBreak => 'price_override',
             self::CreditLimitChanged => 'credit_limit',
             self::TermsVersionPublished, self::StorefrontSettingsChanged, self::PagePublished => 'configuration',
         };
@@ -141,6 +151,8 @@ enum AuditAction: string
             self::TermsVersionPublished, self::PagePublished => [],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at', 'last_proof_attachment_id'],
+            self::RmaAdvanceReplacement => ['replacement_order_id'],
+            self::OrderCancelBelowBreak => [],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by', 'seo.indexing_enabled'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
@@ -172,6 +184,8 @@ enum AuditAction: string
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at'],
+            self::RmaAdvanceReplacement => ['replacement_order_id'],
+            self::OrderCancelBelowBreak => ['order_cancellation_id'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
             self::PagePublished => ['page_key', 'version_no', 'effective_from', 'body_sha256'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',

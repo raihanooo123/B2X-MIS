@@ -5,6 +5,7 @@ namespace App\Domain\Billing;
 use App\Domain\Billing\Events\InvoiceIssued;
 use App\Domain\Billing\Exceptions\SellerVatNumberMissingException;
 use App\Domain\Notifications\Notifications;
+use App\Domain\Ordering\OrderKind;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Reference\NumberSequenceService;
 use App\Jobs\ArchiveInvoicePdf;
@@ -101,7 +102,16 @@ final class InvoiceService
      */
     public function issueForOrder(int $orderId): Invoice
     {
-        $order = Order::query()->findOrFail($orderId, ['id', 'company_id', 'payment_method']);
+        $order = Order::query()->findOrFail($orderId, ['id', 'company_id', 'payment_method', 'order_kind']);
+
+        // 05.4 §14.2 R9 — PENDING THE ACCOUNTANT (05.4 Q-R3): a replacement is
+        // zero-value and, under warranty, not a new supply for VAT, so it gets
+        // no invoice or receipt; a packing note travels with it as with any
+        // shipment. If the accountant asks for a zero-value document, this is
+        // the one place to change.
+        if ($order->order_kind === OrderKind::Replacement->value) {
+            throw new LogicException("Order {$orderId} is a replacement and is not invoiced (05.4 §14, Q-R3).");
+        }
         $companyId = $order->company_id;
         $onAccount = $companyId !== null && $order->payment_method === PaymentMethod::OnAccount->value;
 
