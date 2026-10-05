@@ -1812,12 +1812,13 @@ work; “open question” requires a decision; “missing spec” requires signe
 | Demo seed / reference import (§26) | Partly built | Demo seeder exists but lacks batch/serial/ledger fixtures. Missing spec: 08 source mapping/staging/rejection plan; dependency: reference data access and agreed URL mapping. |
 | Quality, compliance, payments & PDFs (§0, §16) | Partly built | Argon2id, staff 2FA and Stripe slice built; core PR CI exists (`.github/workflows/ci.yml`, `quality`); parallel/property/baseline/a11y/redaction/GDPR/PITR coverage remains incomplete. Real PDF renderer absent (`NullPdfRenderer` bound). Recorded Laravel upgrade requires approved stack amendment; live vulnerability/host checks were not performed. |
 
-**Spec sign-off remains a separate dependency:** 05.3 (quotes), the trade portions of
-05.4, 05.8 (dropship/reps), and the container-cost/duty portions of 05.7 still carry draft
-status rather than a recorded sign-off. Review/sign off the relevant remaining slice before
-implementation under CLAUDE.md; this audit does not approve it. Existing narrower signed-off
-amendments (application compliance, purchasing/reorder, consumer returns, collection and
-partial cancellation) do not sign off the rest of their parent documents.
+**Spec sign-off recorded 2026-10-05:** 05.16 (B2B UX standard), 05.17 (trade self-service,
+PDF renderer A — Puppeteer via `spatie/browsershot`), 02 §31 and the completion sections
+05.1 §14, 05.2 §18, 05.3 §17, 05.4 §15, 05.7 §17 and 05.8 §16 are signed off, with every
+recommended answer in their open-question tables accepted. Earlier narrower amendments
+(application compliance, purchasing/reorder, consumer returns, collection and partial
+cancellation) keep their own sign-off; parts of 05.3/05.4/05.7/05.8 outside those
+completion sections are still governed by them.
 
 **Additional trade gaps not represented by a dedicated original checkbox:**
 
@@ -1845,6 +1846,12 @@ partial cancellation) do not sign off the rest of their parent documents.
       has six focused tests, not the full hold/refund, 1,000-order property, packed/dispatch
       races, deadlock, batch/serial release and warehouse put-away matrix. Source branches
       alone do not prove these cases.
+
+**UX retrofit (after module 3):**
+
+- [ ] UX retrofit (after module 3): move existing trade screens (order pad, account, team,
+      trade checkout, warehouse) onto the 05.16 shell and components; acceptance =
+      Playwright screenshots at 390/1440 + axe, zero serious issues.
 
 **Recommended remaining B2B build order:**
 
