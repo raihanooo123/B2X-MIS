@@ -75,7 +75,8 @@ function replOrder(int $onHand = 5): Order
         'standard_shipping_net_minor' => 650, 'tax_minor' => 530, 'total_gross_minor' => 3180, 'payment_method' => 'card', 'payment_status' => 'paid',
     ]);
     $sku = Sku::factory()->create();
-    SkuCost::factory()->for($sku)->create(['landed_cost_e4' => 61234, 'valid_from' => now()->subYear()]);
+    // landed_cost_e4 is generated (fob + freight + duty + other), so set the parts.
+    SkuCost::factory()->for($sku)->create(['fob_e4' => 61234, 'freight_e4' => 0, 'duty_e4' => 0, 'other_e4' => 0, 'valid_from' => now()->subYear()]);
     $pack = Pack::factory()->for($sku)->create(['base_units' => 1]);
     OrderLine::factory()->forPack($pack, 1)->dispatched()->create(['order_id' => $order->id, 'line_no' => 1, 'line_net_minor' => 2000, 'tax_rate_bp' => 2000, 'line_tax_minor' => 400]);
     OrderAddress::factory()->create(['order_id' => $order->id, 'address_type' => 'delivery', 'contact_name' => 'Ada Lovelace', 'line1' => '1 Analytical Way', 'city' => 'London', 'postcode' => 'N1 1AA', 'country_code' => 'GB']);

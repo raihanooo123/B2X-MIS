@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
  * price on `products` or `skus`); ProductPriceProjector writes it and
  * StorefrontCatalogue reads it, nothing else.
  *
- * Empty at creation: `storefront:rebuild-price-projection` fills it (and
+ * Empty at creation: `storefront:refresh-price-projection` fills it (and
  * runs nightly). Until then price sorts list every product as unpriced.
  */
 return new class extends Migration

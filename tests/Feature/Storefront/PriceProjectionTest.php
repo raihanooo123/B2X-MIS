@@ -177,8 +177,8 @@ it('offers price sorts to guests and public customers, never to trade', function
 
 it('is read only by the catalogue and written only by the projector (invariant 3)', function () {
     $allowed = [
-        'app/Domain/Storefront/StorefrontCatalogue.php',
         'app/Domain/Storefront/ProductPriceProjector.php',
+        'app/Domain/Storefront/StorefrontCatalogue.php',
     ];
     $users = [];
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'))) as $file) {
