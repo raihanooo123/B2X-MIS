@@ -139,7 +139,8 @@ class CollectionsPageController extends Controller
         $rows = CollectionBooking::query()
             ->with(['slot', 'order.user:id,first_name,last_name,email', 'order.company:id,name'])
             ->when($search === '', fn (Builder $q) => $q
-                ->where('status', 'booked')
+                // qualified: the join below also has a `status` column
+                ->where('collection_bookings.status', 'booked')
                 ->whereHas('slot', fn (Builder $s) => $s->where('slot_date', '<=', $today)))
             ->when($search !== '', fn (Builder $q) => $q->whereHas('order', fn (Builder $o) => $this->matching($o, $search)))
             ->join('collection_slots', 'collection_slots.id', '=', 'collection_bookings.collection_slot_id')
