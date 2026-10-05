@@ -186,8 +186,8 @@ function CheckoutForm(props: CheckoutProps) {
         addressKey: collecting ? undefined : ratingAddressKey,
         fulfilmentType: fulfilment,
         collectionSlotId: collecting ? slotId : null,
-        // Only cash changes what preview checks (05.6 §7A.3).
-        paymentMethod: paymentMethod === 'cash_at_collection' ? 'cash_at_collection' : undefined,
+        // Cash (05.6 §7A.3) and on account (05.2 §18.1: terms, overdue debt, credit shortfall) change what preview checks.
+        paymentMethod: paymentMethod === 'cash_at_collection' || paymentMethod === 'on_account' ? paymentMethod : undefined,
     });
     const delivery = preview.data?.delivery ?? null;
     const collection = collecting ? (preview.data?.collection ?? null) : null;
@@ -207,7 +207,9 @@ function CheckoutForm(props: CheckoutProps) {
     const [stage, setStage] = useState<'idle' | 'authorising' | 'placing'>('idle');
     const [cardComplete, setCardComplete] = useState(false);
     const [cardError, setCardError] = useState<string | null>(null);
-    const payingByCard = paymentMethod === 'card';
+    // 05.2 §18.1: an order going for approval is placed without a card; the buyer pays once it is approved.
+    const approval = isTrade && preview.data?.approval?.required === true ? preview.data.approval : null;
+    const payingByCard = paymentMethod === 'card' && approval === null;
     const cardReady = !payingByCard || (stripe !== null && elements !== null && cardComplete);
 
     // 05.15 §6.1 step 4: a public buyer accepts the terms of sale first.
@@ -464,7 +466,15 @@ function CheckoutForm(props: CheckoutProps) {
                                     }}
                                 />
                             )}
-                            {paymentMethod === 'on_account' && preview.data?.credit && (
+                            {approval !== null && (
+                                <div role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                                    <p className="font-medium">This order needs approval before it is confirmed.</p>
+                                    {approval.reasons.includes('buyer_limit') && <p>It is above your order limit, so another owner or approver must approve it within 48 hours. Stock and credit are held meanwhile.</p>}
+                                    {approval.reasons.includes('credit_shortfall') && <p>It is more than your available credit, so accounts must approve it. Stock is not reserved until then — or pay by card or bank transfer instead.</p>}
+                                    {paymentMethod === 'card' && <p>Your card is not charged now. You pay once the order is approved.</p>}
+                                </div>
+                            )}
+                            {paymentMethod === 'on_account' && preview.data?.credit && approval === null && (
                                 <p className={cn('text-xs', preview.data.credit.sufficient ? 'text-muted-foreground' : 'text-red-700')}>
                                     Available credit: {formatMinor(preview.data.credit.available_minor)}
                                     {!preview.data.credit.sufficient && ' — not enough for this order. Pay by card or bank transfer instead.'}
@@ -528,7 +538,7 @@ function CheckoutForm(props: CheckoutProps) {
                             ) : payingCash ? (
                                 cashButtonLabel(preview.data?.total_gross_minor)
                             ) : isTrade ? (
-                                priceChange ? 'Place order at the new total' : 'Place order'
+                                approval !== null ? 'Send order for approval' : priceChange ? 'Place order at the new total' : 'Place order'
                             ) : (
                                 payButtonLabel(paymentMethod, preview.data?.total_gross_minor)
                             )}

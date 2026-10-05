@@ -87,6 +87,13 @@ export interface CheckoutPreview {
     account_credit_applied_minor: number;
     amount_due_minor: number;
     credit: { available_minor: number; sufficient: boolean } | null;
+    /**
+     * 05.2 §18.1: a trade order that will wait for a decision. `buyer_limit`:
+     * another owner/approver approves, stock and credit held meanwhile;
+     * `credit_shortfall`: accounts decides, nothing reserved. A card is
+     * charged only after approval.
+     */
+    approval?: { required: boolean; reasons: Array<'buyer_limit' | 'credit_shortfall'> };
     minimum_order_net_minor: number | null;
     lines: PreviewLine[];
     blockers: PreviewBlocker[];

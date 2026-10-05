@@ -15,6 +15,11 @@ export interface SharedAuth {
     public_customer: boolean;
     /** An owner of the acting company: shows the Team link. */
     can_manage_team: boolean;
+    /**
+     * 05.16 §2: the trade shell's policy-gated links for the acting company
+     * (05.2 §18.3), and how many approvals are waiting. Null with no company.
+     */
+    trade_navigation: { approvals: boolean; credit: boolean; users: boolean; pending_approvals: number } | null;
     staff_navigation: {
         admin: boolean;
         goods_in: boolean;

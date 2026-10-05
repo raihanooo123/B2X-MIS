@@ -183,6 +183,17 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
         );
     }
 
+    // 05.2 §18.1: a trade order waiting for a decision, or approved and waiting for card payment.
+    if (order.status === 'awaiting_approval') {
+        return [
+            'Your order has been sent for approval. We will email you when it is approved or rejected.',
+            'If it is not decided within 48 hours it is cancelled automatically. Nothing is charged until it is approved.',
+        ];
+    }
+    if (order.status === 'pending_payment') {
+        return [`Your order was approved. Pay ${formatMinor(order.total_gross_minor)} by card within 2 hours of approval to confirm it.`];
+    }
+
     const common = 'We will email you when your order is dispatched.';
 
     // 05.6 §7A.3: collect, and pay cash then, by the deadline.
@@ -343,6 +354,16 @@ export default function Confirmation({ display_mode: mode, order, guest, cancel_
                                     <li key={step}>{step}</li>
                                 ))}
                             </ol>
+                            {order.status === 'awaiting_approval' && order.payment_method === 'on_account' && (
+                                <Link href={`/trade/orders/${order.id}/pay`} className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
+                                    Pay by card instead of waiting
+                                </Link>
+                            )}
+                            {order.status === 'pending_payment' && (
+                                <Link href={`/trade/orders/${order.id}/pay`} className="mt-3 inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                                    Pay {formatMinor(order.total_gross_minor)} now
+                                </Link>
+                            )}
                         </section>
 
                         {status && (
