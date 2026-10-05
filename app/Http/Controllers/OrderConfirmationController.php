@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\OrderCancellationService;
+use App\Domain\Ordering\PartialCancellations;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
 use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
+use App\Http\Requests\Web\PartialCancellationRequest;
 use App\Http\Requests\Web\ProofOfSendingRequest;
 use App\Http\Requests\Web\ReportProblemRequest;
 use App\Http\Support\OrderPageProps;
@@ -41,6 +43,8 @@ class OrderConfirmationController extends Controller
             'guest' => null,
             'cancel_url' => OrderPageProps::canCancel($model) && Gate::allows('cancel', $model) ? route('orders.cancel', ['order' => $model->public_id]) : null,
             'cancel_items_url' => Gate::allows('cancel', $model) ? route('orders.cancel-items', ['order' => $model->public_id]) : null,
+            'cancel_undispatched_items_url' => Gate::allows('cancelUndispatchedItems', $model)
+                ? route('orders.cancel-undispatched-items', ['order' => $model->public_id]) : null,
             'problems_url' => Gate::allows('cancel', $model) ? route('orders.problems', ['order' => $model->public_id]) : null,
             // 05.4 §13.5: proof uploads post to {returns_url}/{rma id}/proof.
             'returns_url' => Gate::allows('cancel', $model) ? url("/orders/{$model->public_id}/returns") : null,
@@ -75,6 +79,27 @@ class OrderConfirmationController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.10 §2: the buyer, trade owner or approver cancels whole packs before dispatch. */
+    public function cancelUndispatchedItems(PartialCancellationRequest $request, string $order): RedirectResponse
+    {
+        $model = Order::query()->where('public_id', $order)->firstOrFail();
+        Gate::authorize('cancelUndispatchedItems', $model);
+
+        $reason = $request->validated('reason_detail');
+        if ($model->company_id !== null && (! is_string($reason) || trim($reason) === '')) {
+            return back()->withErrors(['reason_detail' => 'Give a reason for cancelling items from a trade order.']);
+        }
+
+        try {
+            (new PartialCancellations)->cancel($model->id, $request->packQtyByLineNo(), 'customer', $request->user()?->id,
+                CarbonImmutable::now(), reasonDetail: is_string($reason) ? $reason : null, clientToken: $request->clientToken());
+        } catch (OrderNotCancellableException $e) {
+            return back()->withErrors(['lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'The selected items have been cancelled. We have emailed you a confirmation.');
     }
 
     /** 05.4 §13.4: a signed-in consumer reports faulty, damaged or wrong goods. */

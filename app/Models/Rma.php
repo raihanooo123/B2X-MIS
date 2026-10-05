@@ -42,6 +42,7 @@ use Illuminate\Support\Carbon;
  * @property int $delivery_refund_net_minor
  * @property int $delivery_refund_tax_minor
  * @property int|null $credit_note_id
+ * @property int|null $replacement_order_id the zero-value replacement order (05.4 §14)
  * @property Carbon|null $inspected_at
  * @property Carbon|null $resolved_at
  * @property Carbon $requested_at

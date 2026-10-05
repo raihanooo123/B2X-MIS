@@ -9,6 +9,7 @@ use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\Exceptions\OrderNotCancellableException;
 use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\OrderCancellationService;
+use App\Domain\Ordering\PartialCancellations;
 use App\Domain\Returns\ConsumerCancellations;
 use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
@@ -16,6 +17,7 @@ use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ProofOfSending;
 use App\Http\Requests\Web\CancellationItemsRequest;
 use App\Http\Requests\Web\GuestAccountRequest;
+use App\Http\Requests\Web\PartialCancellationRequest;
 use App\Http\Requests\Web\ProofOfSendingRequest;
 use App\Http\Requests\Web\ReportProblemRequest;
 use App\Http\Support\OrderPageProps;
@@ -70,6 +72,8 @@ class GuestOrderController extends Controller
                 ? route('orders.guest.cancel', ['order' => $order, 'expires' => $expires, 'signature' => $signature])
                 : null,
             'cancel_items_url' => route('orders.guest.cancel-items', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
+            'cancel_undispatched_items_url' => $model->company_id === null
+                ? route('orders.guest.cancel-undispatched-items', ['order' => $order, 'expires' => $expires, 'signature' => $signature]) : null,
             'problems_url' => route('orders.guest.problems', ['order' => $order, 'expires' => $expires, 'signature' => $signature]),
             'returns_url' => route('orders.guest', ['order' => $order, 'expires' => $expires, 'signature' => $signature]).'/returns',
         ]);
@@ -126,6 +130,27 @@ class GuestOrderController extends Controller
         }
 
         return back()->with('status', "Cancellation {$rma->rma_number} confirmed. We have emailed you how to send the items back.");
+    }
+
+    /** 05.10 §2: a valid signed guest link grants access to this one consumer order. */
+    public function cancelUndispatchedItems(PartialCancellationRequest $request, string $order, int $expires, string $signature): RedirectResponse
+    {
+        $model = $this->linkedOrder($order, $expires, $signature);
+        if ($model === null) {
+            return redirect()->route('orders.lookup')->with('status', self::INVALID);
+        }
+        if ($model->company_id !== null) {
+            abort(404);
+        }
+
+        try {
+            (new PartialCancellations)->cancel($model->id, $request->packQtyByLineNo(), 'customer', null,
+                CarbonImmutable::now(), clientToken: $request->clientToken());
+        } catch (OrderNotCancellableException $e) {
+            return back()->withErrors(['lines' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'The selected items have been cancelled. We have emailed you a confirmation.');
     }
 
     /** 05.4 §13.4: a guest reports faulty, damaged or wrong goods, by their order link. */

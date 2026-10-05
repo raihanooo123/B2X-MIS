@@ -33,8 +33,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $line_net_minor
  * @property int $line_tax_minor
  * @property int $line_gross_minor
+ * @property int|null $applied_break_qty
  * @property int $dispatched_base_qty
  * @property int $returned_base_qty
+ * @property int $cancelled_base_qty cancelled before dispatch, whole packs (05.10 §2)
+ * @property int|null $replaces_order_line_id the faulty line this replacement line replaces (05.4 §14)
  */
 class OrderLine extends Model
 {
@@ -68,6 +71,8 @@ class OrderLine extends Model
         'allocated_base_qty',
         'dispatched_base_qty',
         'returned_base_qty',
+        'replaces_order_line_id',
+        'cancelled_base_qty',
     ];
 
     protected function casts(): array
@@ -88,6 +93,8 @@ class OrderLine extends Model
             'allocated_base_qty' => 'integer',
             'dispatched_base_qty' => 'integer',
             'returned_base_qty' => 'integer',
+            'replaces_order_line_id' => 'integer',
+            'cancelled_base_qty' => 'integer',
         ];
     }
 

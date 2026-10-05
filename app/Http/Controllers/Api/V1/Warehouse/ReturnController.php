@@ -8,11 +8,13 @@ use App\Domain\Returns\Exceptions\CancellationRequestRejectedException;
 use App\Domain\Returns\Exceptions\ReturnActionRefusedException;
 use App\Domain\Returns\FaultReports;
 use App\Domain\Returns\ProofOfSending;
+use App\Domain\Returns\ReplacementOrders;
 use App\Domain\Returns\ReturnInspection;
 use App\Domain\Returns\ReturnReceipt;
 use App\Domain\Returns\ReturnResolution;
 use App\Http\Controllers\Controller;
 use App\Http\Exceptions\ApiException;
+use App\Http\Requests\Api\V1\Warehouse\AdvanceReplacementRequest;
 use App\Http\Requests\Api\V1\Warehouse\BankRefundRequest;
 use App\Http\Requests\Api\V1\Warehouse\InspectReturnRequest;
 use App\Http\Requests\Api\V1\Warehouse\ReasonRequest;
@@ -48,6 +50,7 @@ class ReturnController extends Controller
         private readonly FaultReports $faults = new FaultReports,
         private readonly BankRefunds $bankRefunds = new BankRefunds,
         private readonly ConsumerCancellations $cancellations = new ConsumerCancellations,
+        private readonly ReplacementOrders $replacements = new ReplacementOrders,
     ) {}
 
     public function lookup(Request $request): JsonResponse
@@ -101,8 +104,21 @@ class ReturnController extends Controller
         Gate::authorize('resolve', $rma);
 
         return Idempotency::run($request, 'returns-resolve:'.$rma->public_id, fn () => (new ReturnResource(
-            $this->refusals(fn () => $this->resolutions->resolve($rma->id, $this->staffId($request), $request->resolutionType(), $request->validated('override_basis'), $request->validated('remedy_outcome'), $request->validated('remedy_reason')))
+            $this->refusals(fn () => $this->resolutions->resolve($rma->id, $this->staffId($request), $request->resolutionType(), $request->validated('override_basis'), $request->validated('remedy_outcome'), $request->validated('remedy_reason'), $request->replacementAddress()))
         ))->response());
+    }
+
+    /** 05.4 §14.2 R7 (Q-R2): a replacement sent before the faulty goods come back — staff only, with a reason. */
+    public function advanceReplacement(AdvanceReplacementRequest $request, string $id): JsonResponse
+    {
+        $rma = $this->rma($id);
+        Gate::authorize('resolve', $rma);
+
+        return Idempotency::run($request, 'returns-advance-replacement:'.$rma->public_id, function () use ($request, $rma) {
+            $this->refusals(fn () => $this->replacements->createAdvance($rma->id, $this->staffId($request), $request->reason(), $request->replacementAddress()));
+
+            return (new ReturnResource($rma->fresh() ?? $rma))->response();
+        });
     }
 
     public function approve(Request $request, string $id): JsonResponse

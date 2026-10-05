@@ -2,11 +2,17 @@
 
 namespace App\Http\Support;
 
+use App\Domain\Collection\CashAtCollection;
+use App\Domain\Collection\CollectionSlots;
+use App\Domain\Ordering\GuestOrderLink;
+use App\Domain\Ordering\OrderKind;
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Pricing\DeliveryCountries;
 use App\Domain\Returns\CancellationEligibility;
 use App\Domain\Returns\FaultReports;
 use App\Domain\Storefront\PreContractInformation;
+use App\Domain\Warehouse\FulfilmentRules;
+use App\Models\CollectionBooking;
 use App\Models\DeliveryZone;
 use App\Models\Order;
 use App\Models\OrderAddress;
@@ -14,6 +20,8 @@ use App\Models\OrderLine;
 use App\Models\Payment;
 use App\Models\Rma;
 use App\Models\RmaLine;
+use App\Models\Shipment;
+use App\Models\StockAllocation;
 use Carbon\CarbonImmutable;
 
 /**
@@ -38,8 +46,12 @@ final class OrderPageProps
             'order_number' => $model->order_number,
             'placed_at' => $model->placed_at?->toIso8601ZuluString(),
             'status' => $model->status,
+            // 05.4 §14: a zero-value replacement for faulty goods, and the order it replaces.
+            'kind' => $model->order_kind,
+            'replaces' => self::replaces($model),
             // 05.4 §13.2: a consumer order not yet dispatched may be cancelled.
             'can_cancel' => self::canCancel($model),
+            'undispatched_cancellation' => self::undispatchedCancellation($model),
             'cancelled_at' => $model->cancelled_at?->toIso8601ZuluString(),
             'refunds' => self::refunds($model),
             // 05.4 §13.3: cancelling some or all of a dispatched consumer order.
@@ -48,6 +60,8 @@ final class OrderPageProps
             'problem' => self::problem($model),
             'returns' => self::returns($model),
             'payment_status' => $model->payment_status,
+            // 05.6 §7A: a collection's slot, and for pay at collection the amount and the deadline.
+            'collection' => self::collection($model),
             // 02 §18. Null only for orders placed before the column existed.
             'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
             'customer_reference' => $model->customer_reference,
@@ -75,6 +89,7 @@ final class OrderPageProps
                 'pack_qty' => $l->pack_qty,
                 'pack_base_units' => $l->pack_base_units,
                 'base_qty' => $l->base_qty,
+                'cancelled_base_qty' => $l->cancelled_base_qty,
                 'unit_price_net_e4' => $l->unit_price_net_e4,
                 'tax_rate_bp' => $l->tax_rate_bp,
                 'line_net_minor' => $l->line_net_minor,
@@ -188,7 +203,67 @@ final class OrderPageProps
     /** Mirrors OrderCancellationService's own check, which is the authority. */
     public static function canCancel(Order $order): bool
     {
-        return $order->company_id === null && in_array($order->status, ['confirmed', 'picking'], true);
+        return $order->company_id === null && $order->order_kind === OrderKind::Sale->value
+            && in_array($order->status, ['confirmed', 'picking'], true);
+    }
+
+    /**
+     * Display limits only; PartialCancellations rechecks them under locks on submission.
+     *
+     * @return array{trade: bool, lines: list<array{line_no: int, name: string, sku_code: string, pack_label: string, max_pack_qty: int, kept_base_qty: int, pack_base_units: int, applied_break_qty: int|null}>}|null
+     */
+    private static function undispatchedCancellation(Order $order): ?array
+    {
+        if ($order->order_kind !== OrderKind::Sale->value
+            || ! in_array($order->status, ['confirmed', 'picking', 'part_dispatched'], true)) {
+            return null;
+        }
+
+        $packedLocations = Shipment::query()->where('order_id', $order->id)->where('status', 'packed')->pluck('location_id')->all();
+        $packedByLine = $packedLocations === [] ? [] : StockAllocation::query()
+            ->whereIn('order_line_id', $order->lines->pluck('id'))
+            ->whereIn('location_id', $packedLocations)
+            ->whereIn('status', FulfilmentRules::ACTIVE_ALLOCATION_STATUSES)
+            ->selectRaw('order_line_id, SUM(base_qty) AS qty')->groupBy('order_line_id')
+            ->pluck('qty', 'order_line_id')->all();
+
+        $lines = [];
+        foreach ($order->lines as $line) {
+            $available = max(0, $line->base_qty - $line->dispatched_base_qty - $line->cancelled_base_qty - (int) ($packedByLine[$line->id] ?? 0));
+            if ($available === 0) {
+                continue;
+            }
+            $lines[] = [
+                'line_no' => $line->line_no,
+                'name' => $line->name_snapshot,
+                'sku_code' => $line->sku_code_snapshot,
+                'pack_label' => $line->pack_label_snapshot,
+                'max_pack_qty' => intdiv($available, $line->pack_base_units),
+                'kept_base_qty' => $line->base_qty - $line->cancelled_base_qty,
+                'pack_base_units' => $line->pack_base_units,
+                'applied_break_qty' => $line->applied_break_qty,
+            ];
+        }
+
+        return $lines === [] ? null : ['trade' => $order->company_id !== null, 'lines' => $lines];
+    }
+
+    /**
+     * The original order a replacement replaces, through its lines'
+     * `replaces_order_line_id` (05.4 §14.2 R4). Null for a sale.
+     *
+     * @return array{order_number: string, url: string}|null
+     */
+    private static function replaces(Order $order): ?array
+    {
+        if ($order->order_kind !== OrderKind::Replacement->value) {
+            return null;
+        }
+        $faultyLineId = $order->lines->first()?->replaces_order_line_id;
+        $originalId = $faultyLineId === null ? null : OrderLine::query()->where('id', $faultyLineId)->value('order_id');
+        $original = $originalId === null ? null : Order::query()->where('id', $originalId)->first();
+
+        return $original === null ? null : ['order_number' => $original->order_number, 'url' => GuestOrderLink::customerUrl($original)];
     }
 
     /**
@@ -228,6 +303,30 @@ final class OrderPageProps
             'status' => $payment->status,
             'card_brand' => $payment->card_brand,
             'card_last4' => $payment->card_last4,
+        ];
+    }
+
+    /**
+     * @return array{status: string, slot: string|null, location: string|null, collected_at: string|null, cash_amount_minor: int|null, payment_due_by: string|null}|null
+     */
+    private static function collection(Order $model): ?array
+    {
+        if ($model->fulfilment_type !== 'collection') {
+            return null;
+        }
+        $booking = CollectionBooking::query()->with('slot.location:id,name')->where('order_id', $model->id)->first();
+        if ($booking === null) {
+            return null;
+        }
+        $cash = $model->payment_method === PaymentMethod::CashAtCollection->value && $booking->status === 'booked' && $model->payment_status === 'unpaid';
+
+        return [
+            'status' => $booking->status,
+            'slot' => $booking->slot === null ? null : CollectionSlots::label($booking->slot),
+            'location' => $booking->slot?->location?->name,
+            'collected_at' => $booking->collected_at?->toIso8601ZuluString(),
+            'cash_amount_minor' => $cash ? CashAtCollection::amountDueMinor($model) : null,
+            'payment_due_by' => $cash ? $booking->payment_due_by?->toIso8601ZuluString() : null,
         ];
     }
 }

@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $currency
  * @property int|null $refunded_payment_id
  * @property string|null $failure_reason
+ * @property int|null $recorded_by_user_id cash only: the staff member who took it (05.6 §7A.6)
  */
 class Payment extends Model
 {
@@ -49,6 +50,7 @@ class Payment extends Model
         'card_last4',
         'refunded_payment_id',
         'failure_reason',
+        'recorded_by_user_id',
         'authorized_at',
         'captured_at',
     ];

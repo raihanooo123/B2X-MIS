@@ -4,7 +4,9 @@ namespace App\Providers\Filament;
 
 use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\RequireStaffTwoFactor;
+use App\Models\CollectionBooking;
 use App\Models\GoodsReceipt;
+use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\Stocktake;
 use Filament\Http\Middleware\Authenticate;
@@ -47,7 +49,7 @@ class AdminPanelProvider extends PanelProvider
             ->darkMode()
             ->sidebarCollapsibleOnDesktop()
             ->spa()
-            ->spaUrlExceptions([url('/warehouse/*')])
+            ->spaUrlExceptions([url('/warehouse/*'), url('/staff/*')])
             ->globalSearch()
             ->navigationGroups([
                 'Catalogue',
@@ -56,10 +58,17 @@ class AdminPanelProvider extends PanelProvider
                 'Inventory',
                 'Sales',
                 'Warehouse',
+                'Collections',
                 'Accounts',
                 'Settings',
             ])
             ->navigationItems([
+                NavigationItem::make('Order cancellations')
+                    ->group('Sales')
+                    ->icon('heroicon-o-x-circle')
+                    ->sort(30)
+                    ->url(fn (): string => route('staff.order-cancellations'))
+                    ->visible(fn (): bool => Gate::allows('recordUndispatchedCancellation', Order::class)),
                 NavigationItem::make('Goods in')
                     ->group('Warehouse')
                     ->icon('heroicon-o-inbox-arrow-down')
@@ -78,6 +87,13 @@ class AdminPanelProvider extends PanelProvider
                     ->sort(30)
                     ->url(fn (): string => route('warehouse.dispatch'))
                     ->visible(fn (): bool => Gate::allows('viewAny', Shipment::class)),
+                // 05.6 §7A.6: the counter is a React screen, like the other warehouse screens.
+                NavigationItem::make('Collections counter')
+                    ->group('Collections')
+                    ->icon('heroicon-o-building-storefront')
+                    ->sort(10)
+                    ->url(fn (): string => route('warehouse.collections'))
+                    ->visible(fn (): bool => Gate::allows('viewAny', CollectionBooking::class)),
                 NavigationItem::make('Stocktake')
                     ->group('Warehouse')
                     ->icon('heroicon-o-clipboard-document-check')

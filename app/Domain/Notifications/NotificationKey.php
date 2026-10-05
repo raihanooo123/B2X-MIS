@@ -17,6 +17,7 @@ enum NotificationKey: string
     case OrderConfirmed = 'order.confirmed';
     case OrderAccessLink = 'order.access_link';
     case OrderCancelled = 'order.cancelled';
+    case OrderItemsCancelled = 'order.items_cancelled';
     case RefundFailed = 'refund.failed';
     case RmaApproved = 'rma.approved';
     case RmaProofRejected = 'rma.proof_rejected';
@@ -25,6 +26,8 @@ enum NotificationKey: string
     case RmaRequested = 'rma.requested';
     case RmaRejected = 'rma.rejected';
     case RmaResolved = 'rma.resolved';
+    /** 05.4 §14.2 R16: a replacement order is on its way. */
+    case RmaReplacementCreated = 'rma.replacement_created';
     case PaymentReceived = 'payment.received';
     case ShipmentDispatched = 'shipment.dispatched';
     case InvoiceIssued = 'invoice.issued';
@@ -43,6 +46,10 @@ enum NotificationKey: string
     case PasswordReset = 'auth.password_reset';
     case PasswordChanged = 'auth.password_changed';
     case TwoFactorChanged = 'auth.two_factor_changed';
+    /** 05.6 §7A.5: an unpaid pay-at-collection order cancelled after its deadline. */
+    case CollectionExpired = 'collection.expired';
+    /** 05.6 §7A.11: the no-show limit reached; pay at collection withdrawn. */
+    case PayAtCollectionSuspended = 'collection.pay_at_collection_suspended';
 
     public function category(): NotificationCategory
     {
@@ -64,6 +71,8 @@ enum NotificationKey: string
             self::ApplicationRejected => '2',
             // Clearer wording: "as a buyer", and what happens with an existing account.
             self::CompanyInvitation => '2',
+            // 05.6 §7A.10: a collection order's slot, location and pay-at-collection deadline.
+            self::OrderConfirmed => '2',
             default => '1',
         };
     }

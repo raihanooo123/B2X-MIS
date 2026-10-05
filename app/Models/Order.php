@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -20,8 +21,10 @@ use Illuminate\Support\Carbon;
  * @property string $order_number
  * @property int|null $company_id
  * @property int|null $user_id
+ * @property int|null $placed_by_user_id
  * @property string $status
  * @property string $payment_status
+ * @property string $order_kind sale | replacement (05.4 §14)
  * @property string|null $payment_method
  * @property string|null $guest_email
  * @property int|null $delivery_zone_id
@@ -62,6 +65,7 @@ class Order extends Model
         'status',
         'payment_status',
         'payment_method',
+        'order_kind',
         'delivery_rate_id',
         'delivery_method',
         'shipping_tax_rate_bp',
@@ -161,6 +165,16 @@ class Order extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(OrderLine::class);
+    }
+
+    /**
+     * 05.6 §7.1: a collection order's one booking.
+     *
+     * @return HasOne<CollectionBooking, $this>
+     */
+    public function collectionBooking(): HasOne
+    {
+        return $this->hasOne(CollectionBooking::class);
     }
 
     /**

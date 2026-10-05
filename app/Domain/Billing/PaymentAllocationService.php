@@ -5,6 +5,7 @@ namespace App\Domain\Billing;
 use App\Domain\Notifications\Notifications;
 use App\Domain\Ordering\PaymentMethod;
 use App\Models\Company;
+use App\Models\CreditNote;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -18,7 +19,8 @@ use Illuminate\Support\Facades\DB;
  * issued, when InvoiceService calls allocateInvoice().
  *
  * Both entry points apply the same rule: allocate the smaller of what the
- * payment has left and what the invoice still owes, one allocation per
+ * payment has left and what the invoice still owes (its total, less
+ * cancellation credit notes, less what is already paid — 05.10 §2), one allocation per
  * (payment, invoice) pair — `allocation_reference` is unique
  * (`payment_allocations_reference_uq`), so a repeat call never allocates
  * twice. `invoices.paid_minor` and `status` are maintained in the same
@@ -92,7 +94,8 @@ final class PaymentAllocationService
 
             $allocated = (int) PaymentAllocation::query()->where('payment_id', $paymentId)->sum('amount_minor');
             $available = (int) $payment->amount_minor - $allocated;
-            $owed = (int) $invoice->total_gross_minor - (int) $invoice->paid_minor;
+            $credited = self::cancellationCreditMinor($invoiceId);
+            $owed = (int) $invoice->total_gross_minor - $credited - (int) $invoice->paid_minor;
             $amount = min($available, $owed);
 
             if ($amount <= 0) {
@@ -109,7 +112,7 @@ final class PaymentAllocationService
             $paid = (int) $invoice->paid_minor + $amount;
             $invoice->update([
                 'paid_minor' => $paid,
-                'status' => $paid >= (int) $invoice->total_gross_minor ? 'paid' : 'part_paid',
+                'status' => $paid + $credited >= (int) $invoice->total_gross_minor ? 'paid' : 'part_paid',
             ]);
 
             if ($creditCompanyId !== null) {
@@ -119,6 +122,19 @@ final class PaymentAllocationService
             // 05.12 §5.1.1: queued after commit; skipped for card orders.
             (new Notifications)->paymentApplied($invoiceId, $paymentId, $amount, $orderPaymentMethod);
         });
+    }
+
+    /**
+     * 05.10 §2: what cancellation credit notes take off the document, so a
+     * payment of the reduced amount settles it. Other credit notes (returns,
+     * goodwill) are settled through refunds or the account balance (05.4
+     * §7.5A), never by reducing what an invoice is owed.
+     */
+    public static function cancellationCreditMinor(int $invoiceId): int
+    {
+        return (int) CreditNote::query()->where('invoice_id', $invoiceId)
+            ->where('reason', 'cancellation')->where('status', '<>', 'void')
+            ->sum('total_gross_minor');
     }
 
     /**

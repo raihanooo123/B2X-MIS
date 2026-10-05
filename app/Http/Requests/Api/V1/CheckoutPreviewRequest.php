@@ -37,6 +37,8 @@ class CheckoutPreviewRequest extends FormRequest
             // (the cart before an address is chosen), `delivery` is null.
             'delivery_postcode' => ['sometimes', 'nullable', 'string', 'max:16'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery,collection,dropship'],
+            'collection_slot_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'payment_method' => ['sometimes', 'string', 'in:card,bacs,on_account,cash_at_collection'],
             'apply_account_credit' => ['sometimes', 'boolean'],
         ];
     }
@@ -58,5 +60,19 @@ class CheckoutPreviewRequest extends FormRequest
     public function fulfilmentType(): string
     {
         return (string) ($this->validated('fulfilment_type') ?? 'delivery');
+    }
+
+    public function collectionSlotId(): ?int
+    {
+        $id = $this->validated('collection_slot_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    public function paymentMethod(): ?string
+    {
+        $method = $this->validated('payment_method');
+
+        return is_string($method) ? $method : null;
     }
 }

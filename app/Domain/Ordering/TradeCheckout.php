@@ -50,6 +50,7 @@ final class TradeCheckout implements CheckoutStrategy
         Order $order,
         int $totalGrossMinor,
         array $allocationLines,
+        ?callable $beforeStock = null,
     ): void {
         $creditCompanyId = $this->creditCompanyId($request);
 
@@ -58,10 +59,16 @@ final class TradeCheckout implements CheckoutStrategy
         // stock lines at all (every SKU untracked) the credit gate still
         // has to run on its own — see AllocationService::lockAndCheckCredit()'s
         // own docblock for why.
-        if ($allocationLines !== []) {
-            $allocationService->allocateWithinTransaction($creditCompanyId, $totalGrossMinor, $allocationLines);
-        } elseif ($creditCompanyId !== null) {
+        if ($creditCompanyId !== null) {
             $allocationService->lockAndCheckCredit($creditCompanyId, $totalGrossMinor);
+        }
+
+        if ($beforeStock !== null) {
+            $beforeStock();
+        }
+
+        if ($allocationLines !== []) {
+            $allocationService->allocateWithinTransaction(null, 0, $allocationLines);
         }
 
         // 02 §11.1 step 6: credit_holds is inserted AFTER stock is

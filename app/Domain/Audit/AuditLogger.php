@@ -54,6 +54,10 @@ final class AuditLogger
             AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
             AuditAction::OrderClaimed => $this->validateOrderClaimed($entry),
             AuditAction::RmaProofRejected => $this->validateRmaProofRejected($entry),
+            AuditAction::RmaAdvanceReplacement => $this->validateRmaAdvanceReplacement($entry),
+            AuditAction::OrderCancelBelowBreak => $this->validateOrderCancelBelowBreak($entry),
+            AuditAction::PaymentCashRecorded, AuditAction::PaymentCashVoided => $this->validateCashPayment($entry),
+            AuditAction::PayAtCollectionSuspended, AuditAction::PayAtCollectionReinstated => $this->validatePayAtCollectionSuspension($entry),
             AuditAction::LockedOut => $this->validateLockout($entry),
             AuditAction::SignedIn, AuditAction::SignedOut, AuditAction::SessionExpired,
             AuditAction::PasswordResetRequested, AuditAction::PasswordResetCompleted,
@@ -364,6 +368,78 @@ final class AuditLogger
             || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
             || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid proof rejection audit entry.');
+        }
+    }
+
+    /**
+     * 05.4 §14.2 R7: by staff, about the RMA, with a reason; the replacement
+     * order from none to the new one.
+     */
+    private function validateRmaAdvanceReplacement(AuditEntry $entry): void
+    {
+        $orderId = $entry->after['replacement_order_id'] ?? null;
+
+        if ($entry->before !== ['replacement_order_id' => null]
+            || array_keys($entry->after) !== ['replacement_order_id'] || ! is_int($orderId) || $orderId < 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'rma' || $entry->subjectId === null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
+            || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid advance replacement audit entry.');
+        }
+    }
+
+    /** The reason is mandatory and the only payload is the cancellation record. */
+    private function validateOrderCancelBelowBreak(AuditEntry $entry): void
+    {
+        $cancellationId = $entry->after['order_cancellation_id'] ?? null;
+
+        if ($entry->before !== [] || array_keys($entry->after) !== ['order_cancellation_id']
+            || ! is_int($cancellationId) || $cancellationId < 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'order' || $entry->subjectId === null
+            || $entry->companyId === null || $entry->actingForCompanyId !== null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500) {
+            throw new InvalidArgumentException('Invalid below-break cancellation audit entry.');
+        }
+    }
+
+    /**
+     * 05.6 §7A.6: by staff, about the payment row. Recording names the order
+     * and the amount; a void moves `captured` to `voided` and needs a reason.
+     */
+    private function validateCashPayment(AuditEntry $entry): void
+    {
+        $recorded = $entry->action === AuditAction::PaymentCashRecorded;
+        $payload = $recorded
+            ? $entry->before === [] && array_keys($entry->after) === ['order_id', 'amount_minor']
+                && is_int($entry->after['order_id']) && is_int($entry->after['amount_minor']) && $entry->after['amount_minor'] > 0
+                && $entry->reason === null
+            : $entry->before === ['status' => 'captured'] && $entry->after === ['status' => 'voided']
+                && $entry->reason !== null && trim($entry->reason) !== '' && mb_strlen($entry->reason) <= 500;
+
+        if (! $payload || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'payment' || $entry->subjectId === null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid cash payment audit entry.');
+        }
+    }
+
+    /**
+     * 05.6 §7A.11: by staff, about the suspension row, always with a reason.
+     * A manual suspension names its customer; a lift records when.
+     */
+    private function validatePayAtCollectionSuspension(AuditEntry $entry): void
+    {
+        $payload = $entry->action === AuditAction::PayAtCollectionSuspended
+            ? $entry->before === [] && array_keys($entry->after) === ['user_id', 'company_id']
+                && (is_int($entry->after['user_id']) !== is_int($entry->after['company_id']))
+            : $entry->before === ['lifted_at' => null] && array_keys($entry->after) === ['lifted_at'] && is_string($entry->after['lifted_at']);
+
+        if (! $payload || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'pay_at_collection_suspension' || $entry->subjectId === null
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
+            || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid pay-at-collection suspension audit entry.');
         }
     }
 

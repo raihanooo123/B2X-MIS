@@ -2,9 +2,11 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Collection\PayAtCollectionOffer;
 use App\Domain\Delivery\DeliveryQuote;
 use App\Domain\Pricing\PricedOrderLine;
 use App\Models\CartLine;
+use App\Models\CollectionSlot;
 use App\Models\OrderSpendBreak;
 
 /**
@@ -43,6 +45,9 @@ final readonly class CheckoutPreview
         /** 02 §27: a consumer's pallet consignment — estimated return cost, null when we collect at our cost. */
         public bool $palletReturn = false,
         public ?int $returnCostEstimateGrossMinor = null,
+        /** 05.6 §7A: the collection slot chosen, when it is still available. */
+        public ?CollectionSlot $collectionSlot = null,
+        public ?PayAtCollectionOffer $payAtCollection = null,
     ) {}
 
     public function amountDueMinor(): int

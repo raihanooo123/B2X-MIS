@@ -6,6 +6,7 @@ const links = [
     { permission: 'goods_in', href: '/warehouse/goods-in', label: 'Goods in' },
     { permission: 'picking', href: '/warehouse/pick-list', label: 'Picking' },
     { permission: 'dispatch', href: '/warehouse/dispatch', label: 'Dispatch' },
+    { permission: 'collections', href: '/warehouse/collections', label: 'Collections' },
     { permission: 'stocktake', href: '/warehouse/stocktake', label: 'Stocktake' },
     { permission: 'returns', href: '/warehouse/returns', label: 'Returns' },
 ] as const;

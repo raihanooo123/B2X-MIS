@@ -94,18 +94,22 @@ class CheckoutPageController extends Controller
 
     /**
      * 05.2 §8.1: on-account first for a company on credit terms; card and
-     * BACS for everyone else signed in; card only for a guest (05.15 §6.1
-     * step 3). Card only when Stripe is configured.
+     * BACS for everyone else signed in, and cash at collection (05.6 §7A);
+     * card only for a guest (05.15 §6.1 step 3). Card only when Stripe is
+     * configured.
      *
      * @return list<PaymentMethod>
      */
     private function paymentMethods(?Company $company, bool $guest = false): array
     {
         $onAccount = $company !== null && $company->payment_terms !== 'prepay';
+        // 05.6 §7A.3: cash at collection for signed-in buyers, never guests. The
+        // page offers it only for a collection, and preview says whether this
+        // buyer, slot and total qualify.
         $methods = match (true) {
-            $onAccount => [PaymentMethod::OnAccount, PaymentMethod::Card, PaymentMethod::Bacs],
+            $onAccount => [PaymentMethod::OnAccount, PaymentMethod::Card, PaymentMethod::Bacs, PaymentMethod::CashAtCollection],
             $guest => [PaymentMethod::Card],
-            default => [PaymentMethod::Card, PaymentMethod::Bacs],
+            default => [PaymentMethod::Card, PaymentMethod::Bacs, PaymentMethod::CashAtCollection],
         };
 
         // No card option unless Stripe is configured: never offer a payment

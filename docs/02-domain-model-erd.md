@@ -4556,6 +4556,8 @@ CREATE INDEX product_price_projections_stale_idx
 | Q-P2 | Public promotions (rank 3 for guests) arrive later: what then? | The projection then resolves rank 3 too, using the same resolver. No schema change |
 | Q-P3 | Should the "from" price use MOQ instead of quantity 1? | Keep qty 1, the card's rule. A change would change the card and the projection together |
 
+**As built (2026-10-05):** migration `2026_10_22_090100`; `ProductPriceProjector` computes rows with the same `BulkPriceResolver` call and SKU order as `ProductCards`; `PriceProjectionObserver` (products, SKUs, `base` price lists and their items, GB tax rates) queues `RefreshPriceProjection` after commit; `storefront:refresh-price-projection --stale` every 5 minutes and without the flag nightly at 03:45 UK (and once after migrating, to fill the table). A refresh failure is logged and never fails the write that triggered it. Sorts `price_asc` / `price_desc` in `StorefrontCatalogue`, offered when `PriceDisplay::canSwitch()` (guests and public customers); the cursor also carries the display mode.
+
 **Build order:** sign-off → migration (table, three indexes) → `ProductPriceProjector` (compute one product or many, upsert) with an exactness test against `ProductCards` → event and time triggers and the nightly rebuild → `StorefrontCatalogue` price sorts with keyset and EXPLAIN tests → sort options for guests and public customers.
 
 ## 30. Schema amendments of 2026-10-05 — signed off 2026-10-05 (index)

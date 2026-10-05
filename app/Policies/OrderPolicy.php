@@ -36,4 +36,23 @@ final class OrderPolicy
     {
         return $order->company_id === null && $order->user_id === $user->id && $user->hasVerifiedEmail();
     }
+
+    /** 05.10 §2.1: the buyer, or a trade owner/approver, may cancel undispatched packs. */
+    public function cancelUndispatchedItems(User $user, Order $order): bool
+    {
+        if ($order->company_id === null) {
+            return $this->cancel($user, $order);
+        }
+
+        return CompanyUser::query()->where('company_id', $order->company_id)->where('user_id', $user->id)
+            ->where(fn ($query) => $query->whereIn('role', ['owner', 'approver'])
+                ->orWhere('user_id', $order->placed_by_user_id))
+            ->exists();
+    }
+
+    /** Recording a customer's email or phone instruction affects money and stock. */
+    public function recordUndispatchedCancellation(User $user): bool
+    {
+        return $user->hasAnyRole(['admin', 'accounts']);
+    }
 }

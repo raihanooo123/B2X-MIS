@@ -15,9 +15,15 @@ use Illuminate\Support\Facades\DB;
  *
  * Keyset pagination, never OFFSET (02 §9 rule 8): the cursor is the last
  * row's sort key plus `id`, encrypted like the order pad's (it carries an
- * internal id, which 06 §2 never exposes). Sorts are those with a stored
- * key: name A–Z and newest. Price sorts wait for a stored price key, since
- * prices are resolved, never stored (CLAUDE.md invariant 3; 05.15 §5.2).
+ * internal id, which 06 §2 never exposes). Sorts: name A–Z, newest, and
+ * price low–high / high–low (02 §29, guests and public customers only —
+ * the caller decides who may use them). Price sorts read the sort key in
+ * `product_price_projections` (ProductPriceProjector), never a price: the
+ * cards still resolve every price they show (CLAUDE.md invariant 3).
+ *
+ * Price paging is two-phase (02 §29.5): priced products in price order,
+ * then unpriced ones by id, so an unpriced product is always last in either
+ * direction and one index serves both. The cursor carries the phase.
  *
  * Search uses the same predicates as the order pad (OrderPadCatalogue):
  * the weighted `tsvector`, a substring or trigram match on the name, and a
@@ -27,13 +33,21 @@ final class StorefrontCatalogue
 {
     public const PAGE_SIZE = 24;
 
-    public const SORTS = ['name', 'newest'];
+    public const SORTS = ['name', 'newest', 'price_asc', 'price_desc'];
+
+    /** 02 §29: offered to guests and public customers only (Q-P1). */
+    public const PRICE_SORTS = ['price_asc', 'price_desc'];
 
     /**
+     * @param  string  $priceMode  `gross` or `net`: which price a price sort orders by, the one the viewer sees
      * @return array{product_ids: list<int>, next_cursor: string|null}
      */
-    public function page(StorefrontFilters $filters, ?string $cursor, int $pageSize = self::PAGE_SIZE): array
+    public function page(StorefrontFilters $filters, ?string $cursor, int $pageSize = self::PAGE_SIZE, string $priceMode = 'gross'): array
     {
+        if (in_array($filters->sort, self::PRICE_SORTS, true)) {
+            return $this->pricePage($filters, $cursor, $pageSize, $priceMode === 'net' ? 'net' : 'gross');
+        }
+
         $query = DB::table('products as p')
             ->where('p.status', 'active')
             ->whereNull('p.deleted_at')
@@ -75,6 +89,106 @@ final class StorefrontCatalogue
                 'filters' => $filters->fingerprint(),
             ])) : null,
         ];
+    }
+
+    /**
+     * 02 §29.5: phase 1, priced products by (price, id) ascending or
+     * descending; phase 2, unpriced products by id ascending. A page that
+     * runs out of phase 1 is filled from the start of phase 2.
+     *
+     * @return array{product_ids: list<int>, next_cursor: string|null}
+     */
+    private function pricePage(StorefrontFilters $filters, ?string $cursor, int $pageSize, string $mode): array
+    {
+        $column = $mode === 'net' ? 'pp.from_unit_net_e4' : 'pp.from_unit_gross_e4';
+        $descending = $filters->sort === 'price_desc';
+        $position = $this->decodePriceCursor($cursor, $filters, $mode);
+        $want = $pageSize + 1;
+
+        $rows = [];
+        if ($position === null || $position['phase'] === 'priced') {
+            $priced = $this->base($filters)
+                ->join('product_price_projections as pp', 'pp.product_id', '=', 'p.id')
+                ->whereNotNull($column)
+                ->addSelect(DB::raw("{$column} AS sort_price"))
+                ->limit($want);
+            $descending
+                ? $priced->orderByDesc($column)->orderByDesc('p.id')
+                : $priced->orderBy($column)->orderBy('p.id');
+            if ($position !== null) {
+                $priced->whereRaw("({$column}, p.id) ".($descending ? '<' : '>').' (?, ?)', [$position['price'], $position['id']]);
+            }
+            foreach ($priced->get() as $row) {
+                $rows[] = ['id' => (int) $row->id, 'phase' => 'priced', 'price' => (int) $row->sort_price];
+            }
+        }
+
+        if (count($rows) < $want) {
+            $unpriced = $this->base($filters)
+                ->whereNotExists(fn (Builder $q) => $q->selectRaw('1')->from('product_price_projections as pp')
+                    ->whereColumn('pp.product_id', 'p.id')->whereNotNull($column))
+                ->orderBy('p.id')
+                ->limit($want - count($rows));
+            if ($position !== null && $position['phase'] === 'unpriced') {
+                $unpriced->where('p.id', '>', $position['id']);
+            }
+            foreach ($unpriced->get() as $row) {
+                $rows[] = ['id' => (int) $row->id, 'phase' => 'unpriced', 'price' => null];
+            }
+        }
+
+        $hasMore = count($rows) > $pageSize;
+        $rows = array_slice($rows, 0, $pageSize);
+        $last = $rows === [] ? null : $rows[count($rows) - 1];
+
+        return [
+            'product_ids' => array_column($rows, 'id'),
+            'next_cursor' => $hasMore && $last !== null ? Crypt::encryptString((string) json_encode([
+                'phase' => $last['phase'],
+                'price' => $last['price'],
+                'id' => $last['id'],
+                'mode' => $mode,
+                'filters' => $filters->fingerprint(),
+            ])) : null,
+        ];
+    }
+
+    /** The grid's products: active, with an active SKU, filtered. */
+    private function base(StorefrontFilters $filters): Builder
+    {
+        $query = DB::table('products as p')
+            ->where('p.status', 'active')
+            ->whereNull('p.deleted_at')
+            ->whereExists(fn (Builder $q) => $q->selectRaw('1')->from('skus as s')
+                ->whereColumn('s.product_id', 'p.id')->where('s.status', 'active')->whereNull('s.deleted_at'))
+            ->select(['p.id']);
+        $this->applyFilters($query, $filters);
+
+        return $query;
+    }
+
+    /** @return array{phase: string, price: int|null, id: int}|null */
+    private function decodePriceCursor(?string $cursor, StorefrontFilters $filters, string $mode): ?array
+    {
+        if ($cursor === null || $cursor === '') {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode(Crypt::decryptString($cursor), true);
+        } catch (DecryptException) {
+            return null;
+        }
+
+        // A cursor minted under other filters, or another display mode, restarts from the first page.
+        if (! is_array($decoded) || ! is_int($decoded['id'] ?? null) || ! in_array($decoded['phase'] ?? null, ['priced', 'unpriced'], true)
+            || ($decoded['phase'] === 'priced' && ! is_int($decoded['price'] ?? null))
+            || ($decoded['mode'] ?? null) !== $mode
+            || ($decoded['filters'] ?? null) !== $filters->fingerprint()) {
+            return null;
+        }
+
+        return ['phase' => $decoded['phase'], 'price' => $decoded['phase'] === 'priced' ? $decoded['price'] : null, 'id' => $decoded['id']];
     }
 
     /**

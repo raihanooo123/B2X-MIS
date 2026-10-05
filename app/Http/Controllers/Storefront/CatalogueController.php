@@ -13,6 +13,7 @@ use App\Domain\Storefront\StorefrontShell;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\StorefrontListingRequest;
 use App\Http\Support\CartContext;
+use App\Http\Support\PriceDisplay;
 use App\Models\Category;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -125,7 +126,14 @@ class CatalogueController extends Controller
     private function listing(StorefrontListingRequest $request, StorefrontFilters $filters, array $extra): Response
     {
         $owner = $this->cartContext->owner($request, createGuestToken: false);
-        $page = $this->catalogue->page($filters, $request->cursor());
+        // 02 §29 (Q-P1): price sorts only for guests and public customers — the
+        // viewers who resolve at `base`, where the sort key is exact. Anyone
+        // else asking for one gets name order.
+        $priceSorts = PriceDisplay::canSwitch($request);
+        if (! $priceSorts && in_array($filters->sort, StorefrontCatalogue::PRICE_SORTS, true)) {
+            $filters = $filters->withSort('name');
+        }
+        $page = $this->catalogue->page($filters, $request->cursor(), StorefrontCatalogue::PAGE_SIZE, PriceDisplay::mode($request));
 
         return Inertia::render('Storefront/Listing', [
             ...$extra,
@@ -136,6 +144,7 @@ class CatalogueController extends Controller
             // A later page appends to the grid; the first page replaces it.
             'is_continuation' => $request->cursor() !== null,
             'brands' => fn () => $this->catalogue->brands($filters),
+            'price_sorts' => $priceSorts,
         ]);
     }
 }

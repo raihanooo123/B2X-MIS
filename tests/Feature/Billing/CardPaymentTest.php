@@ -364,7 +364,8 @@ it('does not offer card when Stripe is not configured', function () {
 
     $methods = $this->actingAs(cardTradeBuyer())->get('/checkout')->assertOk()->viewData('page')['props']['payment_methods'];
 
-    expect(array_column($methods, 'value'))->toBe(['on_account', 'bacs']);
+    // 05.6 §7A.3: cash at collection is offered to signed-in buyers (shown for a collection only).
+    expect(array_column($methods, 'value'))->toBe(['on_account', 'bacs', 'cash_at_collection']);
 });
 
 it('never creates a card authorisation while carriage is unknown', function () {

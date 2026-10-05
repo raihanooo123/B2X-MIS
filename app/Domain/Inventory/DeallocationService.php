@@ -90,6 +90,75 @@ final class DeallocationService
     }
 
     /**
+     * 05.10 §2.3: release part of some allocations — an order line cancelled
+     * in part before dispatch. Each allocation shrinks in place by the
+     * quantity given (its identity, `stock_allocations_identity_uq`, cannot
+     * be split), or is released outright when the whole of it goes, as a
+     * short pick does (PickConfirmationService). A `deallocation` movement
+     * per allocation; `stock_levels.allocated_base_qty` and the order line's
+     * `allocated_base_qty` fall by the same. `on_hand` is unchanged: picked
+     * goods are still in the building and go back on the shelf.
+     *
+     * Same locks, same order as a full release: allocations by id
+     * ascending, then stock levels in the 02 §11.1 order. MUST be called
+     * inside an existing transaction.
+     *
+     * @param  array<int, int>  $quantities  allocation id => base quantity to release (> 0)
+     *
+     * @throws InvalidDeallocationException
+     */
+    public function releasePartWithinTransaction(array $quantities, ?MovementAttribution $attribution = null): void
+    {
+        if ($quantities === []) {
+            throw new InvalidArgumentException('At least one allocation is required.');
+        }
+
+        $allocations = $this->lockAndValidateAllocations(array_keys($quantities));
+        $identities = [];
+        foreach ($allocations as $allocation) {
+            $qty = $quantities[$allocation->id];
+            if ($qty <= 0 || $qty > $allocation->base_qty) {
+                throw new InvalidDeallocationException("Cannot release {$qty} of the {$allocation->base_qty} units on allocation {$allocation->id}.");
+            }
+            $key = $allocation->sku_id.':'.$allocation->location_id.':'.($allocation->batch_id ?? 'null');
+            $identities[$key] ??= ['sku_id' => $allocation->sku_id, 'location_id' => $allocation->location_id, 'batch_id' => $allocation->batch_id, 'release' => 0];
+            $identities[$key]['release'] += $qty;
+        }
+        $identities = array_values($identities);
+        usort($identities, fn (array $a, array $b) => [$a['sku_id'], $a['location_id'], $a['batch_id'] ?? -1]
+            <=> [$b['sku_id'], $b['location_id'], $b['batch_id'] ?? -1]);
+
+        $this->assertReversible($identities, $this->lockStockLevelsInOrder($identities));
+
+        $now = now();
+        foreach ($allocations as $allocation) {
+            $qty = $quantities[$allocation->id];
+            $movement = StockMovement::create([
+                'occurred_at' => $now,
+                'sku_id' => $allocation->sku_id,
+                'location_id' => $allocation->location_id,
+                'batch_id' => $allocation->batch_id,
+                'movement_type' => 'deallocation',
+                'base_qty' => -$qty,
+                'reference_type' => 'allocation',
+                'reference_id' => $allocation->id,
+            ] + MovementAttribution::columnsOf($attribution));
+
+            StockLevel::identity($allocation->sku_id, $allocation->location_id, $allocation->batch_id)->decrement(
+                'allocated_base_qty',
+                $qty,
+                ['version' => DB::raw('version + 1'), 'last_movement_id' => $movement->id, 'updated_at' => $now]
+            );
+
+            $allocation->forceFill($qty === $allocation->base_qty
+                ? ['status' => 'released', 'released_at' => $now]
+                : ['base_qty' => $allocation->base_qty - $qty])->save();
+
+            OrderLine::where('id', $allocation->order_line_id)->decrement('allocated_base_qty', $qty);
+        }
+    }
+
+    /**
      * Locks the targeted stock_allocations rows (by id, ascending) and
      * validates each is still in a releasable state. Only 'allocated' or
      * 'picked' allocations can be released — a 'dispatched' one means

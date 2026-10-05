@@ -20,6 +20,7 @@ export interface SharedAuth {
         goods_in: boolean;
         picking: boolean;
         dispatch: boolean;
+        collections: boolean;
         stocktake: boolean;
         returns: boolean;
     };

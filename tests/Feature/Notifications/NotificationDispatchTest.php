@@ -55,7 +55,8 @@ it('writes one queued row and one job per recipient, and never twice for a repea
         ->and($row->user_id)->toBe($order->user_id)
         ->and($row->subject_type)->toBe('order')
         ->and($row->subject_id)->toBe($order->id)
-        ->and($row->template_version)->toBe('1');
+        // v2 since 05.6 §7A.10 added collection details to order.confirmed.
+        ->and($row->template_version)->toBe('2');
     Queue::assertPushed(SendNotification::class, 1);
 });
 

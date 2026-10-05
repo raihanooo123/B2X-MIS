@@ -24,11 +24,12 @@ enum PaymentMethod: string
     case Bacs = 'bacs';
     case OnAccount = 'on_account';
     case Prepay = 'prepay';
+    case CashAtCollection = 'cash_at_collection';
 
     /** Paid before dispatch — every method except on-account. */
     public function isPrepayment(): bool
     {
-        return $this !== self::OnAccount;
+        return ! in_array($this, [self::OnAccount, self::CashAtCollection], true);
     }
 
     public function label(): string
@@ -38,6 +39,7 @@ enum PaymentMethod: string
             self::Bacs => 'Bank transfer (BACS)',
             self::OnAccount => 'On account',
             self::Prepay => 'Payment before dispatch',
+            self::CashAtCollection => 'Pay cash at collection',
         };
     }
 }

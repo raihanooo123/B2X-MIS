@@ -53,12 +53,35 @@ export interface DeliveryPreview {
     postcode_recognised: boolean;
 }
 
+export interface PreContractSection {
+    heading: string;
+    paragraphs: string[];
+}
+
+/** 05.6 §7A: the slot being booked, and whether cash at collection is offered for it. */
+export interface CollectionPreview {
+    slot_id: number;
+    slot_label: string;
+    location_name: string | null;
+    pay_at_collection: {
+        available: boolean;
+        reason: string | null;
+        rule: string | null;
+        max_order_gross_minor: number;
+        /** The slot's end plus the grace period (§7A.5), ISO 8601. */
+        payment_due_by: string;
+    } | null;
+    /** 05.15 §7.1: the "Payment and delivery" and "Your right to cancel" sections for this collection. */
+    pre_contract: { card: PreContractSection[]; cash: PreContractSection[] | null } | null;
+}
+
 export interface CheckoutPreview {
     subtotal_net_minor: number;
     spend_break: { code: string; name: string; discount_minor: number } | null;
     delivery: DeliveryPreview | null;
     /** 02 §27: a consumer's pallet consignment — what returning it would cost, in the server's own words. */
     return_estimate: { estimate_gross_minor: number | null; statement: string } | null;
+    collection: CollectionPreview | null;
     tax_minor: number;
     total_gross_minor: number;
     account_credit_applied_minor: number;
@@ -69,14 +92,20 @@ export interface CheckoutPreview {
     blockers: PreviewBlocker[];
 }
 
-/** With a postcode, preview rates carriage too (05.6); without one, `delivery` is null. */
-export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean; savedAddressId?: string; addressKey?: string } = {}) {
+/**
+ * With a postcode, preview rates carriage too (05.6); without one, `delivery`
+ * is null. For a collection (05.6 §7A) it rates the collection charge for
+ * the chosen slot and says whether cash at collection is offered.
+ */
+export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean; savedAddressId?: string; addressKey?: string; fulfilmentType?: 'delivery' | 'collection'; collectionSlotId?: number | null; paymentMethod?: PaymentMethod } = {}) {
     return useQuery<CheckoutPreview, ApiError>({
-        queryKey: [...orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''), options.savedAddressId ?? null, options.addressKey ?? null],
+        queryKey: [...orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''), options.savedAddressId ?? null, options.addressKey ?? null, options.fulfilmentType ?? 'delivery', options.collectionSlotId ?? null, options.paymentMethod ?? null],
         queryFn: ({ signal }) =>
             apiRequest<CheckoutPreview>('/checkout/preview', {
                 method: 'POST',
-                body: { delivery_country_code: countryCode, delivery_address_id: options.savedAddressId, delivery_postcode: postcode, fulfilment_type: 'delivery' },
+                body: options.fulfilmentType === 'collection'
+                    ? { fulfilment_type: 'collection', collection_slot_id: options.collectionSlotId ?? undefined, payment_method: options.paymentMethod }
+                    : { delivery_country_code: countryCode, delivery_address_id: options.savedAddressId, delivery_postcode: postcode, fulfilment_type: 'delivery', payment_method: options.paymentMethod },
                 signal,
             }),
         enabled: (options.enabled ?? true) && countryCode !== null,
@@ -84,7 +113,26 @@ export function useCheckoutPreview(countryCode: string | null, postcode: string 
     });
 }
 
-export type PaymentMethod = 'card' | 'bacs' | 'on_account';
+export type PaymentMethod = 'card' | 'bacs' | 'on_account' | 'cash_at_collection';
+
+/** 05.6 §7A.1: a slot checkout offers — open, with room, far enough ahead. Times are UK local. */
+export interface CollectionSlot {
+    id: number;
+    location_name: string | null;
+    slot_date: string;
+    start_time: string;
+    end_time: string;
+    label: string;
+}
+
+export function useCollectionSlots(enabled = true) {
+    return useQuery<CollectionSlot[], ApiError>({
+        queryKey: ['collection-slots'],
+        queryFn: ({ signal }) => apiRequest<{ data: CollectionSlot[] }>('/collection-slots', { signal }).then((r) => r.data),
+        staleTime: 60_000,
+        enabled,
+    });
+}
 
 export interface DeliveryAddressInput {
     contact_name: string;
@@ -103,7 +151,9 @@ export interface PlaceOrderInput {
     payment_method: PaymentMethod;
     expected_total_gross_minor: number;
     customer_reference: string;
-    delivery_address: DeliveryAddressInput;
+    delivery_address?: DeliveryAddressInput;
+    fulfilment_type?: 'delivery' | 'collection';
+    collection_slot_id?: number;
     /** Card only: the PaymentIntent the browser has authorised (07 §6.4). */
     payment_intent_id?: string;
     /** Public buyers: the terms of sale version accepted (05.15 §6.1 step 4). */
@@ -125,7 +175,7 @@ export interface CardIntent {
  * across retries for the same cart and total, so trying again never
  * authorises twice.
  */
-export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string; delivery_postcode: string; delivery_address_id?: string }): Promise<CardIntent> {
+export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code?: string; delivery_postcode?: string; delivery_address_id?: string; fulfilment_type?: 'delivery' | 'collection'; collection_slot_id?: number }): Promise<CardIntent> {
     return apiRequest<{ data: CardIntent }>('/checkout/card-intent', { method: 'POST', body: input }).then((r) => r.data);
 }
 
