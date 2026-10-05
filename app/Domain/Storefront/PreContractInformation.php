@@ -4,6 +4,7 @@ namespace App\Domain\Storefront;
 
 use App\Filament\Support\MoneyFormatter;
 use App\Models\TermsVersion;
+use App\Support\DisplayTime;
 
 /**
  * 05.15 §7.1 — the pre-contract information a consumer is given before
@@ -22,6 +23,10 @@ use App\Models\TermsVersion;
  */
 final readonly class PreContractInformation
 {
+    public const PAYMENT_HEADING = 'Payment and delivery';
+
+    public const CANCEL_HEADING = 'Your right to cancel';
+
     /**
      * @param  list<array{heading: string, paragraphs: list<string>}>  $sections
      */
@@ -38,7 +43,7 @@ final readonly class PreContractInformation
      * @param  bool  $pallet  the consignment is a pallet, which cannot be posted back (02 §27)
      * @param  int|null  $returnCostGrossMinor  the estimated return cost of that pallet; null: we collect at our cost
      */
-    public static function build(Branding $brand, ?TermsVersion $terms, ?string $total = null, bool $pallet = false, ?int $returnCostGrossMinor = null): self
+    public static function build(Branding $brand, ?TermsVersion $terms, ?string $total = null, bool $pallet = false, ?int $returnCostGrossMinor = null, ?CollectionTerms $collection = null): self
     {
         $seller = $brand->seller;
         $tradingName = $seller->legalName ?? $brand->name;
@@ -67,15 +72,15 @@ final readonly class PreContractInformation
                     ? 'The total price shown with your order includes VAT and delivery. There are no other charges.'
                     : "The total price of your order is {$total}, including VAT and delivery. There are no other charges.",
             ]],
-            ['heading' => 'Payment and delivery', 'paragraphs' => [
+            $collection === null ? ['heading' => self::PAYMENT_HEADING, 'paragraphs' => [
                 'Payment by card is taken when you place your order. If you pay by bank transfer, we dispatch once your payment has cleared.',
                 'We deliver to addresses in Great Britain only, without undue delay and within 30 days of your order unless we agree another date with you.',
-            ]],
-            ['heading' => 'Your right to cancel', 'paragraphs' => [
+            ]] : self::collectionPaymentSection($collection),
+            $collection === null ? ['heading' => self::CANCEL_HEADING, 'paragraphs' => [
                 'You may cancel your order for any reason within 14 days after the day you receive the goods. If your order arrives in several parts, the 14 days run from the day you receive the last part.',
                 'To cancel, tell us clearly'.($contact === null ? '' : " {$contact}").'. You may use the model cancellation form in your order confirmation email, but you do not have to.',
                 'We refund you within 14 days after we receive the goods back, or after you show us that you have sent them, whichever is earlier. We refund the delivery you paid up to the cost of our least expensive standard delivery. We refund to the card or account you paid with.',
-            ]],
+            ]] : self::collectionCancelSection($collection, $contact),
             ['heading' => 'Returning goods', 'paragraphs' => [
                 $pallet ? self::palletReturnStatement($returnCostGrossMinor) : 'If you cancel because you changed your mind, you pay the direct cost of returning the goods to us.',
                 'If goods are faulty, damaged or not what you ordered, we pay the cost of returning them, including collecting goods that cannot reasonably be sent by post.',
@@ -97,6 +102,55 @@ final readonly class PreContractInformation
         }
 
         return new self($sections, $terms?->id, $terms?->version);
+    }
+
+    /**
+     * 05.6 §7A.3, 05.15 §7.1 (amended 2026-10-05): how a collection order is
+     * paid for and handed over. For pay at collection: the arrangement is
+     * named "Pay cash at collection", with the amount, "cash only", and the
+     * deadline after which the order is cancelled.
+     *
+     * @return array{heading: string, paragraphs: list<string>}
+     */
+    public static function collectionPaymentSection(CollectionTerms $collection): array
+    {
+        $where = ($collection->locationName === null ? 'our counter' : $collection->locationName).', '.$collection->slotLabel;
+
+        if ($collection->cashGrossMinor !== null && $collection->cashDueBy !== null) {
+            $due = DisplayTime::local($collection->cashDueBy)->format('l j F Y, H:i');
+
+            return ['heading' => self::PAYMENT_HEADING, 'paragraphs' => [
+                'Payment arrangement: Pay cash at collection. You pay '.MoneyFormatter::minor($collection->cashGrossMinor).' in cash when you collect your order. We accept cash only at the counter; card payment at collection is not available.',
+                "You collect your order from {$where} (UK time). You, or someone you name, may collect it; please bring your order number.",
+                "Please collect and pay by {$due} (UK time). If you have not paid by then, your order is cancelled automatically and the goods are released. Nothing will have been taken from you.",
+            ]];
+        }
+
+        return ['heading' => self::PAYMENT_HEADING, 'paragraphs' => [
+            'Payment by card is taken when you place your order.',
+            "You collect your order from {$where} (UK time). You, or someone you name, may collect it; please bring your order number.",
+        ]];
+    }
+
+    /**
+     * CCR reg. 30(3): for a collection, the 14 days run from the day of
+     * collection (05.6 §7A.3, 05.15 §7.2). Before collection the order can
+     * be cancelled at any time, and an unpaid cash order has nothing to refund.
+     *
+     * @return array{heading: string, paragraphs: list<string>}
+     */
+    private static function collectionCancelSection(CollectionTerms $collection, ?string $contact): array
+    {
+        return ['heading' => self::CANCEL_HEADING, 'paragraphs' => [
+            'You may cancel your order for any reason within 14 days after the day you, or someone you name, collect the goods. Before you collect, you can cancel at any time.',
+            $collection->paysCash()
+                ? 'You pay nothing until you collect, so if you cancel before collecting there is nothing to refund.'
+                : 'If you cancel before collecting, we refund your card in full.',
+            'To cancel, tell us clearly'.($contact === null ? '' : " {$contact}").'. You may use the model cancellation form in your order confirmation email, but you do not have to.',
+            $collection->paysCash()
+                ? 'If you cancel after collecting, we refund you within 14 days after we receive the goods back. If you paid in cash, we refund you in cash when you bring the goods back, or by bank transfer if you agree.'
+                : 'If you cancel after collecting, we refund you within 14 days after we receive the goods back, to the card you paid with.',
+        ]];
     }
 
     /**

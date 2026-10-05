@@ -16,5 +16,7 @@ final class DispatchDetails
         public readonly ?int $totalWeightG = null,
         public readonly ?string $note = null,
         public readonly ?int $actorUserId = null,
+        /** 05.6 §7A.6 step 1: who collected — the customer or someone they named. */
+        public readonly ?string $collectorName = null,
     ) {}
 }

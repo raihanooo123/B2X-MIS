@@ -23,5 +23,6 @@ Schedule::command('returns:sweep-not-received')->dailyAt('02:30')->timezone('Eur
 Schedule::command('storefront:refresh-price-projection --stale')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('storefront:refresh-price-projection')->dailyAt('03:45')->timezone('Europe/London')->withoutOverlapping();
 
+// 05.6 §7A.1, §7A.5 — collection slots from each location's weekly pattern; unpaid pay-at-collection orders expire.
 Schedule::command('collection:generate-slots')->dailyAt('00:15')->timezone('Europe/London')->withoutOverlapping();
 Schedule::command('collection:expire-unpaid')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

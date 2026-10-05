@@ -6,6 +6,7 @@ use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentGateway;
 use App\Domain\Billing\Refunds;
 use App\Domain\Billing\RefundSettlement;
+use App\Domain\Collection\CollectionBookings;
 use App\Domain\Inventory\DeadlockRetryPolicy;
 use App\Domain\Inventory\DeallocationService;
 use App\Domain\Inventory\MovementAttribution;
@@ -34,6 +35,8 @@ use Illuminate\Support\Facades\Log;
  * one order serialise on its row and exactly one wins:
  *
  *   1. orders FOR UPDATE — re-check that nothing is dispatched.
+ *   1a. a collection order: its collection_slots row, then its booking
+ *      (05.6 §7A.4); a live booking is cancelled and its slot released.
  *   2. shipments of the order FOR UPDATE; those not dispatched → cancelled.
  *   3. stock_allocations FOR UPDATE ascending id, then stock_levels in the
  *      02 §11.1 order — both inside DeallocationService, which writes the
@@ -55,12 +58,16 @@ final class OrderCancellationService
 {
     public const MOVEMENT_REASON = 'order_cancelled';
 
+    /** 05.6 §7A.5: `order_cancellations.reason_code` for the expiry sweep. */
+    public const EXPIRED_REASON = 'collection_expired';
+
     private const CANCELLABLE_STATUSES = ['confirmed', 'picking'];
 
     public function __construct(
         private readonly DeallocationService $deallocation = new DeallocationService,
         private readonly NumberSequenceService $numbers = new NumberSequenceService,
         private readonly Notifications $notifications = new Notifications,
+        private readonly CollectionBookings $bookings = new CollectionBookings,
     ) {}
 
     /**
@@ -83,18 +90,46 @@ final class OrderCancellationService
     }
 
     /**
+     * 05.6 §7A.5 step 3 — the expiry sweep cancels an unpaid pay-at-collection
+     * order whose deadline has passed, inside the sweep's own transaction,
+     * the `orders` and `collection_bookings` rows already locked and the
+     * booking already `no_show`. Trade orders too (the sweep is not a
+     * customer cancellation), and staged goods are released even if packed.
+     * Nothing was paid, so nothing is refunded; the customer is told by
+     * `collection.expired`, not `order.cancelled`.
+     */
+    public function cancelExpiredCollection(int $orderId): void
+    {
+        $this->cancelWithinTransaction($orderId, null, 'system', expiry: true);
+    }
+
+    /**
      * @return array{release: list<string>, refunds: list<int>}
      */
-    private function cancelWithinTransaction(int $orderId, ?int $actorUserId, string $initiatedBy): array
+    private function cancelWithinTransaction(int $orderId, ?int $actorUserId, string $initiatedBy, bool $expiry = false): array
     {
         $order = Order::query()->lockForUpdate()->findOrFail($orderId);
-        $this->assertCancellable($order);
+        if ($expiry) {
+            if (! in_array($order->status, self::CANCELLABLE_STATUSES, true)) {
+                throw new OrderNotCancellableException('not_cancellable', "Order {$order->order_number} is {$order->status}; it cannot expire.");
+            }
+        } else {
+            $this->assertCancellable($order);
+        }
+
+        // 05.6 §7A.4, §7A.7: orders → collection_slots → collection_bookings,
+        // before shipments. The booking is cancelled and its slot released.
+        // On expiry the sweep holds the booking (now `no_show`) already and
+        // the slot keeps its count, so no slot is locked (§7A.5).
+        if ($order->fulfilment_type === 'collection' && ! $expiry) {
+            $this->bookings->cancelLocked($this->bookings->lockForOrder($order->id));
+        }
 
         $shipments = Shipment::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
         if ($shipments->contains(fn (Shipment $s) => $s->status === 'dispatched' || $s->dispatched_at !== null)) {
             throw new OrderNotCancellableException('order_already_dispatched', 'Part of this order has already been sent. You can cancel by returning it once it arrives.');
         }
-        if ($shipments->contains(fn (Shipment $s) => $s->status === 'packed')) {
+        if (! $expiry && $shipments->contains(fn (Shipment $s) => $s->status === 'packed')) {
             throw new OrderNotCancellableException('line_packed', 'This order is already packed. Please contact us to unpack it before cancelling.');
         }
         Shipment::query()->whereIn('id', $shipments->pluck('id'))->update(['status' => 'cancelled', 'updated_at' => now()]);
@@ -109,7 +144,9 @@ final class OrderCancellationService
         if ($allocationIds !== []) {
             $this->deallocation->deallocateWithinTransaction(
                 array_values($allocationIds),
-                new MovementAttribution($actorUserId, self::MOVEMENT_REASON, "Order {$order->order_number} cancelled before dispatch (05.4 §13.2)"),
+                new MovementAttribution($actorUserId, self::MOVEMENT_REASON, $expiry
+                    ? "Order {$order->order_number} not collected and paid by its deadline (05.6 §7A.5)"
+                    : "Order {$order->order_number} cancelled before dispatch (05.4 §13.2)"),
             );
         }
 
@@ -180,6 +217,7 @@ final class OrderCancellationService
             'initiated_by' => $initiatedBy,
             'actor_user_id' => $actorUserId,
             'customer_notified_at' => now(),
+            'reason_code' => $expiry ? self::EXPIRED_REASON : null,
             'cancelled_net_minor' => $cancelledNet,
             'cancelled_tax_minor' => $cancelledTax,
             'cancelled_gross_minor' => $cancelledNet + $cancelledTax,
@@ -200,7 +238,9 @@ final class OrderCancellationService
             ]);
         }
 
-        $this->notifications->orderCancelled($order->id);
+        if (! $expiry) {
+            $this->notifications->orderCancelled($order->id);
+        }
 
         return ['release' => $release, 'refunds' => $refunds];
     }

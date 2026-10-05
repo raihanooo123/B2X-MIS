@@ -110,6 +110,21 @@ enum AuditAction: string
     /** 05.10 §2 Q-X1: staff override a trade line's original price-break quantity. */
     case OrderCancelBelowBreak = 'order.cancel_below_break';
 
+    /*
+     * 05.6 §7A.6: staff take an order's total in cash at the counter, and,
+     * before handover, void a wrongly keyed one with a reason. Family
+     * `permission` (decided 2026-10-05: 07 §6.5's families have no payment
+     * family; this is the staff authority to take money).
+     */
+    case PaymentCashRecorded = 'payment.cash_recorded';
+
+    case PaymentCashVoided = 'payment.cash_voided';
+
+    /** 05.6 §7A.11: staff withdraw pay at collection from a customer, or lift a suspension, with a reason. */
+    case PayAtCollectionSuspended = 'collection.pay_at_collection_suspended';
+
+    case PayAtCollectionReinstated = 'collection.pay_at_collection_reinstated';
+
     public function family(): string
     {
         return match ($this) {
@@ -125,7 +140,9 @@ enum AuditAction: string
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
-            self::OrderClaimed => 'permission',
+            self::OrderClaimed,
+            self::PaymentCashRecorded, self::PaymentCashVoided,
+            self::PayAtCollectionSuspended, self::PayAtCollectionReinstated => 'permission',
             self::RmaProofRejected, self::RmaAdvanceReplacement => 'rma_disposition',
             self::OrderCancelBelowBreak => 'price_override',
             self::CreditLimitChanged => 'credit_limit',
@@ -153,6 +170,10 @@ enum AuditAction: string
             self::RmaProofRejected => ['goods_sent_at', 'last_proof_attachment_id'],
             self::RmaAdvanceReplacement => ['replacement_order_id'],
             self::OrderCancelBelowBreak => [],
+            self::PaymentCashRecorded => [],
+            self::PaymentCashVoided => ['status'],
+            self::PayAtCollectionSuspended => [],
+            self::PayAtCollectionReinstated => ['lifted_at'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
                 'brand.support_email', 'brand.support_phone', 'brand.show_powered_by', 'seo.indexing_enabled'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
@@ -186,6 +207,10 @@ enum AuditAction: string
             self::RmaProofRejected => ['goods_sent_at'],
             self::RmaAdvanceReplacement => ['replacement_order_id'],
             self::OrderCancelBelowBreak => ['order_cancellation_id'],
+            self::PaymentCashRecorded => ['order_id', 'amount_minor'],
+            self::PaymentCashVoided => ['status'],
+            self::PayAtCollectionSuspended => ['user_id', 'company_id'],
+            self::PayAtCollectionReinstated => ['lifted_at'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
             self::PagePublished => ['page_key', 'version_no', 'effective_from', 'body_sha256'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',

@@ -3,9 +3,12 @@
 namespace App\Domain\Ordering;
 
 use App\Domain\Accounts\TermsKind;
+use App\Domain\Collection\CollectionBillingAddress;
 use App\Domain\Collection\CollectionCharge;
+use App\Domain\Collection\CollectionSettings;
 use App\Domain\Collection\CollectionSlots;
 use App\Domain\Collection\PayAtCollectionEligibility;
+use App\Domain\Collection\PayAtCollectionOffer;
 use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
@@ -60,7 +63,10 @@ use RuntimeException;
  *     serial-tracked lines and batch SKUs with no allocation strategy,
  *     and mirrors
  *     BatchTrackedCheckoutNotSupportedException.
- *   - `fulfilment_type_unsupported` — checkout only does delivery.
+ *   - `fulfilment_type_unsupported` — checkout does delivery and collection.
+ *   - `slot_unavailable` — a collection slot that doesn't exist, is closed,
+ *     full or no longer offered (05.6 §7A.1); `pay_at_collection_not_eligible`
+ *     — cash at collection chosen but refused (§7A.3), with the reason.
  *
  * MOQ, increment and max-order come from 05.1 §6 and are deliberately
  * not enforced by CartService (see its docblock); this is where they
@@ -87,6 +93,7 @@ final class CheckoutPreviewService
         private readonly CollectionSlots $collectionSlots = new CollectionSlots,
         private readonly CollectionCharge $collectionCharge = new CollectionCharge,
         private readonly PayAtCollectionEligibility $cashEligibility = new PayAtCollectionEligibility,
+        private readonly CollectionSettings $collectionSettings = new CollectionSettings,
     ) {}
 
     public function preview(
@@ -111,15 +118,20 @@ final class CheckoutPreviewService
         $blockers = [];
 
         if (! in_array($fulfilmentType, ['delivery', 'collection'], true)) {
-            $blockers[] = new CheckoutBlocker('fulfilment_type', 'fulfilment_type_unsupported', "Only delivery checkout is available; '{$fulfilmentType}' is not supported yet.", ['fulfilment_type' => $fulfilmentType]);
+            $blockers[] = new CheckoutBlocker('fulfilment_type', 'fulfilment_type_unsupported', "Only delivery and collection checkout are available; '{$fulfilmentType}' is not supported yet.", ['fulfilment_type' => $fulfilmentType]);
         }
 
+        // 05.6 §7A.1: only an existing open slot with room, still offered.
         $slot = null;
         if ($fulfilmentType === 'collection') {
             try {
-                $slot = $this->collectionSlots->previewSlot($collectionSlotId ?? 0);
-            } catch (SlotUnavailable) {
-                $blockers[] = new CheckoutBlocker('collection_slot_id', 'slot_unavailable', 'Choose an available collection slot.');
+                $slot = $this->collectionSlots->previewSlot($collectionSlotId ?? 0, $at);
+            } catch (SlotUnavailable $e) {
+                $blockers[] = new CheckoutBlocker('collection_slot_id', 'slot_unavailable', $collectionSlotId === null ? 'Choose a collection slot.' : $e->getMessage());
+            }
+            // §7A.2 step 2 (Q-C1): a trade collection snapshots the company's default billing address.
+            if ($companyId !== null && CollectionBillingAddress::for($companyId) === null) {
+                $blockers[] = new CheckoutBlocker(null, 'billing_address_required', 'Your account has no default billing address. Please ask us to add one before collecting.');
             }
         }
 
@@ -219,11 +231,21 @@ final class CheckoutPreviewService
             }
         }
 
-        if ($paymentMethod === PaymentMethod::CashAtCollection->value) {
-            $reason = $slot === null ? 'Choose a collection slot first.' : $this->cashEligibility->reason($user?->id, $companyId, $slot->location_id, $pricing->totalGrossMinor);
-            if ($reason !== null) {
-                $blockers[] = new CheckoutBlocker('payment_method', 'pay_at_collection_not_eligible', $reason);
-            }
+        // 05.6 §7A.3: whether cash at collection is offered for this slot, and
+        // why not. A blocker only when it is the method chosen.
+        $payAtCollection = null;
+        if ($slot !== null) {
+            $refusal = $this->cashEligibility->refusal($user?->id, $companyId, $slot->location_id, $pricing->totalGrossMinor);
+            $payAtCollection = new PayAtCollectionOffer(
+                available: $refusal === null,
+                rule: $refusal?->rule,
+                reason: $refusal?->getMessage(),
+                limitGrossMinor: $this->collectionSettings->cashLimitGrossMinor($slot->location_id),
+                paymentDueBy: $this->collectionSlots->paymentDueBy($slot),
+            );
+        }
+        if ($paymentMethod === PaymentMethod::CashAtCollection->value && $payAtCollection?->available !== true) {
+            $blockers[] = new CheckoutBlocker('payment_method', 'pay_at_collection_not_eligible', $payAtCollection->reason ?? 'Choose a collection slot to pay cash at collection.', ['rule' => $payAtCollection->rule ?? 'collection']);
         }
 
         // 02 §27: a consumer is told what returning a pallet would cost, before paying.
@@ -248,6 +270,8 @@ final class CheckoutPreviewService
             blockers: [...$blockers, ...$identityBlockers],
             palletReturn: $palletReturn,
             returnCostEstimateGrossMinor: $palletReturn && $delivery !== null ? $this->returnCosts->estimateGrossMinor($delivery, $deliveryCountryCode, $at) : null,
+            collectionSlot: $slot,
+            payAtCollection: $payAtCollection,
         );
     }
 

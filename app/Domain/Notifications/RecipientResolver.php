@@ -66,6 +66,21 @@ final class RecipientResolver
         return $this->users($userIds->all(), $companyId);
     }
 
+    /**
+     * 05.6 §7A.10: a public customer by their user; a trade customer by
+     * the company's owners.
+     *
+     * @return list<Recipient>
+     */
+    public function payAtCollectionCustomer(?int $userId, ?int $companyId): array
+    {
+        if ($companyId !== null) {
+            return $this->companyOwners($companyId);
+        }
+
+        return $userId === null ? [] : $this->users([$userId], null);
+    }
+
     /** @return list<Recipient> */
     public function companyOwners(int $companyId): array
     {

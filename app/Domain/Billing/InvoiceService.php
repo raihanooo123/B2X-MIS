@@ -11,8 +11,10 @@ use App\Domain\Reference\NumberSequenceService;
 use App\Jobs\ArchiveInvoicePdf;
 use App\Models\Company;
 use App\Models\CreditHold;
+use App\Models\CreditNote;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderCancellation;
 use App\Models\Shipment;
 use App\Models\SystemConfiguration;
 use Closure;
@@ -175,6 +177,8 @@ final class InvoiceService
 
             if ($onAccount) {
                 $this->convertCreditHold($company->id, $orderId, $invoice, true);
+            } else {
+                $this->creditEarlierCancellations($order, $invoice);
             }
 
             $this->afterIssue((int) $invoice->id, $orderId);
@@ -307,6 +311,44 @@ final class InvoiceService
         $mode = ($rows->get('company') ?? $rows->get('global'))->value_text ?? self::MODE_PER_SHIPMENT;
 
         return in_array($mode, [self::MODE_PER_SHIPMENT, self::MODE_ON_COMPLETION], true) ? $mode : self::MODE_PER_SHIPMENT;
+    }
+
+    /**
+     * 05.10 §2: a whole-order receipt or prepaid invoice snapshots the order's
+     * placed totals (invariant 4). Anything cancelled before it was issued
+     * (`order_cancellations` with no credit note — the record is immutable,
+     * and a document can only be issued once) is credited against it here,
+     * in the same transaction, as one `cancellation` credit note. So the
+     * document less its credit notes is exactly what is due, and a payment of
+     * the reduced amount settles it (PaymentAllocationService). Its number is
+     * taken after the document's, both last (02 §11.3).
+     *
+     * On-account orders are not credited here: a cancellation before
+     * invoicing reduces the credit hold instead (05.10 §2 table).
+     */
+    private function creditEarlierCancellations(Order $order, Invoice $invoice): void
+    {
+        $cancelled = OrderCancellation::query()->where('order_id', $order->id)->whereNull('credit_note_id')
+            ->selectRaw('coalesce(sum(cancelled_net_minor + delivery_refund_net_minor), 0) AS net, coalesce(sum(cancelled_tax_minor + delivery_refund_tax_minor), 0) AS tax')
+            ->first();
+        $net = (int) $cancelled?->getAttribute('net');
+        $tax = (int) $cancelled?->getAttribute('tax');
+        if ($net + $tax <= 0) {
+            return;
+        }
+
+        CreditNote::query()->create([
+            'credit_note_number' => $this->numberSequenceService->next('credit_note_number'),
+            'company_id' => $order->company_id,
+            'order_id' => $order->id,
+            'invoice_id' => $invoice->id,
+            'reason' => 'cancellation',
+            'currency' => $invoice->currency,
+            'subtotal_net_minor' => $net,
+            'tax_minor' => $tax,
+            'total_gross_minor' => $net + $tax,
+            'issued_at' => $invoice->issued_at,
+        ]);
     }
 
     /**

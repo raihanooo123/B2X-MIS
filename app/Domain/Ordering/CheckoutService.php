@@ -6,9 +6,11 @@ use App\Domain\Accounts\TermsAcceptanceSource;
 use App\Domain\Accounts\TermsKind;
 use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\InvoiceService;
+use App\Domain\Collection\CollectionBillingAddress;
 use App\Domain\Collection\CollectionCharge;
 use App\Domain\Collection\CollectionSlots;
 use App\Domain\Collection\PayAtCollectionEligibility;
+use App\Domain\Collection\PayAtCollectionNotEligible;
 use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
@@ -34,8 +36,6 @@ use App\Models\Cart;
 use App\Models\CartLine;
 use App\Models\CollectionBooking;
 use App\Models\CollectionSlot;
-use App\Models\Company;
-use App\Models\Address;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\OrderAddress;
@@ -48,14 +48,13 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Doc 02 §11.1 / 05.2 §8.2 — the single global lock order, as far as it
- * can be followed with what exists today: `companies` (credit) then
+ * Doc 02 §11.1 / 05.2 §8.2 — the single global lock order (CLAUDE.md
+ * invariant 6): `companies` (credit, on-account only), then the one
+ * `collection_slots` row (collection only, 05.6 §7.2, §7A.4), then
  * `stock_levels` (ascending sku_id, location_id, batch_id NULLS FIRST).
- * `collection_slots` is the middle step of the documented three-step
- * order, but that table does not exist yet (Phase 2), so this service
- * covers the delivery/dropship fulfilment paths only, exactly as
- * AllocationService's own docblock already states — not a new gap,
- * the same one, now visible at the checkout layer too.
+ * A collection allocates only at the slot's location (05.6 §7A.2 step 5)
+ * and is booked in this transaction; pay at collection is re-checked
+ * under the slot lock and placed `confirmed` and `unpaid`.
  *
  * The company_id-dependent half of checkout — whether a credit gate
  * applies, which price tier, what payment_status starts at — is NOT
@@ -102,8 +101,7 @@ use RuntimeException;
  * session report for the full list): serial-tracked SKU checkout,
  * the awaiting_approval fallback for an on-account order that exceeds
  * credit (05.2 §8.1 row 3 — this throws InsufficientCreditException and
- * commits nothing instead), delivery-rate/collection-slot resolution,
- * and actual payment capture (04 §4.4's "authorised before, captured
+ * commits nothing instead), and actual payment capture (04 §4.4's "authorised before, captured
  * after" — payment_method is trusted as already authorised upstream).
  */
 final class CheckoutService
@@ -130,6 +128,8 @@ final class CheckoutService
      * @throws BatchTrackedCheckoutNotSupportedException
      * @throws InsufficientCreditException
      * @throws InsufficientStockException
+     * @throws SlotUnavailable
+     * @throws PayAtCollectionNotEligible
      */
     public function checkout(CheckoutRequest $request): Order
     {
@@ -175,6 +175,7 @@ final class CheckoutService
         $delivery = null;
         $selectedSlot = null;
         if ($request->fulfilmentType === 'collection') {
+            // 05.6 §7A.1: a refused slot opens no transaction (SlotUnavailable).
             $selectedSlot = $this->collectionSlots->previewSlot($request->collectionSlotId ?? 0);
             $delivery = $this->collectionCharge->quote($selectedSlot->location_id, $request->companyId, $pricing->subtotalNetMinor);
             if (! $delivery->isChargeable()) {
@@ -201,10 +202,12 @@ final class CheckoutService
             throw new PriceChangedException($request->expectedTotalGrossMinor, $pricing->totalGrossMinor);
         }
 
+        // 05.6 §7A.3: checked before any lock, and again under the slot lock.
         if ($request->paymentMethod === PaymentMethod::CashAtCollection->value) {
-            if ($selectedSlot === null || $this->cashEligibility->reason($request->userId, $request->companyId, $selectedSlot->location_id, $pricing->totalGrossMinor) !== null) {
-                throw new InvalidArgumentException('Cash at collection is not available for this order.');
+            if ($selectedSlot === null) {
+                throw new PayAtCollectionNotEligible('collection', 'Cash at collection needs a collection slot.');
             }
+            $this->cashEligibility->assert($request->userId, $request->companyId, $selectedSlot->location_id, $pricing->totalGrossMinor);
         }
 
         if ($request->saleTerms !== null) {
@@ -249,29 +252,21 @@ final class CheckoutService
                 if ($request->deliveryAddress !== null) {
                     OrderAddress::create(['order_id' => $order->id, 'address_type' => 'delivery'] + $request->deliveryAddress->toSnapshot());
                 } elseif ($request->fulfilmentType === 'collection' && $request->companyId !== null) {
-                    $billing = Address::query()->where('company_id', $request->companyId)
-                        ->whereIn('address_type', ['billing', 'both'])->where('is_default', true)->firstOrFail();
-                    OrderAddress::create([
-                        'order_id' => $order->id, 'address_type' => 'billing',
-                        'contact_name' => $billing->contact_name, 'phone' => $billing->phone,
-                        'company_name' => Company::query()->where('id', $request->companyId)->value('legal_name'),
-                        'line1' => $billing->line1, 'line2' => $billing->line2,
-                        'city' => $billing->city, 'county' => $billing->county,
-                        'postcode' => $billing->postcode, 'country_code' => $billing->country_code,
-                    ]);
+                    CollectionBillingAddress::snapshot($order->id, $request->companyId);
                 }
                 $allocationLines = $this->createOrderLines($order, $cart, $pricing, $defaultLocation);
 
+                // 05.6 §7.2, §7A.4 (invariant 6): the slot row is locked after
+                // `companies` (when credit moves) and before `stock_levels`.
                 $lockedSlot = null;
                 $beforeStock = $request->fulfilmentType === 'collection'
                     ? function () use ($request, $pricing, &$lockedSlot): void {
                         $lockedSlot = $this->collectionSlots->lockAvailable($request->collectionSlotId ?? 0);
-                        if ($request->paymentMethod === PaymentMethod::CashAtCollection->value
-                            && $this->cashEligibility->reason($request->userId, $request->companyId, $lockedSlot->location_id, $pricing->totalGrossMinor) !== null) {
-                            throw new InvalidArgumentException('Cash at collection is not available for this order.');
+                        if ($request->paymentMethod === PaymentMethod::CashAtCollection->value) {
+                            $this->cashEligibility->assert($request->userId, $request->companyId, $lockedSlot->location_id, $pricing->totalGrossMinor);
                         }
                     }
-                    : null;
+                : null;
                 $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines, $beforeStock);
 
                 if ($lockedSlot instanceof CollectionSlot) {
@@ -281,8 +276,9 @@ final class CheckoutService
                         'order_id' => $order->id,
                         'company_id' => $request->companyId,
                         'status' => 'booked',
+                        // §7A.5: snapshotted; NULL for a prepaid booking.
                         'payment_due_by' => $request->paymentMethod === PaymentMethod::CashAtCollection->value
-                            ? $this->collectionSlots->endUtc($lockedSlot)->addMinutes((new \App\Domain\Collection\CollectionSettings)->integer('collection.pay_at_collection.grace_minutes', 60, $lockedSlot->location_id))
+                            ? $this->collectionSlots->paymentDueBy($lockedSlot)
                             : null,
                     ]);
                 }
@@ -353,11 +349,16 @@ final class CheckoutService
             return null;
         }
 
+        // 05.6 §7A.2 step 3: a consumer's collection has no outbound delivery to refund.
+        if ($request->fulfilmentType === 'collection') {
+            return 0;
+        }
+
         if ($delivery !== null && ! in_array($delivery->method, ['parcel', 'pallet'], true)) {
             throw new RuntimeException("Delivery method '{$delivery->method}' is not a standard method; rate the standard method to snapshot standard_shipping_net_minor (02 §26.3).");
         }
 
-        return $request->fulfilmentType === 'collection' ? 0 : $pricing->shippingNetMinor;
+        return $pricing->shippingNetMinor;
     }
 
     private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery, ?int $returnCost = null): Order

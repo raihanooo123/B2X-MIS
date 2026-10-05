@@ -4,12 +4,15 @@ namespace Database\Seeders;
 
 use App\Domain\Catalogue\CategoryClosureMaintainer;
 use App\Domain\Catalogue\CategoryPath;
+use App\Domain\Collection\CollectionCharge;
 use App\Domain\Pricing\Money;
 use App\Domain\Storefront\Branding;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Company;
 use App\Models\CompanyUser;
+use App\Models\DeliveryRate;
+use App\Models\DeliveryZone;
 use App\Models\Location;
 use App\Models\Media;
 use App\Models\NumberSequence;
@@ -67,6 +70,7 @@ class DemoDataSeeder extends Seeder
         $tiers = $this->seedPriceTiers();
         $taxClasses = $this->seedTaxClasses();
         $location = $this->seedLocation();
+        $this->seedCollectionRate();
         $categories = $this->seedCategories();
         $brands = $this->seedBrands();
 
@@ -243,6 +247,38 @@ class DemoDataSeeder extends Seeder
         TaxRate::factory()->for($reduced)->reduced()->create(['country_code' => 'GB']);
 
         return ['standard' => $standard, 'zero' => $zero, 'reduced' => $reduced];
+    }
+
+    /**
+     * 05.6 §7A.2 step 3 — collecting is charged as the `collection` method on
+     * the mainland zone, free at or above `collection.free_threshold_net_minor`
+     * (£200 net by default). A placeholder £2.50 net, standard-rated like all
+     * carriage, so a demo collection order below the threshold can be placed.
+     * Needs DeliveryZoneSeeder to have run (DatabaseSeeder calls it first);
+     * skipped without the zone, and never added twice.
+     */
+    private function seedCollectionRate(): void
+    {
+        $zone = DeliveryZone::query()->where('code', CollectionCharge::ZONE_CODE)->first();
+        $taxClass = TaxClass::query()->where('code', DeliveryZoneSeeder::CARRIAGE_TAX_CLASS)->first();
+        if ($zone === null || $taxClass === null) {
+            $this->command?->warn('No GB_MAINLAND zone yet: run DeliveryZoneSeeder first for a collection rate.');
+
+            return;
+        }
+        if (DeliveryRate::query()->where('zone_id', $zone->id)->where('method', 'collection')->where('status', 'active')->exists()) {
+            return;
+        }
+
+        DeliveryRate::query()->create([
+            'zone_id' => $zone->id,
+            'method' => 'collection',
+            'weight_range' => '[0,)',
+            'price_net_minor' => 250,
+            'per_extra_kg_minor' => null,
+            'tax_class_id' => $taxClass->id,
+            'status' => 'active',
+        ]);
     }
 
     /**

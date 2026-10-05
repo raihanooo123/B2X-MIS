@@ -2,8 +2,11 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Domain\Collection\CollectionSlots;
 use App\Domain\Ordering\CheckoutBlocker;
 use App\Domain\Ordering\CheckoutPreview;
+use App\Domain\Storefront\Branding;
+use App\Domain\Storefront\CollectionTerms;
 use App\Domain\Storefront\PreContractInformation;
 use App\Http\Support\StockDisclosure;
 use App\Models\CartLine;
@@ -28,6 +31,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *     unserviceable), `reason`, `zone_name`, `weight_g`,
  *     `shipping_tax_minor`, `tax_rate_bp`, `postcode_recognised`. Null when
  *     no `delivery_postcode` was sent — nothing to rate yet (05.6 §8).
+ *   - `collection` (additive, 05.6 §7A): the slot chosen and the
+ *     pay-at-collection offer for it; null for a delivery.
  *   - Added `lines` and `minimum_order_net_minor` (additive, 06 §2) so
  *     the pad can show the server's figures and the footer's progress
  *     toward the minimum (05.1 §6).
@@ -65,6 +70,8 @@ class CheckoutPreviewResource extends JsonResource
                 'estimate_gross_minor' => $preview->returnCostEstimateGrossMinor,
                 'statement' => PreContractInformation::palletReturnStatement($preview->returnCostEstimateGrossMinor),
             ] : null,
+            // 05.6 §7A: the slot being booked, and whether cash at collection is offered for it.
+            'collection' => $this->collectionBlock($preview),
             'tax_minor' => $preview->taxMinor,
             'total_gross_minor' => $preview->totalGrossMinor,
             'account_credit_applied_minor' => $preview->accountCreditAppliedMinor,
@@ -78,6 +85,53 @@ class CheckoutPreviewResource extends JsonResource
             // 05.15 §5.3: a shortage figure only for trade and staff, or when small.
             'blockers' => array_map(fn (CheckoutBlocker $b) => StockDisclosure::blocker($b, $request), $preview->blockers),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function collectionBlock(CheckoutPreview $preview): ?array
+    {
+        $slot = $preview->collectionSlot;
+        if ($slot === null) {
+            return null;
+        }
+        $offer = $preview->payAtCollection;
+
+        return [
+            'slot_id' => $slot->id,
+            'slot_label' => CollectionSlots::label($slot),
+            'location_name' => $slot->location?->name,
+            'pay_at_collection' => $offer === null ? null : [
+                'available' => $offer->available,
+                'reason' => $offer->reason,
+                'rule' => $offer->rule,
+                'max_order_gross_minor' => $offer->limitGrossMinor,
+                'payment_due_by' => $offer->paymentDueBy->toIso8601String(),
+            ],
+            // 05.15 §7.1: the pre-contract "Payment and delivery" and "Your right
+            // to cancel" sections for this collection, by card and in cash. The
+            // page shows the pair for the method chosen.
+            'pre_contract' => $preview->totalGrossMinor > 0 ? [
+                'card' => $this->collectionSections(new CollectionTerms(CollectionSlots::label($slot), $slot->location?->name)),
+                'cash' => $offer?->available === true
+                    ? $this->collectionSections(new CollectionTerms(CollectionSlots::label($slot), $slot->location?->name, $preview->totalGrossMinor, $offer->paymentDueBy))
+                    : null,
+            ] : null,
+        ];
+    }
+
+    /**
+     * @return list<array{heading: string, paragraphs: list<string>}>
+     */
+    private function collectionSections(CollectionTerms $terms): array
+    {
+        $headings = [PreContractInformation::PAYMENT_HEADING, PreContractInformation::CANCEL_HEADING];
+
+        return array_values(array_filter(
+            PreContractInformation::build(Branding::current(), null, collection: $terms)->sections,
+            fn (array $section) => in_array($section['heading'], $headings, true),
+        ));
     }
 
     /**

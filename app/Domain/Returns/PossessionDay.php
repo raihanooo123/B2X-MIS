@@ -2,6 +2,7 @@
 
 namespace App\Domain\Returns;
 
+use App\Models\CollectionBooking;
 use App\Models\DeliveryZone;
 use App\Models\Order;
 use App\Models\Shipment;
@@ -19,9 +20,9 @@ use Carbon\CarbonImmutable;
  *     for bank holidays — the latest plausible day, in the buyer's favour.
  *     A zone without `transit_days` uses `returns.consumer_default_transit_days`
  *     (global config, default 5; 05.15 §12 Q8).
- *   - collection: `collection_bookings.collected_at`, and never dispatch +
- *     transit. Collection is not built (S5b), so a collection order has no
- *     possession day yet.
+ *   - collection: the day of collection — `collection_bookings.collected_at`
+ *     as a UK date, card or cash alike (05.6 §7A.3, 05.15 §7.2) — and never
+ *     dispatch + transit. Null until the booking is `collected`.
  *
  * Null while possession has not started: nothing dispatched, or the order
  * only part dispatched (the window runs from the last part, reg. 30(3)(b)).
@@ -43,7 +44,13 @@ final readonly class PossessionDay
     public static function for(Order $order): ?self
     {
         if ($order->fulfilment_type === 'collection') {
-            return null;
+            $collectedAt = CollectionBooking::query()->where('order_id', $order->id)
+                ->where('status', 'collected')->value('collected_at');
+
+            return $collectedAt === null ? null : new self(
+                DisplayTime::local(CarbonImmutable::parse((string) $collectedAt))->startOfDay(),
+                'collected',
+            );
         }
 
         if (! in_array($order->status, ['dispatched', 'completed'], true)) {

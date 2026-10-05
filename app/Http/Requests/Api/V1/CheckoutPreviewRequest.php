@@ -37,7 +37,7 @@ class CheckoutPreviewRequest extends FormRequest
             // (the cart before an address is chosen), `delivery` is null.
             'delivery_postcode' => ['sometimes', 'nullable', 'string', 'max:16'],
             'fulfilment_type' => ['sometimes', 'string', 'in:delivery,collection,dropship'],
-            'collection_slot_id' => ['sometimes', 'integer', 'min:1'],
+            'collection_slot_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'payment_method' => ['sometimes', 'string', 'in:card,bacs,on_account,cash_at_collection'],
             'apply_account_credit' => ['sometimes', 'boolean'],
         ];

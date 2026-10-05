@@ -2,6 +2,8 @@
 
 namespace App\Http\Support;
 
+use App\Domain\Collection\CashAtCollection;
+use App\Domain\Collection\CollectionSlots;
 use App\Domain\Ordering\GuestOrderLink;
 use App\Domain\Ordering\OrderKind;
 use App\Domain\Ordering\PaymentMethod;
@@ -10,6 +12,7 @@ use App\Domain\Returns\CancellationEligibility;
 use App\Domain\Returns\FaultReports;
 use App\Domain\Storefront\PreContractInformation;
 use App\Domain\Warehouse\FulfilmentRules;
+use App\Models\CollectionBooking;
 use App\Models\DeliveryZone;
 use App\Models\Order;
 use App\Models\OrderAddress;
@@ -57,6 +60,8 @@ final class OrderPageProps
             'problem' => self::problem($model),
             'returns' => self::returns($model),
             'payment_status' => $model->payment_status,
+            // 05.6 §7A: a collection's slot, and for pay at collection the amount and the deadline.
+            'collection' => self::collection($model),
             // 02 §18. Null only for orders placed before the column existed.
             'payment_method' => $model->payment_method === null ? null : PaymentMethod::tryFrom($model->payment_method)?->value,
             'customer_reference' => $model->customer_reference,
@@ -298,6 +303,30 @@ final class OrderPageProps
             'status' => $payment->status,
             'card_brand' => $payment->card_brand,
             'card_last4' => $payment->card_last4,
+        ];
+    }
+
+    /**
+     * @return array{status: string, slot: string|null, location: string|null, collected_at: string|null, cash_amount_minor: int|null, payment_due_by: string|null}|null
+     */
+    private static function collection(Order $model): ?array
+    {
+        if ($model->fulfilment_type !== 'collection') {
+            return null;
+        }
+        $booking = CollectionBooking::query()->with('slot.location:id,name')->where('order_id', $model->id)->first();
+        if ($booking === null) {
+            return null;
+        }
+        $cash = $model->payment_method === PaymentMethod::CashAtCollection->value && $booking->status === 'booked' && $model->payment_status === 'unpaid';
+
+        return [
+            'status' => $booking->status,
+            'slot' => $booking->slot === null ? null : CollectionSlots::label($booking->slot),
+            'location' => $booking->slot?->location?->name,
+            'collected_at' => $booking->collected_at?->toIso8601ZuluString(),
+            'cash_amount_minor' => $cash ? CashAtCollection::amountDueMinor($model) : null,
+            'payment_due_by' => $cash ? $booking->payment_due_by?->toIso8601ZuluString() : null,
         ];
     }
 }

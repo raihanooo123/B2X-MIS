@@ -7,6 +7,7 @@ use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\PublicCustomer;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
+use App\Models\CollectionBooking;
 use App\Models\GoodsReceipt;
 use App\Models\Rma;
 use App\Models\Shipment;
@@ -92,6 +93,8 @@ class HandleInertiaRequests extends Middleware
                 'goods_in' => Gate::allows('viewAny', GoodsReceipt::class),
                 'picking' => Gate::allows('viewAny', Shipment::class),
                 'dispatch' => Gate::allows('viewAny', Shipment::class),
+                // 05.6 §7A.6: the Collections counter.
+                'collections' => Gate::allows('viewAny', CollectionBooking::class),
                 'stocktake' => Gate::allows('viewAny', Stocktake::class),
                 'returns' => Gate::allows('viewAny', Rma::class),
             ],

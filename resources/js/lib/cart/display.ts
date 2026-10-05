@@ -57,6 +57,10 @@ export interface DeliveryLine {
 }
 
 function deliveryLabel(d: DeliveryLine): string {
+    // 05.6 §7A.2 step 3: collecting is charged as the `collection` method.
+    if (d.method === 'collection') {
+        return 'Collection';
+    }
     const where = [d.zone_name, d.method].filter(Boolean).join(', ');
 
     return where ? `Delivery — ${where}` : 'Delivery';

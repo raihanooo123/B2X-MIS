@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\RequireStaffTwoFactor;
+use App\Models\CollectionBooking;
 use App\Models\GoodsReceipt;
 use App\Models\Order;
 use App\Models\Shipment;
@@ -57,6 +58,7 @@ class AdminPanelProvider extends PanelProvider
                 'Inventory',
                 'Sales',
                 'Warehouse',
+                'Collections',
                 'Accounts',
                 'Settings',
             ])
@@ -85,6 +87,13 @@ class AdminPanelProvider extends PanelProvider
                     ->sort(30)
                     ->url(fn (): string => route('warehouse.dispatch'))
                     ->visible(fn (): bool => Gate::allows('viewAny', Shipment::class)),
+                // 05.6 §7A.6: the counter is a React screen, like the other warehouse screens.
+                NavigationItem::make('Collections counter')
+                    ->group('Collections')
+                    ->icon('heroicon-o-building-storefront')
+                    ->sort(10)
+                    ->url(fn (): string => route('warehouse.collections'))
+                    ->visible(fn (): bool => Gate::allows('viewAny', CollectionBooking::class)),
                 NavigationItem::make('Stocktake')
                     ->group('Warehouse')
                     ->icon('heroicon-o-clipboard-document-check')

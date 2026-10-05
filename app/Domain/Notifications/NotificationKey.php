@@ -46,6 +46,10 @@ enum NotificationKey: string
     case PasswordReset = 'auth.password_reset';
     case PasswordChanged = 'auth.password_changed';
     case TwoFactorChanged = 'auth.two_factor_changed';
+    /** 05.6 §7A.5: an unpaid pay-at-collection order cancelled after its deadline. */
+    case CollectionExpired = 'collection.expired';
+    /** 05.6 §7A.11: the no-show limit reached; pay at collection withdrawn. */
+    case PayAtCollectionSuspended = 'collection.pay_at_collection_suspended';
 
     public function category(): NotificationCategory
     {
@@ -67,6 +71,8 @@ enum NotificationKey: string
             self::ApplicationRejected => '2',
             // Clearer wording: "as a buyer", and what happens with an existing account.
             self::CompanyInvitation => '2',
+            // 05.6 §7A.10: a collection order's slot, location and pay-at-collection deadline.
+            self::OrderConfirmed => '2',
             default => '1',
         };
     }

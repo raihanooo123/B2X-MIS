@@ -7,6 +7,7 @@ use App\Domain\Audit\AuditEntry;
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Billing\Refunds;
 use App\Domain\Billing\RefundSettlement;
+use App\Domain\Collection\CollectionBookings;
 use App\Domain\Inventory\DeadlockRetryPolicy;
 use App\Domain\Inventory\DeallocationService;
 use App\Domain\Inventory\MovementAttribution;
@@ -80,6 +81,7 @@ final class PartialCancellations
         private readonly NumberSequenceService $numbers = new NumberSequenceService,
         private readonly Notifications $notifications = new Notifications,
         private readonly AuditLogger $audit = new AuditLogger,
+        private readonly CollectionBookings $bookings = new CollectionBookings,
     ) {}
 
     /**
@@ -148,6 +150,9 @@ final class PartialCancellations
         }
         $this->assertCancellable($order);
         $consumer = $order->company_id === null;
+
+        // 2a. a collection order's slot, then its booking (05.6 §7A.4), released if nothing is left to collect.
+        $booking = $order->fulfilment_type === 'collection' ? $this->bookings->lockForOrder($order->id) : null;
 
         // 3. shipments: quantity already packed cannot be cancelled.
         $shipments = Shipment::query()->where('order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
@@ -246,6 +251,7 @@ final class PartialCancellations
                 Shipment::query()->whereIn('id', $shipments->pluck('id'))->whereNotIn('status', ['dispatched', 'cancelled'])
                     ->update(['status' => 'cancelled', 'updated_at' => now()]);
                 $order->forceFill(['status' => 'cancelled', 'cancelled_at' => now(), 'cancellation_fee_minor' => 0])->save();
+                $this->bookings->cancelLocked($booking);
             } else {
                 $order->forceFill(['status' => 'dispatched'])->save();
             }

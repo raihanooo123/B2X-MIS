@@ -3,6 +3,10 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * 05.6 §7.1 + §7A.13 (signed off 2026-10-05): collection slots and bookings,
+ * pay at collection on `orders` and `payments`, and no-show suspensions.
+ */
 return new class extends Migration
 {
     public function up(): void
@@ -58,18 +62,29 @@ return new class extends Migration
             CREATE INDEX collection_bookings_payment_due_idx ON collection_bookings (payment_due_by)
               WHERE status = 'booked' AND payment_due_by IS NOT NULL;
 
+            -- orders and payments are live: NOT VALID, then VALIDATE (05.6 §7A.13)
             ALTER TABLE orders DROP CONSTRAINT orders_payment_method_chk;
             ALTER TABLE orders ADD CONSTRAINT orders_payment_method_chk CHECK (
-              payment_method IS NULL OR payment_method IN ('card','bacs','on_account','prepay','cash_at_collection'));
+              payment_method IS NULL
+              OR payment_method IN ('card','bacs','on_account','prepay','cash_at_collection')) NOT VALID;
+            ALTER TABLE orders VALIDATE CONSTRAINT orders_payment_method_chk;
+
+            -- never a guest, never a delivery
             ALTER TABLE orders ADD CONSTRAINT orders_cash_at_collection_chk CHECK (
               payment_method IS DISTINCT FROM 'cash_at_collection'
               OR (fulfilment_type = 'collection' AND guest_email IS NULL
-                  AND (company_id IS NOT NULL OR user_id IS NOT NULL)));
+                  AND (company_id IS NOT NULL OR user_id IS NOT NULL))) NOT VALID;
+            ALTER TABLE orders VALIDATE CONSTRAINT orders_cash_at_collection_chk;
 
             ALTER TABLE payments ADD COLUMN recorded_by_user_id bigint REFERENCES users (id);
+
+            -- a cash row always names the staff member and the order, and has no gateway reference
             ALTER TABLE payments ADD CONSTRAINT payments_cash_chk CHECK (
               gateway <> 'cash'
-              OR (recorded_by_user_id IS NOT NULL AND order_id IS NOT NULL AND gateway_reference IS NULL));
+              OR (recorded_by_user_id IS NOT NULL AND order_id IS NOT NULL AND gateway_reference IS NULL)) NOT VALID;
+            ALTER TABLE payments VALIDATE CONSTRAINT payments_cash_chk;
+
+            -- one live cash payment per order: a double click cannot take the money twice
             CREATE UNIQUE INDEX payments_cash_order_uq ON payments (order_id)
               WHERE gateway = 'cash' AND type = 'payment' AND status = 'captured';
 

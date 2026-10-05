@@ -8,6 +8,7 @@ use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\DeclineMessages;
 use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentGateway;
+use App\Domain\Collection\PayAtCollectionNotEligible;
 use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
@@ -15,6 +16,7 @@ use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
 use App\Domain\Inventory\Exceptions\NoEligibleBatchException;
 use App\Domain\Ordering\CartService;
+use App\Domain\Ordering\CheckoutPreview;
 use App\Domain\Ordering\CheckoutPreviewService;
 use App\Domain\Ordering\CheckoutRequest;
 use App\Domain\Ordering\CheckoutService;
@@ -109,7 +111,9 @@ class CheckoutController extends Controller
         $method = $request->paymentMethod();
         $this->assertPaymentMethodAllowed($method, $companyId, guest: $user === null);
         if ($method === PaymentMethod::CashAtCollection && $request->fulfilmentType() !== 'collection') {
-            throw new ApiException(422, 'pay_at_collection_not_eligible', 'Cash payment requires collection.');
+            throw new ApiException(422, 'pay_at_collection_not_eligible', 'Cash is paid at collection, so choose collection to pay in cash.', [[
+                'field' => 'payment_method', 'code' => 'pay_at_collection_not_eligible', 'message' => 'Choose collection to pay in cash.', 'meta' => ['rule' => 'collection'],
+            ]]);
         }
 
         $address = $request->deliveryAddress();
@@ -160,11 +164,12 @@ class CheckoutController extends Controller
         // only enabled because there were none, but the cart, the stock or
         // the account may have changed since.
         $preview = $this->previewService->preview(
-            $cart, $companyId, $address?->countryCode ?? 'GB', $request->fulfilmentType(),
+            $cart, $companyId, $address->countryCode ?? 'GB', $request->fulfilmentType(),
             user: $user, checkIdentity: true,
             destination: $address === null ? null : new DeliveryDestination($address->postcode, $address->countryCode),
             collectionSlotId: $request->collectionSlotId(), paymentMethod: $method->value,
         );
+        $this->assertCollectionAccepted($preview);
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
@@ -186,7 +191,7 @@ class CheckoutController extends Controller
                 userId: $user?->id,
                 paymentMethod: $method->value,
                 expectedTotalGrossMinor: $request->expectedTotalGrossMinor(),
-                deliveryCountryCode: $address?->countryCode ?? 'GB',
+                deliveryCountryCode: $address->countryCode ?? 'GB',
                 customerReference: $request->customerReference(),
                 deliveryAddress: $address,
                 cardAuthorisation: $card,
@@ -196,7 +201,13 @@ class CheckoutController extends Controller
                 collectionSlotId: $request->collectionSlotId(),
             ));
         } catch (SlotUnavailable $e) {
-            throw new ApiException(422, 'slot_unavailable', $e->getMessage());
+            throw new ApiException(422, 'slot_unavailable', $e->getMessage(), [[
+                'field' => 'collection_slot_id', 'code' => 'slot_unavailable', 'message' => $e->getMessage(),
+            ]]);
+        } catch (PayAtCollectionNotEligible $e) {
+            throw new ApiException(422, 'pay_at_collection_not_eligible', $e->getMessage(), [[
+                'field' => 'payment_method', 'code' => 'pay_at_collection_not_eligible', 'message' => $e->getMessage(), 'meta' => ['rule' => $e->rule],
+            ]]);
         } catch (PriceChangedException $e) {
             throw new ApiException(409, 'price_changed', 'Prices have changed since you reviewed your order. Nothing has been placed.', [[
                 'field' => 'expected_total_gross_minor',
@@ -256,11 +267,6 @@ class CheckoutController extends Controller
             ]]);
         } catch (BatchTrackedCheckoutNotSupportedException) {
             throw new ApiException(422, 'batch_tracked_not_supported', 'An item in your cart cannot be checked out online yet.');
-        } catch (\InvalidArgumentException $e) {
-            if ($method === PaymentMethod::CashAtCollection) {
-                throw new ApiException(422, 'pay_at_collection_not_eligible', $e->getMessage());
-            }
-            throw $e;
         }
 
         return $order;
@@ -300,6 +306,7 @@ class CheckoutController extends Controller
             destination: $request->fulfilmentType() === 'collection' ? null : $request->destination(),
             collectionSlotId: $request->collectionSlotId(), paymentMethod: PaymentMethod::Card->value,
         );
+        $this->assertCollectionAccepted($preview);
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
@@ -490,6 +497,24 @@ class CheckoutController extends Controller
             'message' => 'Choose a delivery address in Great Britain (England, Scotland or Wales).',
             'meta' => ['country_code' => $countryCode],
         ]]);
+    }
+
+    /**
+     * 05.6 §7A.1, §7A.9: a refused slot or a refused cash payment has its own
+     * 422 code, ahead of the general `checkout_blocked`, so the page can send
+     * the buyer back to the slot picker or the payment choice.
+     */
+    private function assertCollectionAccepted(CheckoutPreview $preview): void
+    {
+        foreach (['slot_unavailable', 'pay_at_collection_not_eligible'] as $code) {
+            foreach ($preview->blockers as $blocker) {
+                if ($blocker->code === $code) {
+                    throw new ApiException(422, $code, $blocker->message, [[
+                        'field' => $blocker->field, 'code' => $code, 'message' => $blocker->message, 'meta' => $blocker->meta,
+                    ]]);
+                }
+            }
+        }
     }
 
     /**

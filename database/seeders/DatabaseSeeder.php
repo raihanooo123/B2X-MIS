@@ -8,9 +8,10 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call(DemoDataSeeder::class);
-        // 05.6 §4.2 launch zones and carriage rates.
+        // 05.6 §4.2 launch zones and carriage rates — first, so the demo data
+        // can add its collection rate to the mainland zone.
         $this->call(DeliveryZoneSeeder::class);
+        $this->call(DemoDataSeeder::class);
         // 02 §25.10: placeholder terms of trade, local machines only.
         if (app()->environment('local')) {
             $this->call(PlaceholderTermsSeeder::class);

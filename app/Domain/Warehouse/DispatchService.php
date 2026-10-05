@@ -8,6 +8,7 @@ use App\Domain\Inventory\DeadlockRetryPolicy;
 use App\Domain\Notifications\Notifications;
 use App\Domain\Warehouse\Events\ShipmentDispatched;
 use App\Domain\Warehouse\Exceptions\FulfilmentRejectedException;
+use App\Models\CollectionBooking;
 use App\Models\Order;
 use App\Models\OrderLine;
 use App\Models\Shipment;
@@ -31,6 +32,10 @@ use Illuminate\Support\Facades\DB;
  *   1. orders FOR UPDATE — serialises dispatch against a cancellation of
  *      the same order: exactly one wins (05.5 §13 W2). The order must
  *      still be workable and, if prepaid, paid (FulfilmentRules).
+ *   1a. a collection's `collection_bookings` row FOR UPDATE (05.6 §7A.4).
+ *      Dispatch is the handover (§7A.6 step 4): refused unless the order is
+ *      paid, card or cash, and handed over whole; the booking becomes
+ *      `collected` with `collected_at` and who handed it over.
  *   2. shipments FOR UPDATE — a shipment dispatches once. A retry of a
  *      dispatched shipment is answered with it and writes nothing:
  *      idempotent on the shipment (05.5 §10).
@@ -75,8 +80,12 @@ final class DispatchService
         if (! $outcome->replayed) {
             $shipmentId = $outcome->shipment->id;
             $event = new ShipmentDispatched($shipmentId, $outcome->shipment->order_id, $outcome->orderFullyDispatched);
-            DB::afterCommit(function () use ($shipmentId, $event) {
-                $this->notifications->shipmentDispatched($shipmentId);
+            $collected = Order::query()->where('id', $outcome->shipment->order_id)->value('fulfilment_type') === 'collection';
+            DB::afterCommit(function () use ($shipmentId, $event, $collected) {
+                // A collection was handed over at the counter: there is nothing on its way to tell them about.
+                if (! $collected) {
+                    $this->notifications->shipmentDispatched($shipmentId);
+                }
                 $this->invoices->whenDispatched($shipmentId);
                 event($event);
             });
@@ -92,6 +101,10 @@ final class DispatchService
         // 1–2. The order, then the shipment.
         $orderId = (int) Shipment::query()->whereKey($shipmentId)->value('order_id');
         $order = Order::query()->lockForUpdate()->findOrFail($orderId);
+        // 05.6 §7A.4: a collection's booking after the order, before the shipment.
+        $booking = $order->fulfilment_type === 'collection'
+            ? CollectionBooking::query()->where('order_id', $order->id)->lockForUpdate()->first()
+            : null;
         $shipment = Shipment::query()->lockForUpdate()->findOrFail($shipmentId);
 
         if ($shipment->status === 'dispatched') {
@@ -102,6 +115,9 @@ final class DispatchService
         }
 
         FulfilmentRules::assertWorkable($order);
+        if ($order->fulfilment_type === 'collection') {
+            FulfilmentRules::assertHandoverAllowed($order, $booking, $details->actorUserId);
+        }
 
         // 3. The shipment's scope. Every line picked, or nothing leaves.
         $allocations = FulfilmentRules::activeAllocations($order->id, $shipment->location_id)
@@ -200,10 +216,29 @@ final class DispatchService
             ]);
         }
 
-        $fullyDispatched = ! OrderLine::query()->where('order_id', $order->id)->whereColumn('dispatched_base_qty', '<', 'base_qty')->exists();
+        // A collection's short-picked lines are cancelled before handover (05.6 §7A.9).
+        $fullyDispatched = ! OrderLine::query()->where('order_id', $order->id)
+            ->when($booking !== null,
+                fn ($q) => $q->whereRaw('dispatched_base_qty + cancelled_base_qty < base_qty'),
+                fn ($q) => $q->whereColumn('dispatched_base_qty', '<', 'base_qty'))
+            ->exists();
         $order->forceFill($fullyDispatched
             ? ['status' => 'dispatched', 'dispatched_at' => $now]
             : ['status' => 'part_dispatched'])->save();
+
+        // 05.6 §7A.6 step 4, §7A.9: a collection is handed over whole — the
+        // booking is `collected`, the possession day for a consumer's 14 days.
+        if ($booking !== null) {
+            if (! $fullyDispatched) {
+                throw new FulfilmentRejectedException('partial_collection', 'A collection is handed over whole. Cancel what cannot be supplied before handing over the rest.', 'lines', [], 409);
+            }
+            $booking->forceFill([
+                'status' => 'collected',
+                'collected_at' => $now,
+                'handed_over_by_user_id' => $details->actorUserId,
+                'collector_name' => $details->collectorName ?? $booking->collector_name,
+            ])->save();
+        }
 
         $shipment->forceFill([
             'status' => 'dispatched',

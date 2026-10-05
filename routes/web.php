@@ -24,6 +24,7 @@ use App\Http\Controllers\Storefront\LegalPageController;
 use App\Http\Controllers\Storefront\PriceDisplayController;
 use App\Http\Controllers\Storefront\ProductController;
 use App\Http\Controllers\Storefront\SeoController;
+use App\Http\Controllers\Warehouse\CollectionsPageController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
 use App\Http\Controllers\Warehouse\PickListPageController;
@@ -179,6 +180,14 @@ Route::middleware('auth')->group(function (): void {
     // 05.5 §5, §7 — picking and dispatch. Via /api/v1/warehouse/shipments*.
     Route::get('/warehouse/pick-list', [PickListPageController::class, 'show'])->name('warehouse.pick-list');
     Route::get('/warehouse/dispatch', [DispatchPageController::class, 'show'])->name('warehouse.dispatch');
+    // 05.6 §7A.6 — the Collections counter: cash, receipt or invoice, then handover.
+    Route::get('/warehouse/collections', [CollectionsPageController::class, 'show'])->name('warehouse.collections');
+    Route::post('/warehouse/collections/{order}/cash', [CollectionsPageController::class, 'recordCash'])
+        ->whereUlid('order')->middleware('throttle:30,1')->name('warehouse.collections.cash');
+    Route::post('/warehouse/collections/cash/{payment}/void', [CollectionsPageController::class, 'voidCash'])
+        ->whereUlid('payment')->middleware('throttle:10,1')->name('warehouse.collections.cash.void');
+    Route::post('/warehouse/collections/{order}/handover', [CollectionsPageController::class, 'handover'])
+        ->whereUlid('order')->middleware('throttle:30,1')->name('warehouse.collections.handover');
     // 05.5 §8 — stocktake. Via /api/v1/warehouse/stocktakes*.
     Route::get('/warehouse/stocktake', [StocktakePageController::class, 'show'])->name('warehouse.stocktake');
     // 05.4 §7.3, §13.5 — returns. Via /api/v1/warehouse/returns*.

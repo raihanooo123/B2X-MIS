@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -164,6 +165,16 @@ class Order extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(OrderLine::class);
+    }
+
+    /**
+     * 05.6 §7.1: a collection order's one booking.
+     *
+     * @return HasOne<CollectionBooking, $this>
+     */
+    public function collectionBooking(): HasOne
+    {
+        return $this->hasOne(CollectionBooking::class);
     }
 
     /**

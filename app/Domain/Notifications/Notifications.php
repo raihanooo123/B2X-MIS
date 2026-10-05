@@ -2,6 +2,7 @@
 
 namespace App\Domain\Notifications;
 
+use App\Domain\Notifications\Notices\CollectionExpired;
 use App\Domain\Notifications\Notices\CreditLimitReached;
 use App\Domain\Notifications\Notices\CreditLimitWarning;
 use App\Domain\Notifications\Notices\InvoiceDueSoon;
@@ -10,6 +11,7 @@ use App\Domain\Notifications\Notices\InvoiceOverdue;
 use App\Domain\Notifications\Notices\OrderCancelled;
 use App\Domain\Notifications\Notices\OrderConfirmed;
 use App\Domain\Notifications\Notices\OrderItemsCancelled;
+use App\Domain\Notifications\Notices\PayAtCollectionSuspended;
 use App\Domain\Notifications\Notices\PaymentReceived;
 use App\Domain\Notifications\Notices\RefundFailed;
 use App\Domain\Notifications\Notices\RmaApproved;
@@ -74,6 +76,21 @@ final class Notifications
         if ($order !== null) {
             $this->dispatcher->send(new OrderCancelled($orderId), $this->recipients->orderCustomer($order));
         }
+    }
+
+    /** 05.6 §7A.10 `collection.expired`: a pay-at-collection order cancelled by the sweep. */
+    public function collectionExpired(int $orderId): void
+    {
+        $order = Order::query()->find($orderId, ['id', 'user_id', 'company_id', 'guest_email']);
+        if ($order !== null) {
+            $this->dispatcher->send(new CollectionExpired($orderId), $this->recipients->orderCustomer($order));
+        }
+    }
+
+    /** 05.6 §7A.10 `collection.pay_at_collection_suspended`: the customer (public) or the company's owners (trade). */
+    public function payAtCollectionSuspended(int $suspensionId, ?int $userId, ?int $companyId, int $noShowCount): void
+    {
+        $this->dispatcher->send(new PayAtCollectionSuspended($suspensionId, $noShowCount), $this->recipients->payAtCollectionCustomer($userId, $companyId));
     }
 
     /** 05.10 §2.6: a durable acknowledgement of items cancelled before dispatch. */

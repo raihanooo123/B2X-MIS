@@ -64,6 +64,8 @@ interface ConfirmationProps {
         problem: ProblemView | null;
         returns: ReturnView[];
         payment_status: string;
+        /** 05.6 §7A: a collection's slot; for an unpaid pay-at-collection order, the cash due and the deadline. */
+        collection: { status: string; slot: string | null; location: string | null; collected_at: string | null; cash_amount_minor: number | null; payment_due_by: string | null } | null;
         /** 02 §18; `prepay` for orders placed outside web checkout, null for orders from before the column. */
         payment_method: PaymentMethod | 'prepay' | null;
         customer_reference: string | null;
@@ -182,6 +184,24 @@ function nextSteps(order: ConfirmationProps['order']): string[] {
     }
 
     const common = 'We will email you when your order is dispatched.';
+
+    // 05.6 §7A.3: collect, and pay cash then, by the deadline.
+    const collection = order.collection;
+    if (collection !== null) {
+        if (collection.status === 'collected') {
+            return ['You collected this order.'];
+        }
+        const when = `Collect from ${collection.location ?? 'our counter'}${collection.slot ? `, ${collection.slot}` : ''} (UK time). Bring your order number.`;
+        if (collection.cash_amount_minor !== null && collection.payment_due_by !== null) {
+            return [
+                when,
+                `Pay ${formatMinor(collection.cash_amount_minor)} in cash when you collect — cash only.`,
+                `If you have not collected and paid by ${formatDeadline(collection.payment_due_by)}, the order is cancelled and the goods released. Nothing will have been taken from you.`,
+            ];
+        }
+
+        return [when, 'Your stock is reserved.'];
+    }
 
     if (order.payment_status === 'paid' && order.card_payment) {
         return [`Payment of ${formatMinor(order.total_gross_minor)} taken from your ${cardDescription(order.card_payment)}.`, 'We are now picking your order.', common];
@@ -786,4 +806,9 @@ function ReportProblem({ problem, url }: { problem: ProblemView; url: string }) 
             </form>
         </section>
     );
+}
+
+/** A payment deadline in UK time (05.6 §7A.5). */
+function formatDeadline(iso: string): string {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 }

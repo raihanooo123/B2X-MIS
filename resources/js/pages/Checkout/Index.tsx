@@ -25,6 +25,12 @@
  * A public buyer (05.15 §6.1, §7.1) also sees the pre-contract information
  * and accepts the terms of sale before the button, which says the order
  * carries an obligation to pay (CCR 2013 reg. 14(3)).
+ *
+ * Collection (05.6 §7A): anyone may collect, guests included, by booking one
+ * of the offered slots; no delivery address is needed. A signed-in, verified
+ * buyer may pay cash at collection when preview says so — the button then
+ * reads "Place order — pay £X.XX in cash at collection" and the pre-contract
+ * information names the arrangement and its deadline.
  */
 import { Head, Link, router } from '@inertiajs/react';
 import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
@@ -36,7 +42,7 @@ import { Checkbox, Field } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ApiError } from '@/lib/api/client';
-import { createCardIntent, useCheckoutPreview, usePlaceOrder, type CheckoutPreview, type DeliveryAddressInput, type PaymentMethod, type PreviewBlocker } from '@/lib/api/checkout';
+import { createCardIntent, useCheckoutPreview, useCollectionSlots, usePlaceOrder, type CheckoutPreview, type CollectionSlot, type DeliveryAddressInput, type PaymentMethod, type PreContractSection, type PreviewBlocker } from '@/lib/api/checkout';
 import { useCart, type CartLine } from '@/lib/api/orderPad';
 import { lineTotalMinor, totalsRows, vatLabel, type DisplayMode } from '@/lib/cart/display';
 import { formatMinor, subtractInts } from '@/lib/money';
@@ -83,7 +89,10 @@ const PAYMENT_HELP: Record<PaymentMethod, string> = {
     on_account: 'Invoiced on your account terms.',
     card: 'Pay now by debit or credit card. Your card is charged when your order is placed.',
     bacs: 'Pay by bank transfer, quoting your order number. We dispatch once payment has cleared.',
+    cash_at_collection: 'Pay in cash when you collect. Cash only at the counter.',
 };
+
+type Fulfilment = 'delivery' | 'collection';
 
 /** Blocker codes with a place to go and fix them. */
 const BLOCKER_LINKS: Record<string, { href: string; label: string }> = {
@@ -143,7 +152,19 @@ function CheckoutForm(props: CheckoutProps) {
         setAddress(saved ? fromSaved(saved) : blankAddress);
     };
     const savedAddressId = addresses.find((a) => a.key === addressChoice)?.public_id;
+    const [fulfilment, setFulfilment] = useState<Fulfilment>('delivery');
+    const collecting = fulfilment === 'collection';
+    const [slotId, setSlotId] = useState<number | null>(null);
+    const slots = useCollectionSlots(collecting);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(methods[0]?.value ?? 'card');
+    // Cash is paid at the counter, so it is offered only for a collection.
+    const shownMethods = collecting ? methods : methods.filter((m) => m.value !== 'cash_at_collection');
+    const chooseFulfilment = (next: Fulfilment) => {
+        setFulfilment(next);
+        if (next === 'delivery' && paymentMethod === 'cash_at_collection') {
+            setPaymentMethod(methods[0]?.value ?? 'card');
+        }
+    };
     const [reference, setReference] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
     const [failure, setFailure] = useState<ApiError | null>(null);
@@ -160,14 +181,27 @@ function CheckoutForm(props: CheckoutProps) {
     const ratingPostcode = useDebounced(address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null, 400);
     const addressKey = JSON.stringify(address);
     const ratingAddressKey = useDebounced(addressKey, 400);
-    const preview = useCheckoutPreview(address.country_code, ratingPostcode, { savedAddressId, addressKey: ratingAddressKey });
+    const preview = useCheckoutPreview(collecting ? 'GB' : address.country_code, collecting ? null : ratingPostcode, {
+        savedAddressId,
+        addressKey: collecting ? undefined : ratingAddressKey,
+        fulfilmentType: fulfilment,
+        collectionSlotId: collecting ? slotId : null,
+        // Only cash changes what preview checks (05.6 §7A.3).
+        paymentMethod: paymentMethod === 'cash_at_collection' ? 'cash_at_collection' : undefined,
+    });
     const delivery = preview.data?.delivery ?? null;
+    const collection = collecting ? (preview.data?.collection ?? null) : null;
+    const cashOffer = collection?.pay_at_collection ?? null;
+    const payingCash = collecting && paymentMethod === 'cash_at_collection';
     const carriageKnown = delivery !== null && (delivery.status === 'rated' || delivery.status === 'free');
     const placeOrder = usePlaceOrder();
     const idempotency = useRef<{ body: string; key: string } | null>(null);
 
     const blockers = preview.data?.blockers ?? [];
-    const addressComplete = [address.contact_name, address.line1, address.city, address.postcode, address.country_code, ...(isGuest ? [address.phone, guestEmail] : [])].every((v) => v.trim() !== '');
+    // 05.6 §7A.2 step 2: a collection needs no address; a guest is named by their email.
+    const addressComplete = collecting
+        ? !isGuest || guestEmail.trim() !== ''
+        : [address.contact_name, address.line1, address.city, address.postcode, address.country_code, ...(isGuest ? [address.phone, guestEmail] : [])].every((v) => v.trim() !== '');
     const stripe = useStripe();
     const elements = useElements();
     const [stage, setStage] = useState<'idle' | 'authorising' | 'placing'>('idle');
@@ -180,7 +214,9 @@ function CheckoutForm(props: CheckoutProps) {
     const termsReady = isTrade || (terms !== null && termsAccepted);
 
     // Carriage must be known before anything is charged (05.6 §8).
-    const canPlace = addressKey === ratingAddressKey && ratingPostcode === (address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null) && preview.data !== undefined && !preview.isFetching && !preview.isPlaceholderData && blockers.length === 0 && addressComplete && carriageKnown && cardReady && termsReady && stage === 'idle';
+    const ratingSettled = collecting ? slotId !== null : addressKey === ratingAddressKey && ratingPostcode === (address.postcode.trim().length >= 5 ? address.postcode.trim().toUpperCase() : null);
+    const cashReady = !payingCash || cashOffer?.available === true;
+    const canPlace = ratingSettled && preview.data !== undefined && !preview.isFetching && !preview.isPlaceholderData && blockers.length === 0 && addressComplete && carriageKnown && cardReady && cashReady && termsReady && stage === 'idle';
 
     const showFailure = (error: ApiError, shown: CheckoutPreview) => {
         if (error.code === 'price_changed') {
@@ -194,6 +230,11 @@ function CheckoutForm(props: CheckoutProps) {
             setFieldErrors(Object.fromEntries(error.details.filter((d) => d.field).map((d) => [String(d.field), d.message])));
         } else if (error.code === 'card_declined') {
             setCardError(error.message);
+        } else if (error.code === 'slot_unavailable') {
+            // The slot filled or closed meanwhile: choose again from what is left.
+            setSlotId(null);
+            void slots.refetch();
+            setFailure(error);
         } else if (error.code === 'terms_changed') {
             // The terms changed while the page was open: show the new ones.
             setTermsAccepted(false);
@@ -213,7 +254,11 @@ function CheckoutForm(props: CheckoutProps) {
      * nothing reserved, nothing charged. Returns the authorised intent's id.
      */
     const authoriseCard = async (expectedMinor: number): Promise<string | null> => {
-        const intent = await createCardIntent({ expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code, delivery_postcode: address.postcode, delivery_address_id: savedAddressId });
+        const intent = await createCardIntent(
+            collecting && slotId !== null
+                ? { expected_total_gross_minor: expectedMinor, fulfilment_type: 'collection', collection_slot_id: slotId }
+                : { expected_total_gross_minor: expectedMinor, delivery_country_code: address.country_code, delivery_postcode: address.postcode, delivery_address_id: savedAddressId },
+        );
         if (intent.status === 'requires_capture') {
             return intent.id;
         }
@@ -228,7 +273,9 @@ function CheckoutForm(props: CheckoutProps) {
         const result = await stripe.confirmCardPayment(intent.client_secret, {
             payment_method: {
                 card,
-                billing_details: { name: address.contact_name, address: { line1: address.line1, city: address.city, postal_code: address.postcode, country: address.country_code } },
+                billing_details: collecting
+                    ? { name: props.contact.name || undefined, email: isGuest ? guestEmail.trim() : undefined }
+                    : { name: address.contact_name, address: { line1: address.line1, city: address.city, postal_code: address.postcode, country: address.country_code } },
             },
         });
 
@@ -280,8 +327,9 @@ function CheckoutForm(props: CheckoutProps) {
             payment_method: paymentMethod,
             expected_total_gross_minor: shown.total_gross_minor,
             customer_reference: isTrade ? reference : '',
-            delivery_address: address,
-            delivery_address_id: savedAddressId,
+            ...(collecting && slotId !== null
+                ? { fulfilment_type: 'collection' as const, collection_slot_id: slotId }
+                : { delivery_address: address, delivery_address_id: savedAddressId }),
             ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
             ...(!isTrade && terms !== null ? { terms_version_id: terms.id } : {}),
             ...(isGuest ? { guest_email: guestEmail.trim() } : {}),
@@ -340,6 +388,23 @@ function CheckoutForm(props: CheckoutProps) {
                             </Section>
                         )}
 
+                        <Section title="Delivery or collection">
+                            <fieldset className="grid gap-2 sm:grid-cols-2">
+                                <legend className="sr-only">How you get your order</legend>
+                                <Choice name="fulfilment" value="delivery" checked={!collecting} onChange={() => chooseFulfilment('delivery')}>
+                                    <span className="font-medium">Delivery</span>
+                                    <span className="block text-xs text-muted-foreground">To an address{isTrade ? '' : ' in Great Britain'}.</span>
+                                </Choice>
+                                <Choice name="fulfilment" value="collection" checked={collecting} onChange={() => chooseFulfilment('collection')}>
+                                    <span className="font-medium">Collect</span>
+                                    <span className="block text-xs text-muted-foreground">Book a time to collect from our counter.</span>
+                                </Choice>
+                            </fieldset>
+                            {collecting && <SlotPicker slots={slots.data} loading={slots.isPending} error={slots.isError} chosen={slotId} onChoose={setSlotId} />}
+                            {collecting && isTrade && <p className="text-xs text-muted-foreground">Your account's billing address goes on the invoice. No delivery address is needed.</p>}
+                        </Section>
+
+                        {!collecting && (
                         <Section title="Delivery address">
                             {addresses.length > 0 && (
                                 <fieldset className="space-y-2">
@@ -367,16 +432,26 @@ function CheckoutForm(props: CheckoutProps) {
                                 </p>
                             )}
                         </Section>
+                        )}
 
                         <Section title="Payment">
                             <fieldset className="space-y-2">
                                 <legend className="sr-only">Payment method</legend>
-                                {methods.map((m) => (
-                                    <Choice key={m.value} name="payment_method" value={m.value} checked={paymentMethod === m.value} onChange={(v) => setPaymentMethod(v as PaymentMethod)}>
-                                        <span className="font-medium">{m.label}</span>
-                                        <span className="block text-xs text-muted-foreground">{PAYMENT_HELP[m.value]}</span>
-                                    </Choice>
-                                ))}
+                                {shownMethods.map((m) => {
+                                    const refused = m.value === 'cash_at_collection' && cashOffer !== null && !cashOffer.available ? cashOffer.reason : null;
+
+                                    return (
+                                        <Choice key={m.value} name="payment_method" value={m.value} checked={paymentMethod === m.value} disabled={refused !== null} onChange={(v) => setPaymentMethod(v as PaymentMethod)}>
+                                            <span className="font-medium">{m.label}</span>
+                                            <span className="block text-xs text-muted-foreground">{refused ?? PAYMENT_HELP[m.value]}</span>
+                                            {m.value === 'cash_at_collection' && cashOffer?.available && (
+                                                <span className="block text-xs text-muted-foreground">
+                                                    Up to {formatMinor(cashOffer.max_order_gross_minor)} inc VAT. Pay by {formatDeadline(cashOffer.payment_due_by)}, or the order is cancelled and the goods released.
+                                                </span>
+                                            )}
+                                        </Choice>
+                                    );
+                                })}
                             </fieldset>
                             {fieldErrors.payment_method && <p className="text-xs text-red-700">{fieldErrors.payment_method}</p>}
                             {payingByCard && (
@@ -409,7 +484,11 @@ function CheckoutForm(props: CheckoutProps) {
 
                         {!isTrade && props.pre_contract && (
                             <Section title="Before you order">
-                                <PreContract sections={props.pre_contract.sections} returnStatement={preview.data?.return_estimate?.statement ?? null} />
+                                <PreContract
+                                    sections={props.pre_contract.sections}
+                                    returnStatement={preview.data?.return_estimate?.statement ?? null}
+                                    replacements={collecting ? ((payingCash ? collection?.pre_contract?.cash : collection?.pre_contract?.card) ?? null) : null}
+                                />
                                 {terms !== null && <TermsOfSale terms={terms} accepted={termsAccepted} onChange={setTermsAccepted} disabled={stage !== 'idle'} error={fieldErrors.terms_version_id} />}
                             </Section>
                         )}
@@ -446,6 +525,8 @@ function CheckoutForm(props: CheckoutProps) {
                                 <>
                                     <Loader2 className="animate-spin" /> Placing order…
                                 </>
+                            ) : payingCash ? (
+                                cashButtonLabel(preview.data?.total_gross_minor)
                             ) : isTrade ? (
                                 priceChange ? 'Place order at the new total' : 'Place order'
                             ) : (
@@ -453,22 +534,25 @@ function CheckoutForm(props: CheckoutProps) {
                             )}
                         </Button>
                         {!isTrade && terms !== null && !termsAccepted && <p className="text-center text-xs text-muted-foreground">Accept the terms of sale to place your order.</p>}
+                        {collecting && slotId === null && <p className="text-center text-xs text-muted-foreground">Choose a collection time to place your order.</p>}
                         {!addressComplete && (
                             <p className="text-center text-xs text-muted-foreground">
-                                {isGuest ? 'Enter your email, phone and delivery address to place your order.' : 'Complete the delivery address to place your order.'}
+                                {collecting ? 'Enter your email to place your order.' : isGuest ? 'Enter your email, phone and delivery address to place your order.' : 'Complete the delivery address to place your order.'}
                             </p>
                         )}
-                        {addressComplete && delivery === null && !preview.isFetching && (
+                        {!collecting && addressComplete && delivery === null && !preview.isFetching && (
                             <p className="text-center text-xs text-muted-foreground">Enter your full delivery postcode to see the delivery cost.</p>
                         )}
                         {delivery?.status === 'rated' && delivery.shortfall_to_free_minor > 0 && (
                             <p className="text-center text-xs text-muted-foreground">
-                                Spend {formatMinor(delivery.shortfall_to_free_minor)} more (ex. VAT) for free delivery{delivery.zone_name ? ` to ${delivery.zone_name}` : ''}.
+                                {collecting
+                                    ? `Spend ${formatMinor(delivery.shortfall_to_free_minor)} more (ex. VAT) for free collection.`
+                                    : `Spend ${formatMinor(delivery.shortfall_to_free_minor)} more (ex. VAT) for free delivery${delivery.zone_name ? ` to ${delivery.zone_name}` : ''}.`}
                             </p>
                         )}
                         {addressComplete && payingByCard && !cardComplete && <p className="text-center text-xs text-muted-foreground">Enter your card details to place your order.</p>}
                         <p className="text-center text-xs text-muted-foreground">
-                            Prices {vatLabel(mode)}.{carriageKnown ? ' The total includes delivery.' : ' Delivery is added once your postcode is entered.'}
+                            Prices {vatLabel(mode)}.{collecting ? (carriageKnown ? ' The total includes any collection charge.' : '') : carriageKnown ? ' The total includes delivery.' : ' Delivery is added once your postcode is entered.'}
                         </p>
                     </aside>
                 </form>
@@ -489,6 +573,60 @@ function payButtonLabel(method: PaymentMethod, totalMinor: number | undefined): 
     return 'Order with obligation to pay';
 }
 
+/** 05.6 §7A.3 (CCR reg. 14(3)): the obligation to pay, and how. */
+function cashButtonLabel(totalMinor: number | undefined): string {
+    return totalMinor === undefined ? 'Place order — pay in cash at collection' : `Place order — pay ${formatMinor(totalMinor)} in cash at collection`;
+}
+
+/** The payment deadline in UK time, as the confirmation email states it. */
+function formatDeadline(iso: string): string {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+}
+
+/**
+ * 05.6 §7A.1: the slots checkout offers, by day. Times are UK local. A slot
+ * that fills or closes before the order is placed is refused, and the list
+ * is fetched again.
+ */
+function SlotPicker({ slots, loading, error, chosen, onChoose }: { slots: CollectionSlot[] | undefined; loading: boolean; error: boolean; chosen: number | null; onChoose: (id: number) => void }) {
+    if (loading) {
+        return <Skeleton className="h-24 w-full" />;
+    }
+    if (error) {
+        return <p className="text-sm text-red-700">Collection times couldn't be loaded. Try again in a moment.</p>;
+    }
+    if (slots === undefined || slots.length === 0) {
+        return <p className="text-sm text-muted-foreground">There are no collection times available at the moment. Please choose delivery.</p>;
+    }
+
+    const days = new Map<string, CollectionSlot[]>();
+    for (const slot of slots) {
+        days.set(slot.slot_date, [...(days.get(slot.slot_date) ?? []), slot]);
+    }
+
+    return (
+        <fieldset className="space-y-3">
+            <legend className="text-sm font-medium">Collection time{slots[0]?.location_name ? ` at ${slots[0].location_name}` : ''}</legend>
+            {[...days.entries()].map(([date, daySlots]) => (
+                <div key={date} className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(`${date}T00:00:00Z`))}
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                        {daySlots.map((slot) => (
+                            <Choice key={slot.id} name="collection_slot" value={String(slot.id)} checked={chosen === slot.id} onChange={() => onChoose(slot.id)}>
+                                <span className="font-medium tabular-nums">
+                                    {slot.start_time}–{slot.end_time}
+                                </span>
+                            </Choice>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </fieldset>
+    );
+}
+
 /** The section whose first paragraph is the return-cost statement (PreContractInformation). */
 const RETURNS_HEADING = 'Returning goods';
 
@@ -497,8 +635,10 @@ const RETURNS_HEADING = 'Returning goods';
  * pallet consignment's return cost (02 §27) depends on the basket and the
  * address, so it comes from preview and replaces the standard statement.
  */
-function PreContract({ sections, returnStatement }: { sections: { heading: string; paragraphs: string[] }[]; returnStatement: string | null }) {
-    const shown = returnStatement === null ? sections : sections.map((s) => (s.heading === RETURNS_HEADING ? { ...s, paragraphs: [returnStatement, ...s.paragraphs.slice(1)] } : s));
+function PreContract({ sections, returnStatement, replacements }: { sections: PreContractSection[]; returnStatement: string | null; replacements: PreContractSection[] | null }) {
+    // 05.15 §7.1: a collection's payment arrangement and cancellation period replace the delivery ones.
+    const replaced = replacements === null ? sections : sections.map((s) => replacements.find((r) => r.heading === s.heading) ?? s);
+    const shown = returnStatement === null ? replaced : replaced.map((s) => (s.heading === RETURNS_HEADING ? { ...s, paragraphs: [returnStatement, ...s.paragraphs.slice(1)] } : s));
 
     return (
         <div className="max-h-80 space-y-3 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs leading-relaxed" tabIndex={0} aria-label="Information about your order and your rights">
@@ -599,12 +739,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     );
 }
 
-function Choice({ name, value, checked, onChange, children }: { name: string; value: string; checked: boolean; onChange: (value: string) => void; children: ReactNode }) {
+function Choice({ name, value, checked, onChange, children, disabled = false }: { name: string; value: string; checked: boolean; onChange: (value: string) => void; children: ReactNode; disabled?: boolean }) {
     const id = useId();
 
     return (
-        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent/50')}>
-            <input id={id} type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} className="mt-0.5 size-4 shrink-0 accent-primary" />
+        <label htmlFor={id} className={cn('flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors hover:bg-accent', checked && 'border-primary bg-accent/50', disabled && 'cursor-not-allowed opacity-60 hover:bg-transparent')}>
+            <input id={id} type="radio" name={name} value={value} checked={checked} disabled={disabled} onChange={() => onChange(value)} className="mt-0.5 size-4 shrink-0 accent-primary" />
             <span className="min-w-0 flex-1">{children}</span>
         </label>
     );

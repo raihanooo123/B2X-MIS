@@ -4,6 +4,7 @@ namespace App\Domain\Warehouse;
 
 use App\Domain\Ordering\PaymentMethod;
 use App\Domain\Warehouse\Exceptions\FulfilmentRejectedException;
+use App\Models\CollectionBooking;
 use App\Models\Order;
 use App\Models\StockAllocation;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,7 +16,9 @@ use Illuminate\Database\Eloquent\Builder;
  * `picking` or `part_dispatched`. A prepaid order (card, BACS, prepay) is
  * paid before it leaves (PaymentMethod: "paid before dispatch"), so it is
  * not released to the warehouse until `payment_status = 'paid'`. On-account
- * orders are released on confirmation.
+ * orders are released on confirmation. Pay at collection is not paid before
+ * dispatch: it may be picked and staged unpaid, and only its handover waits
+ * for the cash (05.6 §7A.6, assertHandoverAllowed()).
  *
  * **What a shipment covers.** `stock_allocations` carries no shipment
  * column, and shipment_lines are written only at dispatch (04 §7.2), so a
@@ -46,6 +49,31 @@ final class FulfilmentRules
         $method = $order->payment_method === null ? null : PaymentMethod::tryFrom($order->payment_method);
         if ($method !== null && $method->isPrepayment() && $order->payment_status !== 'paid') {
             throw new FulfilmentRejectedException('awaiting_payment', "Order {$order->order_number} is paid before dispatch and has not been paid yet.", 'order', ['payment_status' => $order->payment_status]);
+        }
+    }
+
+    /**
+     * 05.6 §7A.6 step 4 — the handover of a collection is its dispatch, and
+     * is refused unless the order is paid: `payment_status = 'paid'`, card
+     * or cash alike. An on-account trade collection is the exception: its
+     * credit was taken at placement and it is invoiced on dispatch, as any
+     * on-account order (05.6 §7A.2 step 4: "on-account … as today"). The
+     * booking must still be live, and the staff member is recorded.
+     *
+     * @throws FulfilmentRejectedException
+     */
+    public static function assertHandoverAllowed(Order $order, ?CollectionBooking $booking, ?int $staffUserId): void
+    {
+        if ($booking === null || $booking->status !== 'booked') {
+            throw new FulfilmentRejectedException('booking_not_live', "Order {$order->order_number} has no live collection booking.", 'order', ['booking_status' => $booking?->status], 409);
+        }
+        $paid = $order->payment_status === 'paid'
+            || ($order->payment_method === PaymentMethod::OnAccount->value && $order->payment_status === 'on_account');
+        if (! $paid) {
+            throw new FulfilmentRejectedException('awaiting_payment', "Order {$order->order_number} must be paid before it is handed over.", 'order', ['payment_status' => $order->payment_status]);
+        }
+        if ($staffUserId === null) {
+            throw new FulfilmentRejectedException('staff_required', 'A handover is recorded against the staff member making it.', null, [], 403);
         }
     }
 
