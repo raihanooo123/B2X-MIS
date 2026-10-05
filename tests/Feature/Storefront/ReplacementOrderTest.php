@@ -151,7 +151,8 @@ it('never invoices or receipts a replacement (Q-R3, pending the accountant)', fu
     $replacement = replReplacement($rma);
 
     expect(fn () => (new InvoiceService)->issueForOrder($replacement->id))->toThrow(LogicException::class);
-    $this->artisan('billing:issue-missing-invoices')->assertSuccessful();
+    // The original sale may be reported (its receipt isn't issued in this fixture); the replacement never is.
+    $this->artisan('billing:issue-missing-invoices')->doesntExpectOutputToContain($replacement->order_number);
     expect(Invoice::query()->where('order_id', $replacement->id)->count())->toBe(0);
 });
 
