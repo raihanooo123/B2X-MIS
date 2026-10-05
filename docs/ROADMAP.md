@@ -1423,6 +1423,16 @@ prices inc VAT with an Ex VAT switch. Slices S1–S7 in 05.15 §11.
 3. [ ] **Replacement orders:** create and ship replacements for faulty goods (05.4 §7.5, via 04 §4.2).
 4. [ ] **S5b:** click & collect for public customers, with collection slots and the collection workflow (05.6 §7).
 
+**Specs signed off 2026-10-05, built in this order (one commit per slice):** S7 (05.11); replacement
+orders (05.4 §14); price sorting (02 §29); partial cancellation before dispatch (05.10 §2);
+click & collect with pay at collection (05.6 §7A, 05.15 §6.1). Schema index: 02 §30.
+
+- [ ] S7 — 05.11: legal pages, cookies, head tags, JSON-LD, sitemap, robots.
+- [ ] Replacement orders — 05.4 §14 (no invoice pending the accountant, Q-R3).
+- [ ] Price sorting — 02 §29 (guests and public customers only).
+- [ ] Partial cancellation before dispatch — 05.10 §2.
+- [ ] S5b click & collect and pay at collection — 05.6 §7A.
+
 **Pre-go-live readiness, separate from this coding order:**
 
 - [ ] Legal review (05.15 §12 Q1).
@@ -1453,6 +1463,11 @@ unlike G1–G10 above, nothing else in the signed-off spec set assumes this exis
 
 - [ ] Public API and webhook delivery — `06 §11`'s conventions, once Phase 4 is reached.
       Tracked here specifically so a future reviewer finds a decision, not a hole.
+- [ ] **Parked 2026-10-05 — POS module: walk-in till in B2X (amends 01 "Point of sale"
+      out-of-scope). To be discussed with the product owner.** Until then, 01 §5.2 stands.
+      Card payment at collection waits for it, because it needs a terminal (05.6 §7A, DRAFT).
+      Recording cash against an order at the collection counter (05.6 §7A.6) is not POS and
+      does not depend on it.
 
 ---
 

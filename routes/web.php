@@ -19,13 +19,16 @@ use App\Http\Controllers\OrderLookupController;
 use App\Http\Controllers\OrderPadController;
 use App\Http\Controllers\Storefront\CatalogueController;
 use App\Http\Controllers\Storefront\HomeController;
+use App\Http\Controllers\Storefront\LegalPageController;
 use App\Http\Controllers\Storefront\PriceDisplayController;
 use App\Http\Controllers\Storefront\ProductController;
+use App\Http\Controllers\Storefront\SeoController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
 use App\Http\Controllers\Warehouse\PickListPageController;
 use App\Http\Controllers\Warehouse\ReturnsPageController;
 use App\Http\Controllers\Warehouse\StocktakePageController;
+use App\Domain\Cms\PageKey;
 use Illuminate\Support\Facades\Route;
 
 // 05.15 — the public storefront. Guests, public customers and trade users.
@@ -35,6 +38,18 @@ Route::get('/search', [CatalogueController::class, 'search'])->name('storefront.
 Route::get('/search/suggest', [CatalogueController::class, 'suggest'])->middleware('throttle:60,1')->name('storefront.suggest');
 Route::get('/p/{slug}', [ProductController::class, 'show'])->where('slug', '[A-Za-z0-9-]+')->name('storefront.product');
 Route::post('/price-display', PriceDisplayController::class)->middleware('throttle:30,1')->name('price-display');
+
+// 05.11 §2.1: legal and help pages, fixed paths (never a catch-all), and the terms of sale.
+foreach (PageKey::cases() as $pageKey) {
+    Route::get($pageKey->path(), [LegalPageController::class, 'show'])->defaults('key', $pageKey->value)->name('pages.'.$pageKey->value);
+}
+Route::get('/terms', [LegalPageController::class, 'terms'])->name('pages.terms');
+
+// 05.11 §6: sitemap and robots.txt, by route because both depend on SearchIndexing.
+Route::get('/sitemap.xml', [SeoController::class, 'sitemap'])->name('seo.sitemap');
+Route::get('/sitemaps/pages.xml', [SeoController::class, 'sitemapPages'])->name('seo.sitemap.pages');
+Route::get('/sitemaps/products-{n}.xml', [SeoController::class, 'sitemapProducts'])->whereNumber('n')->name('seo.sitemap.products');
+Route::get('/robots.txt', [SeoController::class, 'robots'])->name('seo.robots');
 
 // Doc 05.1. No auth middleware: guests have carts too (02 §14.3) and see
 // base prices (05.13 §14).

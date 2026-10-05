@@ -5,6 +5,7 @@ namespace App\Domain\Storefront;
 use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditEntry;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Cms\SearchIndexing;
 use App\Models\Role;
 use App\Models\SystemConfiguration;
 use App\Models\User;
@@ -19,8 +20,8 @@ use Illuminate\Support\Facades\Validator;
  * row per key, audited as `configuration.storefront_settings_changed` with
  * the changed keys only.
  *
- * `brand.show_powered_by` is `value_type = 'bool'`, stored in `value_int`
- * as 0 or 1. The text keys are `value_type = 'text'`, and an empty value
+ * `brand.show_powered_by` and `seo.indexing_enabled` (05.11 §4.4) are
+ * `value_type = 'bool'`, stored in `value_int` as 0 or 1. The text keys are `value_type = 'text'`, and an empty value
  * deletes the row so the code default applies again.
  */
 final class StorefrontSettings
@@ -48,6 +49,7 @@ final class StorefrontSettings
         }
         $poweredBy = $rows->get(Branding::SHOW_POWERED_BY)?->getAttribute('value_int');
         $values[self::field(Branding::SHOW_POWERED_BY)] = $poweredBy === null || (int) $poweredBy !== 0;
+        $values['indexing_enabled'] = SearchIndexing::switchedOn();
 
         return $values;
     }
@@ -71,6 +73,8 @@ final class StorefrontSettings
             'support_email' => ['nullable', 'string', 'max:254', 'not_regex:/[\r\n]/', 'email:rfc,filter'],
             'support_phone' => ['nullable', 'string', 'regex:/^\+?[0-9 ()-]{7,20}$/'],
             'show_powered_by' => ['required', 'boolean'],
+            // 05.11 §4.4: optional, so a save that does not send it leaves it alone.
+            'indexing_enabled' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -129,6 +133,19 @@ final class StorefrontSettings
                 if ($oldPoweredBy !== $poweredBy) {
                     $before[Branding::SHOW_POWERED_BY] = $oldPoweredBy;
                     $after[Branding::SHOW_POWERED_BY] = $poweredBy;
+                }
+            }
+
+            if (array_key_exists('indexing_enabled', $validated)) {
+                $indexing = (bool) $validated['indexing_enabled'];
+                $oldIndexing = SearchIndexing::switchedOn();
+                if ($oldIndexing !== $indexing) {
+                    SystemConfiguration::query()->updateOrCreate(
+                        ['config_key' => SearchIndexing::KEY, 'scope' => 'global', 'location_id' => null, 'company_id' => null],
+                        ['value_type' => 'bool', 'value_int' => $indexing ? 1 : 0, 'value_text' => null, 'description' => 'Search engine indexing (05.11 §4.4).', 'updated_by_user_id' => $currentActor->id],
+                    );
+                    $before[SearchIndexing::KEY] = $oldIndexing;
+                    $after[SearchIndexing::KEY] = $indexing;
                 }
             }
 

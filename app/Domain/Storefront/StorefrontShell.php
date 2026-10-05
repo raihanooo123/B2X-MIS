@@ -2,6 +2,7 @@
 
 namespace App\Domain\Storefront;
 
+use App\Domain\Cms\CurrentPages;
 use App\Domain\Ordering\CartOwner;
 use App\Domain\Ordering\CartService;
 use App\Models\Media;
@@ -11,8 +12,10 @@ use Throwable;
 
 /**
  * 05.15 §3.2 — what the storefront header needs beyond the shared props:
- * the category menu (top two levels, tree order) and the cart's line count.
- * Two queries; the brand and the price switch are shared on every page
+ * the category menu (top two levels, tree order), the cart's line count and
+ * the footer's legal and help links (05.11 §2.1: only pages with a version
+ * in force, and the terms of sale when a `sale` version is in force).
+ * A few queries; the brand and the price switch are shared on every page
  * (HandleInertiaRequests).
  */
 final class StorefrontShell
@@ -21,13 +24,26 @@ final class StorefrontShell
         private readonly CartService $carts = new CartService,
     ) {}
 
-    /** @return array{categories: list<array<string, mixed>>, cart_count: int} */
+    /** @return array{categories: list<array<string, mixed>>, cart_count: int, legal_pages: list<array{key: string, label: string, path: string}>} */
     public function props(?CartOwner $owner): array
     {
         return [
             'categories' => $this->categories(),
             'cart_count' => $this->cartCount($owner),
+            'legal_pages' => self::legalLinks(),
         ];
+    }
+
+    /** @return list<array{key: string, label: string, path: string}> */
+    public static function legalLinks(): array
+    {
+        // Both from CurrentPages' cache: no query per page view (05.11 §2.1).
+        $links = CurrentPages::links();
+        if (CurrentPages::saleTermsInForce()) {
+            array_unshift($links, ['key' => 'terms', 'label' => 'Terms of sale', 'path' => '/terms']);
+        }
+
+        return $links;
     }
 
     /** @return list<array{slug: string, name: string, children: list<array{slug: string, name: string}>}> */

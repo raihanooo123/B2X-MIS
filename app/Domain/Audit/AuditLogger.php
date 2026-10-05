@@ -6,6 +6,7 @@ use App\Domain\Accounts\RejectionCategory;
 use App\Domain\Accounts\TermsKind;
 use App\Domain\Accounts\VerificationWarning;
 use App\Domain\Billing\PaymentTerms;
+use App\Domain\Cms\PageKey;
 use App\Domain\Identity\CompanyMemberRole;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -49,6 +50,7 @@ final class AuditLogger
             AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
+            AuditAction::PagePublished => $this->validatePagePublished($entry),
             AuditAction::StorefrontSettingsChanged => $this->validateStorefrontSettings($entry),
             AuditAction::OrderClaimed => $this->validateOrderClaimed($entry),
             AuditAction::RmaProofRejected => $this->validateRmaProofRejected($entry),
@@ -304,6 +306,27 @@ final class AuditLogger
             || $entry->subjectType !== 'terms_version' || $entry->subjectId === null
             || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
             throw new InvalidArgumentException('Invalid terms version audit entry.');
+        }
+    }
+
+    /**
+     * 05.11 §2.4: by an administrator, about the page; the key, version
+     * number, effective time and SHA-256 — never the text.
+     */
+    private function validatePagePublished(AuditEntry $entry): void
+    {
+        $after = $entry->after;
+        $effective = $after['effective_from'] ?? null;
+
+        if ($entry->before !== [] || count($after) !== 4
+            || ! is_string($after['page_key'] ?? null) || PageKey::tryFrom($after['page_key']) === null
+            || ! is_int($after['version_no'] ?? null) || $after['version_no'] < 1
+            || ! is_string($effective) || \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $effective) === false
+            || ! is_string($after['body_sha256'] ?? null) || preg_match('/^[0-9a-f]{64}$/', $after['body_sha256']) !== 1
+            || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'cms_page' || $entry->subjectId === null
+            || $entry->reason !== null || $entry->companyId !== null || $entry->actingForCompanyId !== null) {
+            throw new InvalidArgumentException('Invalid page published audit entry.');
         }
     }
 

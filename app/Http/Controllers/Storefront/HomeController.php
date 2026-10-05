@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Storefront;
 
+use App\Domain\Seo\SeoHead;
+use App\Domain\Seo\StructuredData;
+use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\ProductCards;
 use App\Domain\Storefront\StorefrontShell;
 use App\Http\Controllers\Controller;
@@ -28,10 +31,19 @@ class HomeController extends Controller
     {
         $owner = $this->cartContext->owner($request, createGuestToken: false);
 
-        return Inertia::render('Storefront/Home', [
+        $brand = Branding::current();
+        $seo = new SeoHead(
+            title: $brand->tagline === null ? $brand->name : $brand->name.' — '.$brand->tagline,
+            description: SeoHead::describe($brand->tagline, "Shop online with {$brand->name}."),
+            canonical: SeoHead::url('/'),
+            ogImage: is_string($logo = $brand->toArray()['logo_url'] ?? null) ? (str_starts_with($logo, 'http') ? $logo : SeoHead::url($logo)) : null,
+            jsonLd: [StructuredData::organization($brand)],
+        );
+
+        return $seo->attach(Inertia::render('Storefront/Home', [
             'shell' => $this->shell->props($owner),
             'products' => $this->cards->homepage($owner?->companyId),
             'departments' => $this->shell->departments(),
-        ]);
+        ]));
     }
 }

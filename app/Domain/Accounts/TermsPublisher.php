@@ -5,6 +5,7 @@ namespace App\Domain\Accounts;
 use App\Domain\Audit\AuditAction;
 use App\Domain\Audit\AuditEntry;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Cms\CurrentPages;
 use App\Models\Role;
 use App\Models\TermsVersion;
 use App\Models\User;
@@ -65,6 +66,16 @@ final class TermsPublisher
     }
 
     private function insert(User $actor, TermsKind $kind, string $version, string $bodyMarkdown, ?DateTimeInterface $effectiveFrom): TermsVersion
+    {
+        $terms = $this->insertVersion($actor, $kind, $version, $bodyMarkdown, $effectiveFrom);
+
+        // The storefront footer's cached `/terms` link (05.11 §2.1).
+        DB::afterCommit(fn () => CurrentPages::forget());
+
+        return $terms;
+    }
+
+    private function insertVersion(User $actor, TermsKind $kind, string $version, string $bodyMarkdown, ?DateTimeInterface $effectiveFrom): TermsVersion
     {
         if (preg_match('/^[0-9A-Za-z._-]{1,32}$/', $version) !== 1) {
             throw ValidationException::withMessages(['version' => 'Use up to 32 letters, digits, dots, hyphens or underscores.']);

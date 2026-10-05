@@ -4463,3 +4463,111 @@ No receipt columns or new receipt table. Ownership comes from `invoices.order_id
 ### 28.4 Implementation gate
 
 This section and 05.15 §6.4 were approved together on 2026-10-04. Implementation is authorised. A later additive migration amends `addresses`, backfills its ULIDs and adds the owner/order-history indexes; do not edit merged migrations. No migration is created or run as part of this draft.
+
+## 29. Price projection for sorting — signed off 2026-10-05
+
+> **Status: signed off 2026-10-05** (Q-P1 decided: price sorting for guests and public customers only; Q-P2, Q-P3 approved as recommended). Lets the storefront sort by price (05.15 §5.2, amended 2026-09-28: "price sorts and bands need a stored per-product price key … a projection proposed to 02 first").
+
+### 29.1 Invariant 3 still holds
+
+CLAUDE.md invariant 3 and 03 §3.2: prices are resolved, never stored on a product or SKU. This proposal **does not** add a price to `products` or `skus`, and nothing ever **charges or displays** from it. It is a **sort key**: a rebuildable read model in its own table, in the same class as `stock_levels` (a projection of `stock_movements`, §7.3). Every price a customer sees is still resolved live, and every line is still priced by `OrderLinePricer`. If the projection is wrong, the worst case is a listing slightly out of order until the next refresh. A wrong charge is impossible, because nothing that charges reads it. An architecture test restricts reads of the table to `App\Domain\Storefront\StorefrontCatalogue`.
+
+### 29.2 What it holds
+
+Exactly the "from" price a product card shows a logged-out visitor (`ProductCards::cards`):
+
+- for each active SKU of an active product, the price `BulkPriceResolver` resolves with no company, at `base_qty = 1`, now, GB;
+- the **SKU with the lowest net unit price** is the product's "from" SKU (as on the card);
+- its gross is `roundHalfUpDiv(net_e4 × (10000 + rate_bp), 10000)`, the display formula (05.15 §4.3).
+
+The gross is the gross of the net-cheapest SKU, **not** the minimum gross across SKUs, because that is what the card prints. Sorting by this column therefore orders cards by the price on them, in both the inc-VAT and ex-VAT views, even when a product's SKUs have different VAT rates.
+
+Guests and public customers resolve at rank 5 (`base`) only (03 §4.2), so for them the projection is exact. Trade viewers resolve at ranks 1–4, so the projection is **not** their price (§29.5 Q-P1).
+
+### 29.3 Table
+
+```sql
+CREATE TABLE product_price_projections (
+  product_id          bigint      PRIMARY KEY REFERENCES products (id) ON DELETE CASCADE,
+  from_sku_id         bigint      REFERENCES skus (id) ON DELETE CASCADE,
+  price_list_id       bigint      REFERENCES price_lists (id),
+  from_unit_net_e4    bigint,
+  tax_rate_bp         integer,
+  from_unit_gross_e4  bigint,
+  stale_after         timestamptz,              -- next base-list or tax-rate boundary; NULL = none known
+  refreshed_at        timestamptz NOT NULL DEFAULT now(),
+
+  -- either a full price, or none at all (an active product with no base price)
+  CONSTRAINT product_price_projections_shape_chk CHECK (
+      (from_sku_id IS NULL AND price_list_id IS NULL AND from_unit_net_e4 IS NULL
+       AND tax_rate_bp IS NULL AND from_unit_gross_e4 IS NULL)
+   OR (from_sku_id IS NOT NULL AND price_list_id IS NOT NULL AND from_unit_net_e4 >= 0
+       AND tax_rate_bp BETWEEN 0 AND 10000 AND from_unit_gross_e4 >= from_unit_net_e4)
+  )
+);
+
+-- price sorts, gross (inc VAT view) and net (ex VAT view); descending is a backward scan.
+-- Unpriced products are read separately (§29.5), so NULL placement in the index doesn't matter
+CREATE INDEX product_price_projections_gross_idx
+  ON product_price_projections (from_unit_gross_e4 ASC NULLS LAST, product_id);
+CREATE INDEX product_price_projections_net_idx
+  ON product_price_projections (from_unit_net_e4 ASC NULLS LAST, product_id);
+-- the time-boundary refresh
+CREATE INDEX product_price_projections_stale_idx
+  ON product_price_projections (stale_after) WHERE stale_after IS NOT NULL;
+```
+
+- **One row per active product**, priced or not, so a price sort lists the same products as a name sort. An unpriced active product (a catalogue error, 03 §3.2 says `base` always exists) sorts last.
+- `_e4` scale, integers, as everywhere (invariant 1). The gross column is computed in PHP with `Money::roundHalfUpDiv()`, never with SQL arithmetic on floats.
+- No `updated_at`: `refreshed_at` is the only time that matters.
+
+### 29.4 Refresh rule
+
+| Trigger | Refresh |
+|---|---|
+| `PriceListItemChanged` on a `base` list (03 §9) | The products of the affected SKUs |
+| A `base` `price_lists` row activated, archived, or its `validity` changed | All products (a base list switch reprices everything) |
+| SKU created, activated, deactivated, deleted; SKU `tax_class_id` changed | That SKU's product |
+| Product status or `deleted_at` changed | That product (insert, refresh or delete its row) |
+| `tax_rates` change for `GB` | Every product with a SKU in that tax class |
+| Time: `stale_after <= now()` (a scheduled base list starts or ends, a dated VAT change) | Those rows, by `projection:refresh-stale` every 5 minutes |
+| Nightly | Full rebuild into a fresh computation, compared row by row; differences are logged as drift (P3) and the rebuild is applied |
+
+- **After commit, idempotent.** Event triggers dispatch a queued job with `DB::afterCommit()` (04 §4.4). The job recomputes the rows from source through `BulkPriceResolver` (the same code as the cards) and upserts them. Running it twice changes nothing.
+- **`stale_after`** is the earliest future boundary that could change the row: the end of the base list in force, the start of the next scheduled base list, or the next `tax_rates` validity boundary for GB in the SKUs' tax classes.
+- **Unlike the stock ledger (04 §9), drift here is auto-corrected.** A sort order has no money consequence, and the source of truth (price lists) is untouched.
+- **Cost:** about 920 products at launch, so a full rebuild is one bulk resolution. At 50,000 products the rebuild runs in chunks of 1,000 products by keyset on `products.id`.
+
+### 29.5 Using it
+
+- Sorts added to 05.15 §5.2: **"Price: low to high"** and **"Price: high to low"**, in the visitor's display mode (gross index in the inc-VAT view, net index in the ex-VAT view).
+- Keyset pagination (§9 rule 8, no `OFFSET`) in **two phases**, so one index serves both directions with unpriced products last:
+  1. **Priced rows**, `WHERE p IS NOT NULL`. Ascending: `ORDER BY p, product_id` with `(p, product_id) > (:p, :id)`. Descending: `ORDER BY p DESC, product_id DESC` with `(p, product_id) < (:p, :id)`, which is a backward scan of the same index.
+  2. Then **unpriced rows**, `WHERE p IS NULL ORDER BY product_id`, with `product_id > :id`.
+
+  The opaque cursor carries the phase, the last price and the last id. A page that crosses from phase 1 to phase 2 is filled from both queries. An EXPLAIN test asserts no sort node and no `OFFSET` for both phases and both directions, at 5,000 products, with and without a category filter.
+- **Price bands** (05.15 §5.2, deferred) become a range predicate on the same index. They are not proposed here.
+
+**Open questions:**
+
+| # | Question | Recommendation |
+|---|---|---|
+| Q-P1 | ~~Offer trade viewers price sorting?~~ | **Decided 2026-10-05: no.** Guests and public customers only, where the projection is exact. A per-tier projection can follow if trade asks |
+| Q-P2 | Public promotions (rank 3 for guests) arrive later: what then? | The projection then resolves rank 3 too, using the same resolver. No schema change |
+| Q-P3 | Should the "from" price use MOQ instead of quantity 1? | Keep qty 1, the card's rule. A change would change the card and the projection together |
+
+**Build order:** sign-off → migration (table, three indexes) → `ProductPriceProjector` (compute one product or many, upsert) with an exactness test against `ProductCards` → event and time triggers and the nightly rebuild → `StorefrontCatalogue` price sorts with keyset and EXPLAIN tests → sort options for guests and public customers.
+
+## 30. Schema amendments of 2026-10-05 — signed off 2026-10-05 (index)
+
+Signed off together on 2026-10-05. Each one's DDL is in the module spec that owns its behaviour, listed below, and is authoritative there. Migrations follow with each build slice.
+
+| Proposal | Tables | Draft |
+|---|---|---|
+| Legal and help pages | new `cms_pages`, `cms_page_versions` | 05.11 §3 |
+| Replacement orders | `orders.order_kind`, `orders_replacement_chk`, `payment_status` `not_required`; `order_lines.replaces_order_line_id`, `price_source` `replacement`; `rmas_replacement_order_uq`, `rmas_replacement_chk` | 05.4 §14.3 |
+| Collection and pay at collection | `collection_bookings` (not migrated) gains `payment_due_by`, `handed_over_by_user_id`, `no_show_at`, `reschedule_count`; `orders.payment_method` `cash_at_collection`, `orders_cash_at_collection_chk`; `payments.recorded_by_user_id`, `payments_cash_chk`, `payments_cash_order_uq`; new `pay_at_collection_suspensions`; lock order §11.1 extended | 05.6 §7A.13, §7A.4 |
+| Partial cancellation before dispatch | `order_lines.cancelled_base_qty`, `order_lines_cancel_chk`, `order_lines_outstanding_v2_idx`; new `order_cancellations`, `order_cancellation_lines` | 05.10 §2.4 |
+| Price sorting | new `product_price_projections` | §29 |
+
+**Two proposals each replace a `CHECK` on `orders`, and they don't conflict.** Replacement orders replace `orders_payment_status_chk` (adding `not_required`). Pay at collection replaces `orders_payment_method_chk` (adding `cash_at_collection`) and uses the existing `unpaid` status.

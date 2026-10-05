@@ -7,6 +7,7 @@ use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\EnsureCompanyChosen;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequireStaffTwoFactor;
+use App\Http\Middleware\RobotsHeader;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -37,6 +38,8 @@ return Application::configure(basePath: dirname(__DIR__))
             EnforceSessionPolicy::class,
             RequireStaffTwoFactor::class,
             EnsureCompanyChosen::class,
+            // 05.11 §4.2: X-Robots-Tag, deny by default.
+            RobotsHeader::class,
         ]);
 
         // 06 §1: the first-party app authenticates to /api with the session
