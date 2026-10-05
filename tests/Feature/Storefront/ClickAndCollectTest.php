@@ -86,17 +86,19 @@ beforeEach(function () {
 
     $this->location = Location::factory()->default()->create(['name' => 'Trade counter']);
     $taxClass = TaxClass::factory()->create();
-    TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => 2000]);
+    // Time-ranged rows default to the database's real now(), later than the frozen clock: start them earlier.
+    $validity = '[2026-01-01 00:00:00+00,)';
+    TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => 2000, 'validity' => $validity]);
     $this->sku = Sku::factory()->create(['tax_class_id' => $taxClass->id, 'is_stock_tracked' => true, 'tracking_mode' => 'none']);
     Pack::factory()->for($this->sku)->create(['base_units' => 1, 'gross_weight_g' => 500]);
-    $base = PriceList::factory()->create(['scope' => 'base']);
+    $base = PriceList::factory()->create(['scope' => 'base', 'validity' => $validity]);
     PriceListItem::factory()->for($base, 'priceList')->for($this->sku)->create(['min_base_qty' => 1, 'unit_price_e4' => 12345]);
     StockLevel::factory()->for($this->sku)->for($this->location)->create(['on_hand_base_qty' => 100, 'allocated_base_qty' => 0]);
 
     // 05.6 §7A.2 step 3: the `collection` method, charged below the free threshold.
     $this->seed(DeliveryZoneSeeder::class);
     $zone = DeliveryZone::query()->where('code', 'GB_MAINLAND')->firstOrFail();
-    DeliveryRate::factory()->method('collection')->weightBand(0, null)->create(['zone_id' => $zone->id, 'tax_class_id' => $taxClass->id, 'price_net_minor' => 500]);
+    DeliveryRate::factory()->method('collection')->weightBand(0, null)->create(['zone_id' => $zone->id, 'tax_class_id' => $taxClass->id, 'price_net_minor' => 500, 'validity' => $validity]);
     ccConfig(CollectionSettings::CASH_ENABLED, 1);
 
     $this->terms = TermsVersion::factory()->sale()->create();
