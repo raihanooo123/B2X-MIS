@@ -95,6 +95,11 @@ class StorefrontSettingsPage extends Page implements HasForms
                     ->schema([
                         Toggle::make('show_powered_by')->label('Show "Powered by B2X MIS · by Raihan"'),
                     ]),
+                Section::make('Search engines')
+                    ->description('05.11 §4.4. Keep this off until the legal pages and checkout have been reviewed. It only takes effect on the live (production) site.')
+                    ->schema([
+                        Toggle::make('indexing_enabled')->label('Allow search engines to index the storefront'),
+                    ]),
             ]);
     }
 

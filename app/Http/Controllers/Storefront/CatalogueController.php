@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Storefront;
 
+use App\Domain\Seo\SeoHead;
+use App\Domain\Seo\StructuredData;
+use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\ProductCards;
 use App\Domain\Storefront\ProductDetail;
 use App\Domain\Storefront\StorefrontCatalogue;
@@ -12,6 +15,7 @@ use App\Http\Requests\Web\StorefrontListingRequest;
 use App\Http\Support\CartContext;
 use App\Models\Category;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,8 +36,12 @@ class CatalogueController extends Controller
         private readonly CartContext $cartContext = new CartContext,
     ) {}
 
-    public function category(StorefrontListingRequest $request, string $slug): Response
+    public function category(StorefrontListingRequest $request, string $slug): Response|RedirectResponse
     {
+        if ($slug !== strtolower($slug)) {
+            return redirect()->to('/c/'.strtolower($slug).($request->getQueryString() === null ? '' : '?'.$request->getQueryString()), 301);
+        }
+
         $category = Category::query()->where('slug', $slug)->where('status', 'active')->first();
         abort_if($category === null, 404);
 
@@ -41,21 +49,53 @@ class CatalogueController extends Controller
             ->orderBy('position')->orderBy('name')->get(['name', 'slug'])
             ->map(fn ($c) => ['name' => (string) $c->name, 'slug' => (string) $c->slug])->all();
 
-        return $this->listing($request, $request->filters((int) $category->id), [
+        $breadcrumb = $this->details->breadcrumb((int) $category->id);
+        $brand = Branding::current();
+        $url = SeoHead::url('/c/'.$category->getAttribute('slug'));
+        // The URL's own query string: StorefrontListingRequest merges its
+        // normalised defaults (q, sort, after…) into the query bag, so
+        // $request->query() is never empty and cannot tell a clean page.
+        parse_str($request->getQueryString() ?? '', $query);
+        $clean = SeoHead::onlyTrackingParameters($query);
+        $trail = [['name' => 'Home', 'url' => SeoHead::url('/')]];
+        foreach ($breadcrumb as $crumb) {
+            $trail[] = ['name' => $crumb['name'], 'url' => SeoHead::url('/c/'.$crumb['slug'])];
+        }
+        $title = $category->getAttribute('meta_title');
+        $seo = new SeoHead(
+            title: (is_string($title) && trim($title) !== '' ? trim($title) : (string) $category->getAttribute('name')).' · '.$brand->name,
+            description: SeoHead::describe(
+                is_string($category->getAttribute('meta_description')) ? $category->getAttribute('meta_description') : null,
+                "Shop {$category->getAttribute('name')} at {$brand->name}.",
+            ),
+            // 05.11 §4.2: a filtered, sorted or "show more" page is noindex, follow, with no canonical.
+            canonical: $clean ? $url : null,
+            index: $clean,
+            jsonLd: [StructuredData::breadcrumb($trail)],
+        );
+
+        return $seo->attach($this->listing($request, $request->filters((int) $category->id), [
             'category' => [
                 'name' => (string) $category->getAttribute('name'),
                 'slug' => (string) $category->getAttribute('slug'),
                 'meta_title' => $category->getAttribute('meta_title'),
                 'meta_description' => $category->getAttribute('meta_description'),
-                'breadcrumb' => $this->details->breadcrumb((int) $category->id),
+                'breadcrumb' => $breadcrumb,
                 'children' => array_values($children),
             ],
-        ]);
+        ]));
     }
 
     public function search(StorefrontListingRequest $request): Response
     {
-        return $this->listing($request, $request->filters(), ['category' => null]);
+        $filters = $request->filters();
+        $brand = Branding::current();
+
+        // 05.11 §4.2: search results are never indexed.
+        return (new SeoHead(
+            title: ($filters->search === null ? 'Search' : 'Results for “'.$filters->search.'”').' · '.$brand->name,
+            index: false,
+        ))->attach($this->listing($request, $filters, ['category' => null]));
     }
 
     /**

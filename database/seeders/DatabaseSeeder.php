@@ -14,6 +14,8 @@ class DatabaseSeeder extends Seeder
         // 02 §25.10: placeholder terms of trade, local machines only.
         if (app()->environment('local')) {
             $this->call(PlaceholderTermsSeeder::class);
+            // 05.11 §2.4: placeholder legal and help pages, local only.
+            $this->call(PlaceholderCmsPagesSeeder::class);
         }
     }
 }

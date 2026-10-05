@@ -85,6 +85,9 @@ enum AuditAction: string
     /** 05.15 §3.1: storefront branding, the changed `brand.*` keys only. */
     case StorefrontSettingsChanged = 'configuration.storefront_settings_changed';
 
+    /** 05.11 §2.4: a legal or help page version published. Never the text. */
+    case PagePublished = 'content.page_published';
+
     /*
      * 05.15 §6.3: a guest's order attached to the account that verified
      * its email. Changes who may see the order, so `permission`.
@@ -116,7 +119,7 @@ enum AuditAction: string
             self::OrderClaimed => 'permission',
             self::RmaProofRejected => 'rma_disposition',
             self::CreditLimitChanged => 'credit_limit',
-            self::TermsVersionPublished, self::StorefrontSettingsChanged => 'configuration',
+            self::TermsVersionPublished, self::StorefrontSettingsChanged, self::PagePublished => 'configuration',
         };
     }
 
@@ -135,11 +138,11 @@ enum AuditAction: string
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::ApplicationVerificationRequested => [],
             self::CreditLimitChanged => ['credit_limit_minor'],
-            self::TermsVersionPublished => [],
+            self::TermsVersionPublished, self::PagePublished => [],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at', 'last_proof_attachment_id'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
-                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
+                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by', 'seo.indexing_enabled'],
             self::SignedIn, self::SignedOut, self::SessionExpired, self::LockedOut,
             self::PasswordResetRequested, self::PasswordResetCompleted,
             self::TwoFactorEnabled, self::TwoFactorDisabled,
@@ -170,8 +173,9 @@ enum AuditAction: string
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at'],
             self::TermsVersionPublished => ['kind', 'version', 'effective_from', 'body_sha256'],
+            self::PagePublished => ['page_key', 'version_no', 'effective_from', 'body_sha256'],
             self::StorefrontSettingsChanged => ['brand.name', 'brand.tagline', 'brand.logo_path', 'brand.primary_colour',
-                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by'],
+                'brand.support_email', 'brand.support_phone', 'brand.show_powered_by', 'seo.indexing_enabled'],
             self::SignedIn => ['method'],
             self::SessionExpired => ['reason'],
             self::LockedOut => ['identifier_fingerprint', 'key_version', 'locked_seconds'],

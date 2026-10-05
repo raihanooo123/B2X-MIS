@@ -7,6 +7,10 @@ use App\Domain\Billing\PaymentGateway;
 use App\Domain\Billing\StripeGateway;
 use App\Domain\Documents\NullPdfRenderer;
 use App\Domain\Documents\PdfRenderer;
+use App\Models\Category;
+use App\Models\CmsPageVersion;
+use App\Models\Product;
+use App\Observers\SitemapCacheObserver;
 use App\Support\DisplayTime;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Infolists\Components\TextEntry;
@@ -52,6 +56,9 @@ class AppServiceProvider extends ServiceProvider
         TextEntry::configureUsing(fn (TextEntry $entry) => $entry->timezone(DisplayTime::zone()));
         DateTimePicker::configureUsing(fn (DateTimePicker $picker) => $picker->timezone(DisplayTime::zone()));
 
-        //
+        // 05.11 §6.1: the cached sitemap follows the catalogue and the pages.
+        Product::observe(SitemapCacheObserver::class);
+        Category::observe(SitemapCacheObserver::class);
+        CmsPageVersion::observe(SitemapCacheObserver::class);
     }
 }

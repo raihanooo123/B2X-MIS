@@ -10,7 +10,7 @@
  */
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ArrowRight, ChevronDown, ChevronRight, LogOut, Mail, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactElement, type ReactNode } from 'react';
 
 import { AccountDropdown, accountEntries } from '@/components/storefront/AccountDropdown';
 import { storefrontLinks } from '@/lib/storefront/links';
@@ -24,9 +24,47 @@ export interface NavCategory {
     children: { slug: string; name: string }[];
 }
 
+export interface LegalLink {
+    key: string;
+    label: string;
+    path: string;
+}
+
 export interface ShellProps {
     categories: NavCategory[];
     cart_count: number;
+    /** 05.11 §2.1: legal and help pages with a version in force. */
+    legal_pages?: LegalLink[];
+}
+
+/** 05.11 §4: the head tags the server also wrote into the initial HTML (App\Domain\Seo\SeoHead). */
+export interface SeoProps {
+    title: string;
+    description: string | null;
+    canonical: string | null;
+    robots: string;
+    og: { type: string; image: string | null };
+    json_ld: string[];
+}
+
+/**
+ * The same tags, keyed as the server keyed them (`head-key` becomes the
+ * `inertia` attribute), so Inertia replaces each one on navigation. A flat
+ * array: Head reads its direct children only.
+ */
+function seoTags(seo: SeoProps): ReactElement[] {
+    const tags: ReactElement[] = [<meta key="robots" name="robots" content={seo.robots} head-key="robots" />];
+    if (seo.description) tags.push(<meta key="description" name="description" content={seo.description} head-key="description" />);
+    if (seo.canonical) tags.push(<link key="canonical" rel="canonical" href={seo.canonical} head-key="canonical" />);
+    tags.push(<meta key="og:title" property="og:title" content={seo.title} head-key="og:title" />);
+    tags.push(<meta key="og:type" property="og:type" content={seo.og.type} head-key="og:type" />);
+    if (seo.description) tags.push(<meta key="og:description" property="og:description" content={seo.description} head-key="og:description" />);
+    if (seo.canonical) tags.push(<meta key="og:url" property="og:url" content={seo.canonical} head-key="og:url" />);
+    if (seo.og.image) tags.push(<meta key="og:image" property="og:image" content={seo.og.image} head-key="og:image" />);
+    // Encoded on the server so no catalogue text can close the script (SeoHead::JSON_FLAGS).
+    seo.json_ld.forEach((json, i) => tags.push(<script key={`ld-${i}`} type="application/ld+json" head-key={`ld-${i}`} dangerouslySetInnerHTML={{ __html: json }} />));
+
+    return tags;
 }
 
 interface StorefrontLayoutProps {
@@ -37,7 +75,7 @@ interface StorefrontLayoutProps {
 }
 
 export function StorefrontLayout({ title, description, shell, children }: StorefrontLayoutProps) {
-    const { brand, flash } = usePage<SharedProps>().props;
+    const { brand, flash, seo } = usePage<SharedProps & { seo?: SeoProps }>().props;
     const categories = shell?.categories ?? [];
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -47,7 +85,11 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
 
     return (
         <div style={brandStyle} className="storefront flex min-h-screen flex-col bg-background text-foreground antialiased">
-            <Head title={title === brand.name ? title : `${title} · ${brand.name}`}>{description && <meta name="description" content={description} />}</Head>
+            {seo ? (
+                <Head title={seo.title}>{seoTags(seo)}</Head>
+            ) : (
+                <Head title={title === brand.name ? title : `${title} · ${brand.name}`}>{description && <meta name="description" content={description} />}</Head>
+            )}
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:shadow">
                 Skip to content
             </a>
@@ -117,7 +159,7 @@ export function StorefrontLayout({ title, description, shell, children }: Storef
                 {children}
             </main>
 
-            <Footer brand={brand} categories={categories} />
+            <Footer brand={brand} categories={categories} legalPages={shell?.legal_pages ?? []} />
         </div>
     );
 }
@@ -617,7 +659,7 @@ function CategoryDrawer({ open, onClose, categories, brand }: { open: boolean; o
     );
 }
 
-function Footer({ brand, categories }: { brand: SharedBrand; categories: NavCategory[] }) {
+function Footer({ brand, categories, legalPages }: { brand: SharedBrand; categories: NavCategory[]; legalPages: LegalLink[] }) {
     const { legal } = brand;
     const year = new Date().getFullYear();
     const link = 'inline-flex min-h-11 items-center transition-colors hover:text-white md:min-h-0';
@@ -700,6 +742,19 @@ function Footer({ brand, categories }: { brand: SharedBrand; categories: NavCate
                     <p>
                         © {year} {legal.name ?? brand.name}. All rights reserved.
                     </p>
+                    {legalPages.length > 0 && (
+                        <nav aria-label="Legal and help">
+                            <ul className="flex flex-wrap items-center gap-x-4">
+                                {legalPages.map((page) => (
+                                    <li key={page.key}>
+                                        <Link href={page.path} className="inline-flex min-h-11 items-center transition-colors hover:text-white md:min-h-0">
+                                            {page.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </nav>
+                    )}
                     {brand.show_powered_by && (
                         <p>
                             Powered by <span className="font-semibold text-white">B2X MIS</span> · by Raihan
