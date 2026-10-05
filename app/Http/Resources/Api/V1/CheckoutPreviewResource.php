@@ -80,6 +80,8 @@ class CheckoutPreviewResource extends JsonResource
                 'available_minor' => $preview->creditAvailableMinor,
                 'sufficient' => $preview->creditAvailableMinor >= $preview->amountDueMinor(),
             ],
+            // 05.2 §18.1: the order will wait for approval — pay by card only after it.
+            'approval' => ['required' => $preview->approvalReasons !== [], 'reasons' => $preview->approvalReasons],
             'minimum_order_net_minor' => $preview->minimumOrderNetMinor,
             'lines' => array_map(fn (CartLine $line) => $this->line($preview, $line), $preview->cartLines),
             // 05.15 §5.3: a shortage figure only for trade and staff, or when small.

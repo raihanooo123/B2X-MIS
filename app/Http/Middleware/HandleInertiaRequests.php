@@ -2,12 +2,14 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Credit\ApprovalQueue;
 use App\Domain\Identity\CompanyMemberships;
 use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\PublicCustomer;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
 use App\Models\CollectionBooking;
+use App\Models\Company;
 use App\Models\GoodsReceipt;
 use App\Models\Rma;
 use App\Models\Shipment;
@@ -60,6 +62,19 @@ class HandleInertiaRequests extends Middleware
         ];
     }
 
+    /** @return array{approvals: bool, credit: bool, users: bool, pending_approvals: int} */
+    private function tradeNavigation(Company $company): array
+    {
+        $approvals = Gate::allows('viewApprovals', $company);
+
+        return [
+            'approvals' => $approvals,
+            'credit' => Gate::allows('viewCredit', $company),
+            'users' => Gate::allows('manageMembers', $company),
+            'pending_approvals' => $approvals ? (new ApprovalQueue)->pendingCount($company->id) : 0,
+        ];
+    }
+
     /**
      * Who is signed in and which company they act for (05.13 §6.3) — for
      * the account menu. Nothing sensitive: no cost, no credit figures.
@@ -88,6 +103,8 @@ class HandleInertiaRequests extends Middleware
             'can_switch_company' => count(CompanyMemberships::ids($user)) > 1,
             // An owner of the company being acted for sees the Team link.
             'can_manage_team' => $company !== null && ! $user->isStaff() && Gate::allows('manageMembers', $company),
+            // 05.16 §2: the trade shell's policy-gated links (05.2 §18.3), and the pending count.
+            'trade_navigation' => $company === null ? null : $this->tradeNavigation($company),
             'staff_navigation' => [
                 'admin' => Gate::allows('accessAdminPanel', User::class),
                 'goods_in' => Gate::allows('viewAny', GoodsReceipt::class),

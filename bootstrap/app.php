@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Credit\CreditRefused;
 use App\Domain\Identity\Exceptions\CompanyChoiceRequiredException;
 use App\Domain\Storefront\StorefrontShell;
 use App\Http\Exceptions\ApiException;
@@ -63,6 +64,13 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->is('api/*')
                 ? ApiException::envelope($request, 409, 'company_choice_required', $e->getMessage())
                 : redirect()->guest(route('company.choose'));
+        });
+
+        // 05.2 §18: a credit, approval or payout refusal keeps its own code and status.
+        $exceptions->render(function (CreditRefused $e, Request $request) {
+            return $request->is('api/*')
+                ? ApiException::envelope($request, $e->httpStatus, $e->reason, $e->getMessage())
+                : null;
         });
 
         $exceptions->render(function (AuthenticationException $e, Request $request) {

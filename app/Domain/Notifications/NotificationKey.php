@@ -33,7 +33,11 @@ enum NotificationKey: string
     case InvoiceIssued = 'invoice.issued';
     case InvoiceDueSoon = 'invoice.due_soon';
     case InvoiceOverdue = 'invoice.overdue';
-    case CreditApproval = 'order.approval';
+    /** 05.2 §10, §18: a trade order waits for a company approver, or accounts for a credit shortfall. */
+    case OrderAwaitingApproval = 'order.awaiting_approval';
+    case OrderAwaitingApprovalReminder = 'order.awaiting_approval_reminder';
+    case OrderApprovalGranted = 'order.approval_granted';
+    case OrderApprovalRejected = 'order.approval_rejected';
     case CreditLimitReached = 'credit.limit_reached';
     case CreditLimitWarning = 'credit.limit_warning';
     case ApplicationSubmitted = 'application.submitted';

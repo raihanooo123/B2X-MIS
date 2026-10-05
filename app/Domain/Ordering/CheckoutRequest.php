@@ -60,6 +60,5 @@ final readonly class CheckoutRequest
         public ?string $guestEmail = null,
         public string $fulfilmentType = 'delivery',
         public ?int $collectionSlotId = null,
-        public bool $applyAccountCredit = false,
     ) {}
 }

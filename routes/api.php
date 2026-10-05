@@ -3,8 +3,12 @@
 use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\CollectionSlotController;
+use App\Http\Controllers\Api\V1\Credit\CreditControlController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
+use App\Http\Controllers\Api\V1\Trade\ApprovalController;
+use App\Http\Controllers\Api\V1\Trade\CompanyUserController;
+use App\Http\Controllers\Api\V1\Trade\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
 use App\Http\Controllers\Api\V1\Warehouse\ReturnController;
 use App\Http\Controllers\Api\V1\Warehouse\ShipmentController;
@@ -36,6 +40,29 @@ Route::prefix('v1')->group(function (): void {
     Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('throttle:60,1');
     // 07 §6.4 — authorise a card for the previewed total (Stripe Elements confirms it).
     Route::post('/checkout/card-intent', [CheckoutController::class, 'cardIntent'])->middleware('throttle:60,1');
+
+    // 05.2 §18.3 — buyer approvals, company users, credit control and payouts. Decisions
+    // and money movements require an Idempotency-Key (06 §18); every action re-checks
+    // policy and state under the company lock.
+    Route::middleware('auth')->group(function (): void {
+        Route::post('/approvals/reject', [ApprovalController::class, 'bulkReject'])->middleware('throttle:30,1')->name('api.approvals.bulk-reject');
+        Route::post('/approvals/{id}/approve', [ApprovalController::class, 'approve'])->whereUlid('id')->middleware('throttle:60,1')->name('api.approvals.approve');
+        Route::post('/approvals/{id}/reject', [ApprovalController::class, 'reject'])->whereUlid('id')->middleware('throttle:60,1')->name('api.approvals.reject');
+        Route::patch('/company-users/{userId}', [CompanyUserController::class, 'update'])->whereUlid('userId')->middleware('throttle:30,1')->name('api.company-users.update');
+
+        // 05.2 §18.1: a trade order's buyer pays in advance, or pays once approved.
+        Route::post('/orders/{order}/pay-in-advance', [OrderPaymentController::class, 'payInAdvance'])->whereUlid('order')->middleware('throttle:10,1')->name('api.orders.pay-in-advance');
+        Route::post('/orders/{order}/card-intent', [OrderPaymentController::class, 'cardIntent'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.card-intent');
+        Route::post('/orders/{order}/pay', [OrderPaymentController::class, 'pay'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.pay');
+
+        // Accounts/admin (CompanyPolicy::manageCredit, OrderApprovalRequestPolicy).
+        Route::patch('/companies/{company}/credit', [CreditControlController::class, 'update'])->whereUlid('company')->middleware('throttle:30,1')->name('api.companies.credit.update');
+        Route::post('/credit-exceptions/{id}/approve', [CreditControlController::class, 'approveException'])->whereUlid('id')->middleware('throttle:60,1')->name('api.credit-exceptions.approve');
+        Route::post('/credit-exceptions/{id}/reject', [CreditControlController::class, 'rejectException'])->whereUlid('id')->middleware('throttle:60,1')->name('api.credit-exceptions.reject');
+        Route::post('/companies/{company}/credit-payouts', [CreditControlController::class, 'requestPayout'])->whereUlid('company')->middleware('throttle:10,1')->name('api.credit-payouts.store');
+        Route::post('/credit-payouts/{id}/approve', [CreditControlController::class, 'approvePayout'])->whereUlid('id')->middleware('throttle:10,1')->name('api.credit-payouts.approve');
+        Route::post('/credit-payouts/{id}/reject', [CreditControlController::class, 'rejectPayout'])->whereUlid('id')->middleware('throttle:10,1')->name('api.credit-payouts.reject');
+    });
 
     // 06 §8 — goods-in (05.5 §4). Staff only; GoodsReceiptPolicy decides who.
     // Receiving a line requires an Idempotency-Key (06 §6, 05.5 §10).

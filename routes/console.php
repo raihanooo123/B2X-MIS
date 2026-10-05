@@ -26,3 +26,9 @@ Schedule::command('storefront:refresh-price-projection')->dailyAt('03:45')->time
 // 05.6 §7A.1, §7A.5 — collection slots from each location's weekly pattern; unpaid pay-at-collection orders expire.
 Schedule::command('collection:generate-slots')->dailyAt('00:15')->timezone('Europe/London')->withoutOverlapping();
 Schedule::command('collection:expire-unpaid')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+
+// 05.2 §18.1–§18.2 — the approval/payment reaper; daily approval reminders; nightly debt suspension; hourly drift check.
+Schedule::command('credit:expire-approvals')->everyMinute()->withoutOverlapping()->onOneServer();
+Schedule::command('credit:approval-reminders')->dailyAt('08:00')->timezone('Europe/London')->withoutOverlapping();
+Schedule::command('credit:suspend-overdue')->dailyAt('02:15')->timezone('Europe/London')->withoutOverlapping();
+Schedule::command('credit:reconcile')->hourly()->withoutOverlapping()->onOneServer();

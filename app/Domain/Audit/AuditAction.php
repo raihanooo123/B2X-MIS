@@ -4,6 +4,9 @@ namespace App\Domain\Audit;
 
 enum AuditAction: string
 {
+    /** The fields a `credit.operation` entry may carry before and after (05.2 §18). */
+    public const CREDIT_OPERATION_FIELDS = ['status', 'approval_kind', 'payment_terms', 'credit_limit_minor', 'amount_minor'];
+
     case CompanyInvited = 'permission.company_invited';
 
     case CompanyInvitationRevoked = 'permission.company_invitation_revoked';
@@ -77,6 +80,7 @@ enum AuditAction: string
     /** 02 §25.4: a reviewer re-ran the verification checks. */
     case ApplicationVerificationRequested = 'application.verification_requested';
 
+    /** 05.2 §18: approval decisions, unpaid-order expiry, credit terms/suspension and balance payouts. */
     case CreditOperation = 'credit.operation';
 
     case CreditLimitChanged = 'credit_limit.changed';
@@ -166,7 +170,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::ApplicationVerificationRequested => [],
-            self::CreditOperation => ['status'],
+            self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished, self::PagePublished => [],
             self::OrderClaimed => ['user_id'],
@@ -205,7 +209,7 @@ enum AuditAction: string
             self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor',
                 'verification_warnings', 'verification_acknowledged'],
             self::ApplicationVerificationRequested => ['checks'],
-            self::CreditOperation => ['status'],
+            self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at'],

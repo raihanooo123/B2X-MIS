@@ -1,7 +1,7 @@
 <?php
 
+use App\Domain\Cms\PageKey;
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\PublicAccountController;
 use App\Http\Controllers\Auth\CompanyChoiceController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -17,6 +17,7 @@ use App\Http\Controllers\GuestOrderController;
 use App\Http\Controllers\OrderConfirmationController;
 use App\Http\Controllers\OrderLookupController;
 use App\Http\Controllers\OrderPadController;
+use App\Http\Controllers\PublicAccountController;
 use App\Http\Controllers\Staff\OrderCancellationPageController;
 use App\Http\Controllers\Storefront\CatalogueController;
 use App\Http\Controllers\Storefront\HomeController;
@@ -24,13 +25,17 @@ use App\Http\Controllers\Storefront\LegalPageController;
 use App\Http\Controllers\Storefront\PriceDisplayController;
 use App\Http\Controllers\Storefront\ProductController;
 use App\Http\Controllers\Storefront\SeoController;
+use App\Http\Controllers\Trade\ApprovalsPageController;
+use App\Http\Controllers\Trade\CompanyUsersPageController;
+use App\Http\Controllers\Trade\CreditPageController;
+use App\Http\Controllers\Trade\OrderPaymentPageController;
 use App\Http\Controllers\Warehouse\CollectionsPageController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
 use App\Http\Controllers\Warehouse\PickListPageController;
 use App\Http\Controllers\Warehouse\ReturnsPageController;
 use App\Http\Controllers\Warehouse\StocktakePageController;
-use App\Domain\Cms\PageKey;
+use App\Http\Middleware\RequireVerifiedPublicAccount;
 use Illuminate\Support\Facades\Route;
 
 // 05.15 — the public storefront. Guests, public customers and trade users.
@@ -199,13 +204,21 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/staff/order-cancellations/{order}', [OrderCancellationPageController::class, 'store'])
         ->whereUlid('order')->middleware('throttle:10,1')->name('staff.order-cancellations.store');
 
+    // 05.2 §18.3 — trade credit and buyer approvals, on the 05.16 trade shell. Read only;
+    // decisions and changes are /api/v1 POST/PATCH (routes/api.php).
+    Route::get('/trade/approvals', [ApprovalsPageController::class, 'index'])->name('trade.approvals');
+    Route::get('/trade/approvals/{approval}', [ApprovalsPageController::class, 'show'])->whereUlid('approval')->name('trade.approvals.show');
+    Route::get('/trade/account/credit', [CreditPageController::class, 'credit'])->name('trade.account.credit');
+    Route::get('/trade/account/balance', [CreditPageController::class, 'balance'])->name('trade.account.balance');
+    Route::get('/trade/account/users', CompanyUsersPageController::class)->name('trade.account.users');
+    Route::get('/trade/orders/{order}/pay', OrderPaymentPageController::class)->whereUlid('order')->name('trade.orders.pay');
+
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');
 });
 
-
 // 05.15 §6.4: verified public shopping account, separate from staff/team settings.
-Route::middleware(['auth', \App\Http\Middleware\RequireVerifiedPublicAccount::class])->group(function (): void {
+Route::middleware(['auth', RequireVerifiedPublicAccount::class])->group(function (): void {
     Route::get('/orders/{order}', [OrderConfirmationController::class, 'show'])->whereUlid('order')->name('account.orders.show');
     Route::get('/account/orders', [PublicAccountController::class, 'orders'])->name('account.orders');
     Route::get('/account/receipts', [PublicAccountController::class, 'receipts'])->name('account.receipts');

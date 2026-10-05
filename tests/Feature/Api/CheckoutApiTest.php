@@ -237,3 +237,32 @@ it('shows public customers VAT-inclusive prices and trade buyers ex-VAT', functi
     $trade = checkoutTradeBuyer();
     expect($this->actingAs($trade)->get('/cart')->viewData('page')['props']['display_mode'])->toBe('net');
 });
+
+it('previews and places a trade card order that needs approval without a card, for payment once approved (05.2 §18.1)', function () {
+    $user = checkoutTradeBuyer();
+    CompanyUser::query()->where('user_id', $user->id)->update(['order_limit_minor' => 100]);
+    $total = checkoutFill($user);
+
+    $this->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
+        ->assertOk()
+        ->assertJsonPath('approval.required', true)
+        ->assertJsonPath('approval.reasons', ['buyer_limit']);
+
+    $this->actingAs($user)
+        ->withHeader('Idempotency-Key', '01J8XQK9V3APPROVALAAAAAAAA')
+        ->postJson('/api/v1/checkout', checkoutBody($total, 'card'))
+        ->assertCreated()
+        ->assertJsonPath('data.status', 'awaiting_approval');
+
+    expect(Order::query()->sole()->status)->toBe('awaiting_approval');
+});
+
+it('names a suspended account as a preview blocker before payment (05.2 §18.1)', function () {
+    $user = checkoutTradeBuyer();
+    Company::query()->whereIn('id', CompanyUser::query()->where('user_id', $user->id)->select('company_id'))->update(['status' => 'suspended']);
+    checkoutFill($user);
+
+    $this->actingAs($user)->postJson('/api/v1/checkout/preview', ['delivery_country_code' => 'GB', 'delivery_postcode' => 'E1 6AN'])
+        ->assertOk()
+        ->assertJsonPath('blockers.0.code', 'credit_account_suspended');
+});

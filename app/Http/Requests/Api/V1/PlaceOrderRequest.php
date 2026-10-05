@@ -69,8 +69,10 @@ class PlaceOrderRequest extends FormRequest
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)->except([PaymentMethod::Prepay])],
             'expected_total_gross_minor' => ['required', 'integer', 'min:0'],
             // Card only: the PaymentIntent the browser has already authorised
-            // through Stripe Elements (07 §6.4). Never card details.
-            'payment_intent_id' => ['required_if:payment_method,card', 'prohibited_unless:payment_method,card', 'nullable', 'string', 'regex:/^pi_[A-Za-z0-9]{8,64}$/'],
+            // through Stripe Elements (07 §6.4). Never card details. A trade
+            // order that needs approval is placed without one and paid after
+            // approval (05.2 §18.1); the controller and TradeCheckout decide.
+            'payment_intent_id' => ['prohibited_unless:payment_method,card', 'nullable', 'string', 'regex:/^pi_[A-Za-z0-9]{8,64}$/'],
             'customer_reference' => ['nullable', 'string', 'max:64'],
             'terms_version_id' => ['sometimes', 'nullable', 'integer'],
             'guest_email' => $this->user() === null

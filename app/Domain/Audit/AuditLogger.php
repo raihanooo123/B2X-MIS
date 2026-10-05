@@ -131,14 +131,14 @@ final class AuditLogger
         ));
     }
 
+    /** 05.2 §18: a credit decision names its subject, a status either side and a reason. */
     private function validateCreditOperation(AuditEntry $entry): void
     {
         if ($entry->companyId === null || $entry->subjectId === null
-            || ! in_array($entry->subjectType, ['company','order','account_credit_payout'], true)
+            || ! in_array($entry->subjectType, ['company', 'order', 'order_approval_request', 'account_credit_payout'], true)
             || ! is_string($entry->before['status'] ?? null) || ! is_string($entry->after['status'] ?? null)
-            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500
-            || ! in_array($entry->actorType, ['user','system'], true)) {
-            throw new InvalidArgumentException('Invalid credit operation audit.');
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500) {
+            throw new InvalidArgumentException('Invalid credit operation audit entry.');
         }
     }
 
