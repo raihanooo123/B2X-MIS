@@ -79,7 +79,7 @@ beforeEach(function () {
     NumberSequence::factory()->forSeries('order_number', 'SO-')->create();
     NumberSequence::factory()->forSeries('receipt_number', 'RCP-')->create();
     NumberSequence::factory()->forSeries('invoice_number', 'INV-')->create();
-    NumberSequence::factory()->forSeries('credit_note_number', 'CN-')->create();
+    // credit_note_number is created by migration 2026_10_18_090200.
     foreach (['seller.legal_name' => 'Test Wholesale Ltd', 'seller.address' => "1 Test Street\nLondon\nE1 6AN", 'seller.vat_number' => 'GB123456789'] as $key => $value) {
         SystemConfiguration::factory()->create(['config_key' => $key, 'value_type' => 'text', 'value_int' => null, 'value_text' => $value]);
     }
