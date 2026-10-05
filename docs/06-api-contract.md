@@ -654,7 +654,7 @@ above; retain this index to make the dependency reviewable.
 
 | Module | Proposed route/policy contract |
 |---|---|
-| Credit/approvals | [05.2 §18.3](05.2-b2b-accounts-credit.md#183-screens-and-proposed-routes) |
+| Credit/approvals | [05.2 §18.3](05.2-b2b-accounts-credit.md#183-screens-and-routes) |
 | Self-service/PDFs | [05.17 §4](05.17-trade-self-service.md#4-screens-and-proposed-06-routes) |
 | Bulk pad/saved lists/reorder | [05.1 §14.2](05.1-order-pad.md#142-screens-and-proposed-routes) |
 | Quotes/RFQ | [05.3 §17.2](05.3-quotes-rfq.md#172-screens-and-routes) |
