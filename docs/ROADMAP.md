@@ -1431,7 +1431,11 @@ click & collect with pay at collection (05.6 §7A, 05.15 §6.1). Schema index: 0
 - [x] Replacement orders — 05.4 §14 (no invoice pending the accountant, Q-R3). Migration `2026_10_21_090100`. 2026-10-05, pending verification.
 - [x] Price sorting — 02 §29 (guests and public customers only). Migration `2026_10_22_090100`; run `storefront:refresh-price-projection` once after migrating. 2026-10-05, pending verification.
 - [ ] Partial cancellation before dispatch — 05.10 §2.
-- [ ] S5b click & collect and pay at collection — 05.6 §7A.
+- [ ] S5b click & collect and pay at collection — 05.6 §7A. Migration `2026_10_24_090100`. Built 2026-10-05, pending verification.
+  Follow-ups, not built in S5b:
+  - [ ] Customer reschedule, and staff moving bookings off a closed slot (05.6 §7A.7, build step S5b-6). Closing a slot today leaves its bookings on it.
+  - [ ] Notifications `collection.rescheduled` and `collection.reminder` (05.6 §7A.10, Q-C5).
+  - [ ] Parallel-booking concurrency test: 20 parallel bookings on a capacity-3 slot, exactly 3 succeed (05.6 §7A.16, D1). Needs separate connections, so it is not a single-connection Pest test.
 
 **Pre-go-live readiness, separate from this coding order:**
 
