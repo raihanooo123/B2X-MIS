@@ -38,10 +38,12 @@ class CardIntentRequest extends FormRequest
         return [
             'delivery_address_id' => $this->savedAddressRules(),
             'expected_total_gross_minor' => ['required', 'integer', 'min:1'],
-            'delivery_country_code' => ['required', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
+            'fulfilment_type' => ['sometimes', 'string', 'in:delivery,collection'],
+            'collection_slot_id' => ['required_if:fulfilment_type,collection', 'nullable', 'integer', 'min:1'],
+            'delivery_country_code' => ['required_unless:fulfilment_type,collection', 'nullable', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
             // Carriage is part of the amount: no card is authorised before
             // it is known (05.6 §8).
-            'delivery_postcode' => ['required', 'string', 'max:16'],
+            'delivery_postcode' => ['required_unless:fulfilment_type,collection', 'nullable', 'string', 'max:16'],
         ];
     }
 
@@ -55,8 +57,20 @@ class CardIntentRequest extends FormRequest
         return new DeliveryDestination(strtoupper(trim((string) $this->validated('delivery_postcode'))), $this->deliveryCountryCode());
     }
 
+    public function fulfilmentType(): string
+    {
+        return (string) ($this->validated('fulfilment_type') ?? 'delivery');
+    }
+
+    public function collectionSlotId(): ?int
+    {
+        $id = $this->validated('collection_slot_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
     public function deliveryCountryCode(): string
     {
-        return (string) $this->validated('delivery_country_code');
+        return $this->fulfilmentType() === 'collection' ? 'GB' : (string) $this->validated('delivery_country_code');
     }
 }

@@ -8,6 +8,7 @@ use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\DeclineMessages;
 use App\Domain\Billing\Exceptions\PaymentGatewayException;
 use App\Domain\Billing\PaymentGateway;
+use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\Exceptions\CarriageQuoteRequiredException;
 use App\Domain\Inventory\Exceptions\InsufficientCreditException;
@@ -107,9 +108,14 @@ class CheckoutController extends Controller
         $companyId = $owner->companyId;
         $method = $request->paymentMethod();
         $this->assertPaymentMethodAllowed($method, $companyId, guest: $user === null);
+        if ($method === PaymentMethod::CashAtCollection && $request->fulfilmentType() !== 'collection') {
+            throw new ApiException(422, 'pay_at_collection_not_eligible', 'Cash payment requires collection.');
+        }
 
         $address = $request->deliveryAddress();
-        $this->assertCountryServed($address->countryCode, $companyId, 'delivery_address.country_code');
+        if ($address !== null) {
+            $this->assertCountryServed($address->countryCode, $companyId, 'delivery_address.country_code');
+        }
         $saleTerms = $request->saleTerms();
 
         // Card (07 §6.4, 04 §4.4): the browser has already authorised the
@@ -148,12 +154,17 @@ class CheckoutController extends Controller
      * The preview's checks, then the order itself (CheckoutService). A card
      * authorisation, when given, is recorded in the order's transaction.
      */
-    private function commitOrder(PlaceOrderRequest $request, ?User $user, Cart $cart, ?int $companyId, PaymentMethod $method, DeliveryAddress $address, ?CardIntent $card, ?AcceptedTerms $saleTerms): Order
+    private function commitOrder(PlaceOrderRequest $request, ?User $user, Cart $cart, ?int $companyId, PaymentMethod $method, ?DeliveryAddress $address, ?CardIntent $card, ?AcceptedTerms $saleTerms): Order
     {
         // The same checks preview reports — the button the buyer pressed was
         // only enabled because there were none, but the cart, the stock or
         // the account may have changed since.
-        $preview = $this->previewService->preview($cart, $companyId, $address->countryCode, 'delivery', user: $user, checkIdentity: true, destination: new DeliveryDestination($address->postcode, $address->countryCode));
+        $preview = $this->previewService->preview(
+            $cart, $companyId, $address?->countryCode ?? 'GB', $request->fulfilmentType(),
+            user: $user, checkIdentity: true,
+            destination: $address === null ? null : new DeliveryDestination($address->postcode, $address->countryCode),
+            collectionSlotId: $request->collectionSlotId(), paymentMethod: $method->value,
+        );
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
@@ -175,13 +186,17 @@ class CheckoutController extends Controller
                 userId: $user?->id,
                 paymentMethod: $method->value,
                 expectedTotalGrossMinor: $request->expectedTotalGrossMinor(),
-                deliveryCountryCode: $address->countryCode,
+                deliveryCountryCode: $address?->countryCode ?? 'GB',
                 customerReference: $request->customerReference(),
                 deliveryAddress: $address,
                 cardAuthorisation: $card,
                 saleTerms: $saleTerms,
                 guestEmail: $user === null ? $request->guestEmail() : null,
+                fulfilmentType: $request->fulfilmentType(),
+                collectionSlotId: $request->collectionSlotId(),
             ));
+        } catch (SlotUnavailable $e) {
+            throw new ApiException(422, 'slot_unavailable', $e->getMessage());
         } catch (PriceChangedException $e) {
             throw new ApiException(409, 'price_changed', 'Prices have changed since you reviewed your order. Nothing has been placed.', [[
                 'field' => 'expected_total_gross_minor',
@@ -241,6 +256,11 @@ class CheckoutController extends Controller
             ]]);
         } catch (BatchTrackedCheckoutNotSupportedException) {
             throw new ApiException(422, 'batch_tracked_not_supported', 'An item in your cart cannot be checked out online yet.');
+        } catch (\InvalidArgumentException $e) {
+            if ($method === PaymentMethod::CashAtCollection) {
+                throw new ApiException(422, 'pay_at_collection_not_eligible', $e->getMessage());
+            }
+            throw $e;
         }
 
         return $order;
@@ -270,9 +290,16 @@ class CheckoutController extends Controller
             throw new ApiException(422, 'cart_empty', 'Your cart is empty.');
         }
         Gate::authorize('checkout', $cart);
-        $this->assertCountryServed($request->deliveryCountryCode(), $owner->companyId, 'delivery_country_code');
+        if ($request->fulfilmentType() === 'delivery') {
+            $this->assertCountryServed($request->deliveryCountryCode(), $owner->companyId, 'delivery_country_code');
+        }
 
-        $preview = $this->previewService->preview($cart, $owner->companyId, $request->deliveryCountryCode(), 'delivery', user: $user, checkIdentity: true, destination: $request->destination());
+        $preview = $this->previewService->preview(
+            $cart, $owner->companyId, $request->deliveryCountryCode(), $request->fulfilmentType(),
+            user: $user, checkIdentity: true,
+            destination: $request->fulfilmentType() === 'collection' ? null : $request->destination(),
+            collectionSlotId: $request->collectionSlotId(), paymentMethod: PaymentMethod::Card->value,
+        );
         if ($preview->blockers !== []) {
             throw new ApiException(422, 'checkout_blocked', 'This order cannot be placed yet.', array_map(fn ($b) => StockDisclosure::blocker($b, $request), $preview->blockers));
         }
@@ -472,6 +499,9 @@ class CheckoutController extends Controller
      */
     private function assertPaymentMethodAllowed(PaymentMethod $method, ?int $companyId, bool $guest = false): void
     {
+        if ($guest && $method === PaymentMethod::CashAtCollection) {
+            throw new ApiException(422, 'pay_at_collection_not_eligible', 'Sign in and verify your email to pay cash at collection.');
+        }
         if ($guest && $method !== PaymentMethod::Card) {
             throw new ApiException(422, 'payment_method_not_available', 'Guest checkout is by card. Sign in or create an account to pay by bank transfer.', [[
                 'field' => 'payment_method',
@@ -507,7 +537,7 @@ class CheckoutController extends Controller
         }
 
         $companyId = $owner?->companyId;
-        $countryCode = $request->deliveryCountryCode() ?? $this->defaultDeliveryCountry($companyId);
+        $countryCode = $request->fulfilmentType() === 'collection' ? 'GB' : ($request->deliveryCountryCode() ?? $this->defaultDeliveryCountry($companyId));
 
         if ($countryCode === null) {
             throw new ApiException(422, 'delivery_country_required', 'A delivery country is needed to calculate tax.', [[
@@ -516,7 +546,9 @@ class CheckoutController extends Controller
                 'message' => 'Send delivery_country_code, or set a default delivery address on the account.',
             ]]);
         }
-        $this->assertCountryServed($countryCode, $companyId, 'delivery_country_code');
+        if ($request->fulfilmentType() === 'delivery') {
+            $this->assertCountryServed($countryCode, $companyId, 'delivery_country_code');
+        }
 
         $preview = $this->previewService->preview(
             $cart,
@@ -525,7 +557,8 @@ class CheckoutController extends Controller
             $request->fulfilmentType(),
             user: $request->user() instanceof User ? $request->user() : null,
             checkIdentity: true,
-            destination: $request->deliveryPostcode() === null ? null : new DeliveryDestination($request->deliveryPostcode(), $countryCode),
+            destination: $request->fulfilmentType() !== 'delivery' || $request->deliveryPostcode() === null ? null : new DeliveryDestination($request->deliveryPostcode(), $countryCode),
+            collectionSlotId: $request->collectionSlotId(), paymentMethod: $request->paymentMethod(),
         );
 
         return (new CheckoutPreviewResource($preview))->response();

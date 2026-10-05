@@ -3,6 +3,10 @@
 namespace App\Domain\Ordering;
 
 use App\Domain\Accounts\TermsKind;
+use App\Domain\Collection\CollectionCharge;
+use App\Domain\Collection\CollectionSlots;
+use App\Domain\Collection\PayAtCollectionEligibility;
+use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
@@ -80,6 +84,9 @@ final class CheckoutPreviewService
         private readonly DeliveryQuoter $deliveryQuoter = new DeliveryQuoter,
         private readonly ThresholdEvaluator $thresholds = new ThresholdEvaluator,
         private readonly ReturnCostEstimator $returnCosts = new ReturnCostEstimator,
+        private readonly CollectionSlots $collectionSlots = new CollectionSlots,
+        private readonly CollectionCharge $collectionCharge = new CollectionCharge,
+        private readonly PayAtCollectionEligibility $cashEligibility = new PayAtCollectionEligibility,
     ) {}
 
     public function preview(
@@ -91,6 +98,8 @@ final class CheckoutPreviewService
         ?User $user = null,
         bool $checkIdentity = false,
         ?DeliveryDestination $destination = null,
+        ?int $collectionSlotId = null,
+        ?string $paymentMethod = null,
     ): CheckoutPreview {
         $at ??= CarbonImmutable::now();
 
@@ -101,8 +110,17 @@ final class CheckoutPreviewService
 
         $blockers = [];
 
-        if ($fulfilmentType !== 'delivery') {
+        if (! in_array($fulfilmentType, ['delivery', 'collection'], true)) {
             $blockers[] = new CheckoutBlocker('fulfilment_type', 'fulfilment_type_unsupported', "Only delivery checkout is available; '{$fulfilmentType}' is not supported yet.", ['fulfilment_type' => $fulfilmentType]);
+        }
+
+        $slot = null;
+        if ($fulfilmentType === 'collection') {
+            try {
+                $slot = $this->collectionSlots->previewSlot($collectionSlotId ?? 0);
+            } catch (SlotUnavailable) {
+                $blockers[] = new CheckoutBlocker('collection_slot_id', 'slot_unavailable', 'Choose an available collection slot.');
+            }
         }
 
         // Listed after the cart's own blockers, whatever the path out.
@@ -124,7 +142,7 @@ final class CheckoutPreviewService
             }
         }
 
-        array_push($blockers, ...$this->stockBlockers($cartLines));
+        array_push($blockers, ...$this->stockBlockers($cartLines, $slot?->location_id));
 
         // Price failures (no base price, no tax rate, ...) are per SKU and
         // quantity-independent; BulkPriceResolver reports them without
@@ -178,7 +196,14 @@ final class CheckoutPreviewService
         // destination (the cart before an address is chosen) there is
         // nothing to rate yet and `delivery` is null.
         $delivery = null;
-        if ($destination !== null) {
+        if ($slot !== null) {
+            $delivery = $this->collectionCharge->quote($slot->location_id, $companyId, $pricing->subtotalNetMinor);
+            if ($delivery->isChargeable()) {
+                $pricing = $pricing->withShipping($delivery->shippingNetMinor, $delivery->taxRateBp);
+            } else {
+                $blockers[] = $this->deliveryBlocker($delivery);
+            }
+        } elseif ($fulfilmentType === 'delivery' && $destination !== null) {
             $delivery = $this->deliveryQuoter->quote(
                 ConsignmentWeigher::linesFromCart(array_values($priceable)),
                 $destination,
@@ -191,6 +216,13 @@ final class CheckoutPreviewService
                 $pricing = $pricing->withShipping($delivery->shippingNetMinor, $delivery->taxRateBp);
             } else {
                 $blockers[] = $this->deliveryBlocker($delivery);
+            }
+        }
+
+        if ($paymentMethod === PaymentMethod::CashAtCollection->value) {
+            $reason = $slot === null ? 'Choose a collection slot first.' : $this->cashEligibility->reason($user?->id, $companyId, $slot->location_id, $pricing->totalGrossMinor);
+            if ($reason !== null) {
+                $blockers[] = new CheckoutBlocker('payment_method', 'pay_at_collection_not_eligible', $reason);
             }
         }
 
@@ -365,7 +397,7 @@ final class CheckoutPreviewService
      * @param  list<CartLine>  $cartLines
      * @return list<CheckoutBlocker>
      */
-    private function stockBlockers(array $cartLines): array
+    private function stockBlockers(array $cartLines, ?int $locationId = null): array
     {
         $requiredBySku = [];
         $firstIndexBySku = [];
@@ -390,7 +422,9 @@ final class CheckoutPreviewService
             return [];
         }
 
-        $location = Location::query()->where('is_default', true)->first();
+        $location = $locationId === null
+            ? Location::query()->where('is_default', true)->first()
+            : Location::query()->where('id', $locationId)->first();
         $availableBySku = [];
         $physicalBySku = [];
         $blockers = [];

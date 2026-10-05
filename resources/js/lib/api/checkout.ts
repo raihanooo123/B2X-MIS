@@ -70,13 +70,13 @@ export interface CheckoutPreview {
 }
 
 /** With a postcode, preview rates carriage too (05.6); without one, `delivery` is null. */
-export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean; savedAddressId?: string; addressKey?: string } = {}) {
+export function useCheckoutPreview(countryCode: string | null, postcode: string | null = null, options: { enabled?: boolean; savedAddressId?: string; addressKey?: string; fulfilmentType?: 'delivery' | 'collection'; collectionSlotId?: number | null; paymentMethod?: PaymentMethod } = {}) {
     return useQuery<CheckoutPreview, ApiError>({
-        queryKey: [...orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''), options.savedAddressId ?? null, options.addressKey ?? null],
+        queryKey: [...orderPadKeys.checkoutPreview(countryCode ?? '', postcode ?? ''), options.savedAddressId ?? null, options.addressKey ?? null, options.fulfilmentType ?? 'delivery', options.collectionSlotId ?? null, options.paymentMethod ?? null],
         queryFn: ({ signal }) =>
             apiRequest<CheckoutPreview>('/checkout/preview', {
                 method: 'POST',
-                body: { delivery_country_code: countryCode, delivery_address_id: options.savedAddressId, delivery_postcode: postcode, fulfilment_type: 'delivery' },
+                body: { delivery_country_code: countryCode, delivery_address_id: options.fulfilmentType === 'collection' ? undefined : options.savedAddressId, delivery_postcode: options.fulfilmentType === 'collection' ? undefined : postcode, fulfilment_type: options.fulfilmentType ?? 'delivery', collection_slot_id: options.collectionSlotId, payment_method: options.paymentMethod },
                 signal,
             }),
         enabled: (options.enabled ?? true) && countryCode !== null,
@@ -84,7 +84,24 @@ export function useCheckoutPreview(countryCode: string | null, postcode: string 
     });
 }
 
-export type PaymentMethod = 'card' | 'bacs' | 'on_account';
+export type PaymentMethod = 'card' | 'bacs' | 'on_account' | 'cash_at_collection';
+
+export interface CollectionSlot {
+    id: number;
+    location_id: number;
+    location_name: string;
+    slot_date: string;
+    start_time: string;
+    end_time: string;
+}
+
+export function useCollectionSlots() {
+    return useQuery<CollectionSlot[], ApiError>({
+        queryKey: ['collection-slots'],
+        queryFn: ({ signal }) => apiRequest<{ data: CollectionSlot[] }>('/collection-slots', { signal }).then((r) => r.data),
+        staleTime: 60_000,
+    });
+}
 
 export interface DeliveryAddressInput {
     contact_name: string;
@@ -103,7 +120,9 @@ export interface PlaceOrderInput {
     payment_method: PaymentMethod;
     expected_total_gross_minor: number;
     customer_reference: string;
-    delivery_address: DeliveryAddressInput;
+    delivery_address?: DeliveryAddressInput;
+    fulfilment_type?: 'delivery' | 'collection';
+    collection_slot_id?: number;
     /** Card only: the PaymentIntent the browser has authorised (07 §6.4). */
     payment_intent_id?: string;
     /** Public buyers: the terms of sale version accepted (05.15 §6.1 step 4). */
@@ -125,7 +144,7 @@ export interface CardIntent {
  * across retries for the same cart and total, so trying again never
  * authorises twice.
  */
-export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code: string; delivery_postcode: string; delivery_address_id?: string }): Promise<CardIntent> {
+export function createCardIntent(input: { expected_total_gross_minor: number; delivery_country_code?: string; delivery_postcode?: string; delivery_address_id?: string; fulfilment_type?: 'delivery' | 'collection'; collection_slot_id?: number }): Promise<CardIntent> {
     return apiRequest<{ data: CardIntent }>('/checkout/card-intent', { method: 'POST', body: input }).then((r) => r.data);
 }
 

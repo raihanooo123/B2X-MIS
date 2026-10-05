@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
+use App\Http\Controllers\Api\V1\CollectionSlotController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
@@ -29,6 +30,7 @@ Route::prefix('v1')->group(function (): void {
     Route::delete('/cart/lines/{id}', [CartController::class, 'destroyLine'])->whereUlid('id');
     Route::post('/cart/bulk-add', [CartController::class, 'bulkAdd']);
     Route::post('/checkout/preview', [CheckoutController::class, 'preview']);
+    Route::get('/collection-slots', [CollectionSlotController::class, 'index']);
     // 06 §9.3 — requires an Idempotency-Key header (06 §6). Guests too
     // (05.15 §6.1): CartPolicy::checkout() requires the cart's owner.
     Route::post('/checkout', [CheckoutController::class, 'store'])->middleware('throttle:60,1');

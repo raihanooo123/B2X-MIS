@@ -22,3 +22,6 @@ Schedule::command('returns:sweep-not-received')->dailyAt('02:30')->timezone('Eur
 // 02 §29.4 — the storefront price sort key: time boundaries every 5 minutes, a full rebuild nightly.
 Schedule::command('storefront:refresh-price-projection --stale')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('storefront:refresh-price-projection')->dailyAt('03:45')->timezone('Europe/London')->withoutOverlapping();
+
+Schedule::command('collection:generate-slots')->dailyAt('00:15')->timezone('Europe/London')->withoutOverlapping();
+Schedule::command('collection:expire-unpaid')->everyFiveMinutes()->withoutOverlapping()->onOneServer();

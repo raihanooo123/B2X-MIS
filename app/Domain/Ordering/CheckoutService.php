@@ -6,6 +6,10 @@ use App\Domain\Accounts\TermsAcceptanceSource;
 use App\Domain\Accounts\TermsKind;
 use App\Domain\Billing\CardPayments;
 use App\Domain\Billing\InvoiceService;
+use App\Domain\Collection\CollectionCharge;
+use App\Domain\Collection\CollectionSlots;
+use App\Domain\Collection\PayAtCollectionEligibility;
+use App\Domain\Collection\SlotUnavailable;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
@@ -28,7 +32,10 @@ use App\Domain\Pricing\OrderPricingResult;
 use App\Domain\Reference\NumberSequenceService;
 use App\Models\Cart;
 use App\Models\CartLine;
+use App\Models\CollectionBooking;
+use App\Models\CollectionSlot;
 use App\Models\Company;
+use App\Models\Address;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\OrderAddress;
@@ -111,6 +118,9 @@ final class CheckoutService
         private readonly InvoiceService $invoiceService = new InvoiceService,
         private readonly Notifications $notifications = new Notifications,
         private readonly ReturnCostEstimator $returnCosts = new ReturnCostEstimator,
+        private readonly CollectionSlots $collectionSlots = new CollectionSlots,
+        private readonly CollectionCharge $collectionCharge = new CollectionCharge,
+        private readonly PayAtCollectionEligibility $cashEligibility = new PayAtCollectionEligibility,
     ) {}
 
     /**
@@ -163,7 +173,15 @@ final class CheckoutService
         // rated stops the order here — nothing placed, nothing charged,
         // never £0 by default.
         $delivery = null;
-        if ($request->deliveryAddress !== null) {
+        $selectedSlot = null;
+        if ($request->fulfilmentType === 'collection') {
+            $selectedSlot = $this->collectionSlots->previewSlot($request->collectionSlotId ?? 0);
+            $delivery = $this->collectionCharge->quote($selectedSlot->location_id, $request->companyId, $pricing->subtotalNetMinor);
+            if (! $delivery->isChargeable()) {
+                throw new CarriageQuoteRequiredException($delivery);
+            }
+            $pricing = $pricing->withShipping($delivery->shippingNetMinor, $delivery->taxRateBp);
+        } elseif ($request->deliveryAddress !== null) {
             $delivery = $this->deliveryQuoter->quote(
                 ConsignmentWeigher::linesFromCart($cart->lines),
                 new DeliveryDestination($request->deliveryAddress->postcode, $request->deliveryAddress->countryCode),
@@ -183,6 +201,12 @@ final class CheckoutService
             throw new PriceChangedException($request->expectedTotalGrossMinor, $pricing->totalGrossMinor);
         }
 
+        if ($request->paymentMethod === PaymentMethod::CashAtCollection->value) {
+            if ($selectedSlot === null || $this->cashEligibility->reason($request->userId, $request->companyId, $selectedSlot->location_id, $pricing->totalGrossMinor) !== null) {
+                throw new InvalidArgumentException('Cash at collection is not available for this order.');
+            }
+        }
+
         if ($request->saleTerms !== null) {
             $current = TermsVersion::current(TermsKind::Sale)?->id;
             if ($current !== $request->saleTerms->termsVersionId) {
@@ -196,7 +220,9 @@ final class CheckoutService
             throw new PriceChangedException($card->amountMinor, $pricing->totalGrossMinor);
         }
 
-        $defaultLocation = Location::query()->where('is_default', true)->where('is_sellable', true)->firstOrFail();
+        $defaultLocation = $selectedSlot === null
+            ? Location::query()->where('is_default', true)->where('is_sellable', true)->firstOrFail()
+            : Location::query()->where('id', $selectedSlot->location_id)->where('is_sellable', true)->firstOrFail();
 
         // 02 §27: rated before any lock, from the same inputs preview used.
         $returnCost = $request->companyId === null && ReturnCostEstimator::isPallet($delivery) && $delivery !== null
@@ -222,10 +248,44 @@ final class CheckoutService
 
                 if ($request->deliveryAddress !== null) {
                     OrderAddress::create(['order_id' => $order->id, 'address_type' => 'delivery'] + $request->deliveryAddress->toSnapshot());
+                } elseif ($request->fulfilmentType === 'collection' && $request->companyId !== null) {
+                    $billing = Address::query()->where('company_id', $request->companyId)
+                        ->whereIn('address_type', ['billing', 'both'])->where('is_default', true)->firstOrFail();
+                    OrderAddress::create([
+                        'order_id' => $order->id, 'address_type' => 'billing',
+                        'contact_name' => $billing->contact_name, 'phone' => $billing->phone,
+                        'company_name' => Company::query()->where('id', $request->companyId)->value('legal_name'),
+                        'line1' => $billing->line1, 'line2' => $billing->line2,
+                        'city' => $billing->city, 'county' => $billing->county,
+                        'postcode' => $billing->postcode, 'country_code' => $billing->country_code,
+                    ]);
                 }
                 $allocationLines = $this->createOrderLines($order, $cart, $pricing, $defaultLocation);
 
-                $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines);
+                $lockedSlot = null;
+                $beforeStock = $request->fulfilmentType === 'collection'
+                    ? function () use ($request, $pricing, &$lockedSlot): void {
+                        $lockedSlot = $this->collectionSlots->lockAvailable($request->collectionSlotId ?? 0);
+                        if ($request->paymentMethod === PaymentMethod::CashAtCollection->value
+                            && $this->cashEligibility->reason($request->userId, $request->companyId, $lockedSlot->location_id, $pricing->totalGrossMinor) !== null) {
+                            throw new InvalidArgumentException('Cash at collection is not available for this order.');
+                        }
+                    }
+                    : null;
+                $strategy->reserve($this->allocationService, $request, $order, $pricing->totalGrossMinor, $allocationLines, $beforeStock);
+
+                if ($lockedSlot instanceof CollectionSlot) {
+                    $this->collectionSlots->bookLocked($lockedSlot);
+                    CollectionBooking::query()->create([
+                        'collection_slot_id' => $lockedSlot->id,
+                        'order_id' => $order->id,
+                        'company_id' => $request->companyId,
+                        'status' => 'booked',
+                        'payment_due_by' => $request->paymentMethod === PaymentMethod::CashAtCollection->value
+                            ? $this->collectionSlots->endUtc($lockedSlot)->addMinutes((new \App\Domain\Collection\CollectionSettings)->integer('collection.pay_at_collection.grace_minutes', 60, $lockedSlot->location_id))
+                            : null,
+                    ]);
+                }
 
                 // 07 §6.4: the authorised card payment exists with its order
                 // or not at all. No gateway call here (04 §4.4) — capture
@@ -297,7 +357,7 @@ final class CheckoutService
             throw new RuntimeException("Delivery method '{$delivery->method}' is not a standard method; rate the standard method to snapshot standard_shipping_net_minor (02 §26.3).");
         }
 
-        return $pricing->shippingNetMinor;
+        return $request->fulfilmentType === 'collection' ? 0 : $pricing->shippingNetMinor;
     }
 
     private function createDraftOrder(CheckoutRequest $request, OrderPricingResult $pricing, string $paymentStatus, ?DeliveryQuote $delivery, ?int $returnCost = null): Order
@@ -318,7 +378,7 @@ final class CheckoutService
             'payment_status' => $paymentStatus,
             // 02 §18: what the buyer chose, so the order says how it is being paid.
             'payment_method' => $request->paymentMethod,
-            'fulfilment_type' => 'delivery',
+            'fulfilment_type' => $request->fulfilmentType,
             'currency' => 'GBP',
             'subtotal_net_minor' => $pricing->subtotalNetMinor,
             'shipping_net_minor' => $pricing->shippingNetMinor,

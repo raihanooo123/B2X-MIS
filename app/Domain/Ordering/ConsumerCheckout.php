@@ -23,7 +23,7 @@ final class ConsumerCheckout implements CheckoutStrategy
     /** 05.15 §6.1 rule G. Jersey, Guernsey and the Isle of Man are outside it. */
     public const SERVED_COUNTRY = 'GB';
 
-    private const ALLOWED_PAYMENT_METHODS = ['card', 'bacs', 'prepay'];
+    private const ALLOWED_PAYMENT_METHODS = ['card', 'bacs', 'prepay', 'cash_at_collection'];
 
     public static function servesCountry(string $countryCode): bool
     {
@@ -32,7 +32,7 @@ final class ConsumerCheckout implements CheckoutStrategy
 
     public function validate(CheckoutRequest $request): void
     {
-        if (! self::servesCountry($request->deliveryCountryCode)) {
+        if ($request->fulfilmentType !== 'collection' && ! self::servesCountry($request->deliveryCountryCode)) {
             throw new InvalidArgumentException("Public/guest orders are delivered to GB only, got '{$request->deliveryCountryCode}' (05.15 §6.1 rule G).");
         }
 
@@ -67,7 +67,11 @@ final class ConsumerCheckout implements CheckoutStrategy
         Order $order,
         int $totalGrossMinor,
         array $allocationLines,
+        ?callable $beforeStock = null,
     ): void {
+        if ($beforeStock !== null) {
+            $beforeStock();
+        }
         if ($allocationLines !== []) {
             $allocationService->allocateWithinTransaction(null, 0, $allocationLines);
         }

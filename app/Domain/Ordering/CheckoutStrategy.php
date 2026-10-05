@@ -61,5 +61,6 @@ interface CheckoutStrategy
         Order $order,
         int $totalGrossMinor,
         array $allocationLines,
+        ?callable $beforeStock = null,
     ): void;
 }

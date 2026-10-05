@@ -58,5 +58,7 @@ final readonly class CheckoutRequest
         public ?CardIntent $cardAuthorisation = null,
         public ?AcceptedTerms $saleTerms = null,
         public ?string $guestEmail = null,
+        public string $fulfilmentType = 'delivery',
+        public ?int $collectionSlotId = null,
     ) {}
 }

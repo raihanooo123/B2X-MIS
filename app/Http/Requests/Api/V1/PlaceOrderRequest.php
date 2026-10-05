@@ -45,6 +45,9 @@ class PlaceOrderRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if (! $this->has('delivery_address')) {
+            return;
+        }
         $address = (array) $this->input('delivery_address', []);
         foreach (['postcode', 'country_code'] as $key) {
             if (isset($address[$key]) && is_string($address[$key])) {
@@ -73,19 +76,20 @@ class PlaceOrderRequest extends FormRequest
             'guest_email' => $this->user() === null
                 ? AuthFields::email()
                 : ['prohibited'],
-            'fulfilment_type' => ['sometimes', 'string', 'in:delivery'],
+            'fulfilment_type' => ['sometimes', 'string', 'in:delivery,collection'],
+            'collection_slot_id' => ['required_if:fulfilment_type,collection', 'prohibited_unless:fulfilment_type,collection', 'nullable', 'integer', 'min:1'],
             'apply_account_credit' => ['sometimes', 'boolean'],
             'delivery_address_id' => $this->savedAddressRules(),
-            'delivery_address' => ['required', 'array'],
-            'delivery_address.contact_name' => ['required', 'string', 'max:191'],
+            'delivery_address' => ['required_unless:fulfilment_type,collection', 'prohibited_if:fulfilment_type,collection', 'array'],
+            'delivery_address.contact_name' => ['required_with:delivery_address', 'string', 'max:191'],
             'delivery_address.company_name' => ['nullable', 'string', 'max:191'],
             'delivery_address.phone' => [$this->user() === null ? 'required' : 'nullable', 'string', 'max:32'],
-            'delivery_address.line1' => ['required', 'string', 'max:191'],
+            'delivery_address.line1' => ['required_with:delivery_address', 'string', 'max:191'],
             'delivery_address.line2' => ['nullable', 'string', 'max:191'],
-            'delivery_address.city' => ['required', 'string', 'max:100'],
+            'delivery_address.city' => ['required_with:delivery_address', 'string', 'max:100'],
             'delivery_address.county' => ['nullable', 'string', 'max:100'],
-            'delivery_address.postcode' => ['required', 'string', 'max:16'],
-            'delivery_address.country_code' => ['required', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
+            'delivery_address.postcode' => ['required_with:delivery_address', 'string', 'max:16'],
+            'delivery_address.country_code' => ['required_with:delivery_address', 'string', 'size:2', 'regex:/^[A-Z]{2}$/'],
         ];
     }
 
@@ -129,8 +133,23 @@ class PlaceOrderRequest extends FormRequest
         return $id === null ? null : new AcceptedTerms((int) $id, $this->ip(), $this->userAgent());
     }
 
-    public function deliveryAddress(): DeliveryAddress
+    public function fulfilmentType(): string
     {
+        return (string) ($this->validated('fulfilment_type') ?? 'delivery');
+    }
+
+    public function collectionSlotId(): ?int
+    {
+        $id = $this->validated('collection_slot_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    public function deliveryAddress(): ?DeliveryAddress
+    {
+        if ($this->fulfilmentType() === 'collection') {
+            return null;
+        }
         /** @var array<string, string|null> $a */
         $a = $this->validated('delivery_address');
         $opt = fn (string $key): ?string => isset($a[$key]) && trim((string) $a[$key]) !== '' ? trim((string) $a[$key]) : null;
