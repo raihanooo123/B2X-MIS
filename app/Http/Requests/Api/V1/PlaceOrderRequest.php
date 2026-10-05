@@ -83,7 +83,8 @@ class PlaceOrderRequest extends FormRequest
             'delivery_address' => ['required_unless:fulfilment_type,collection', 'prohibited_if:fulfilment_type,collection', 'array'],
             'delivery_address.contact_name' => ['required_with:delivery_address', 'string', 'max:191'],
             'delivery_address.company_name' => ['nullable', 'string', 'max:191'],
-            'delivery_address.phone' => [$this->user() === null ? 'required' : 'nullable', 'string', 'max:32'],
+            // A guest's phone is kept on the delivery address; a collection has none (05.6 §7A).
+            'delivery_address.phone' => [$this->user() === null ? 'required_unless:fulfilment_type,collection' : 'nullable', 'string', 'max:32'],
             'delivery_address.line1' => ['required_with:delivery_address', 'string', 'max:191'],
             'delivery_address.line2' => ['nullable', 'string', 'max:191'],
             'delivery_address.city' => ['required_with:delivery_address', 'string', 'max:100'],

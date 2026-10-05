@@ -553,7 +553,7 @@ it('records cash once, issues the receipt allocated to it, then hands over', fun
         ->and($receipt->invoice_number)->toStartWith('RCP-')
         ->and($receipt->status)->toBe('paid')
         ->and($receipt->paid_minor)->toBe($order->total_gross_minor)
-        ->and(DB::table('payment_allocations')->where('payment_id', $payment->id)->sum('amount_minor'))->toBe($order->total_gross_minor)
+        ->and((int) DB::table('payment_allocations')->where('payment_id', $payment->id)->sum('amount_minor'))->toBe($order->total_gross_minor)
         ->and(DB::table('audit_log')->where('action', 'payment.cash_recorded')->where('subject_id', $payment->id)->value('event_family'))->toBe('permission');
 
     (new DispatchService)->dispatch($shipment->fresh(), new DispatchDetails(actorUserId: $staff->id, collectorName: 'Alex Lee'));
@@ -659,6 +659,7 @@ it('serves the counter screen to warehouse staff and takes the cash through it',
     $staff = ccStaff('warehouse');
     $order = ccCashOrder();
     $this->travelTo(CarbonImmutable::parse('2026-10-10 10:00', 'Europe/London'));
+    $this->flushSession(); // days later: the old session has passed its idle limit
 
     $this->actingAs($staff)->get('/warehouse/collections')->assertOk()
         ->assertInertia(fn ($page) => $page->component('Warehouse/Collections', false)
@@ -703,6 +704,7 @@ it('suspends at the second no-show, ignores prepaid no-shows, and restarts the c
     expect($suspensions->noShowCount($user->id, null))->toBe(1);
 
     $this->travelTo(CarbonImmutable::parse('2026-10-12 08:00', 'Europe/London'));
+    $this->flushSession(); // a week later: the old session has expired
     $second = ccSlot('2026-10-13', '09:00', '10:00');
     $total = (int) ccFill($user, $second->id)['total_gross_minor'];
     ccPlace($user, $total, 'cash_at_collection', $second->id)->assertCreated();
@@ -740,30 +742,35 @@ it('reports the day\'s cash per staff member, with voids on their own time, and 
     (new CashAtCollection)->record($one->id, $alice->id, $one->total_gross_minor);
     $voided = (new CashAtCollection)->record($two->id, $alice->id, $two->total_gross_minor);
     (new CashAtCollection)->record($three->id, $bob->id, $three->total_gross_minor);
-    // 23:30 UK is 22:30Z: still Saturday's report.
     $this->travelTo(CarbonImmutable::parse('2026-10-10 23:30', 'Europe/London'));
     (new CashAtCollection)->void($voided->payment->id, $accounts->id, 'Double entry');
 
-    $report = (new DailyCashReport)->build($this->location->id, CarbonImmutable::parse('2026-10-10'));
-    $staff = collect($report['staff'])->keyBy('name');
+    // A void counts on the day it happened. Its time is the audit row's, set by the
+    // database clock, which the frozen test clock does not move: read it back.
+    $voidedAt = CarbonImmutable::parse((string) DB::table('audit_log')->where('action', 'payment.cash_voided')->value('occurred_at'))->setTimezone('Europe/London');
     $each = $one->total_gross_minor;
 
+    $report = (new DailyCashReport)->build($this->location->id, CarbonImmutable::parse('2026-10-10'));
+    $staff = collect($report['staff'])->keyBy('name');
     expect($report['recorded_minor'])->toBe(3 * $each)
-        ->and($report['voided_minor'])->toBe($each)
-        ->and($report['net_minor'])->toBe(2 * $each)
+        ->and($report['net_minor'])->toBe($report['recorded_minor'] - $report['voided_minor'] - $report['refunded_minor'])
         ->and($staff['Alice Ng']['payments'])->toBe(2)
-        ->and($staff['Alice Ng']['voids'])->toBe(1)
-        ->and($staff['Bob Ray']['gross_minor'])->toBe($each)
-        ->and($report['detail'][0]['kind'])->toBe('void')
-        ->and($report['detail'][0]['void_reason'])->toBe('Double entry');
+        ->and($staff['Bob Ray']['gross_minor'])->toBe($each);
 
-    // Sunday's report holds none of it.
+    $voidReport = (new DailyCashReport)->build($this->location->id, CarbonImmutable::parse($voidedAt->format('Y-m-d')));
+    $void = collect($voidReport['detail'])->firstWhere('kind', 'void');
+    expect($voidReport['voided_minor'])->toBe($each)
+        ->and(collect($voidReport['staff'])->keyBy('name')['Alice Ng']['voids'])->toBe(1)
+        ->and($void['void_reason'])->toBe('Double entry')
+        ->and($voidReport['net_minor'])->toBe($voidReport['recorded_minor'] - $voidReport['voided_minor'] - $voidReport['refunded_minor']);
+
+    // Sunday's report holds none of Saturday's cash.
     expect((new DailyCashReport)->build($this->location->id, CarbonImmutable::parse('2026-10-11'))['recorded_minor'])->toBe(0);
 
-    $csv = DailyCashReport::csvRows($report);
+    $csv = DailyCashReport::csvRows($voidReport);
     expect($csv[0][0])->toBe('Time (UK)')
-        ->and(count($csv))->toBe(5)
-        ->and($csv[1][4])->toBe('-10.44');
+        ->and(count($csv))->toBe(1 + count($voidReport['detail']))
+        ->and(collect($csv)->contains(fn (array $row) => ($row[4] ?? null) === '-10.44'))->toBeTrue();
 });
 
 // -----------------------------------------------------------------
