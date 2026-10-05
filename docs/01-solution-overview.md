@@ -36,6 +36,8 @@ Sixteen documents (ten originally, six added by the 2026-09-20 completeness corr
 | 05.12 | Notifications | Templates, channels, preferences, delivery tracking | Signed off (2026-09-25) |
 | 05.13 | Auth & Onboarding | Registration (trade and public), guest-cart merge at login, unapproved-applicant login, invited-user onboarding, 2FA, sessions | Draft for review (2026-09-24) |
 | 05.14 | Reporting Suite | Aggregates, materialised views, dashboards | Pending — not yet written (Correction 2026-09-20) |
+| 05.16 | [B2B UX/UI standard](05.16-b2b-ux-standard.md) | Shared B2B shell, responsive/state/accessibility and screenshot acceptance | **DRAFT — 2026-10-05, awaiting approval** |
+| 05.17 | [Trade self-service & PDFs](05.17-trade-self-service.md) | Company dashboard/history/financial documents/applicant status; renderer options | **DRAFT — 2026-10-05, awaiting approval and renderer choice** |
 | 06 | API Contract | Endpoints, payloads, error envelope, pagination, versioning | Draft for review (its own header; corrected here 2026-09-20 — was shown as "Pending" though substantially written) |
 | 07 | Non-Functional Requirements | Performance budgets, security, GDPR, accessibility | Draft for review (its own header; corrected here 2026-09-20 — was shown as "Pending" though substantially written) |
 | 08 | Migration & Seed Plan | Import from the reference system, validation, rejection reporting | Pending — not yet written (Correction 2026-09-20) |
@@ -107,7 +109,7 @@ Roles are not mutually exclusive. Permissions are enforced by policy gates, neve
 
 ### 5.1 In scope
 
-**Phase 1 — launchable storefront.** Accounts and roles, catalogue and PIM with pack structure, tiered pricing with volume breaks, faceted search, cart with MOQ and case-multiple enforcement, checkout with card and BACS, orders with invoice and packing-list PDFs (via Node/Puppeteer worker), authoritative stock with batch and serial capability, CMS and SEO.
+**Phase 1 — launchable storefront.** Accounts and roles, catalogue and PIM with pack structure, tiered pricing with volume breaks, faceted search, cart with MOQ and case-multiple enforcement, checkout with card and BACS, orders with invoice and packing-list PDFs (renderer choice remains pending; see DRAFT 05.17 §5), authoritative stock with batch and serial capability, CMS and SEO.
 
 **Phase 2 — the wholesale engine.** Order pad (React/Inertia), bulk add by SKU or CSV, saved lists and reorder, B2B account approval workflow, quotes and RFQ, credit accounts with limit enforcement, RMA with automated restocking fees, delivery zones and collection slots, back-in-stock notification, generated price-list PDFs.
 

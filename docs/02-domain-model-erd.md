@@ -4573,3 +4573,988 @@ Signed off together on 2026-10-05. Each one's DDL is in the module spec that own
 | Price sorting | new `product_price_projections` | §29 |
 
 **Two proposals each replace a `CHECK` on `orders`, and they don't conflict.** Replacement orders replace `orders_payment_status_chk` (adding `not_required`). Pay at collection replaces `orders_payment_method_chk` (adding `cash_at_collection`) and uses the existing `unpaid` status.
+
+---
+
+## 31. B2B completion schema proposals — DRAFT, 2026-10-05
+
+**Not signed off. SQL below is a proposed amendment, not a migration to run.**
+The module additions in 05.1 §14, 05.2 §18, 05.3 §17, 05.4 §15, 05.7 §17,
+05.8 §16 and new 05.17 refer here for schema authority. Existing signed-off tables
+remain unchanged until approval. Re-adopted CREATE definitions below are for tables
+absent from migrations, not replacements for migrated tables. Migration author must
+check the then-current schema and use additive ALTERs where a table already exists.
+All new public identifiers are ULIDs. Application validates GBP-only, integer money,
+company ownership and cross-row sums under locks. No new tracking-SKU selection,
+multi-currency or coupon stacking decision is made here.
+
+### 31.1 Credit, buyer approvals and account balance (05.2 §18; 05.4 §15)
+
+Reuse existing companies, company_users, credit_holds, orders, invoices, payments
+and payment_allocations; do not create a second credit-hold table. An approval request
+is an auditable decision, not a replacement order. One request per order/kind; expired
+or rejected orders are terminal and must be copied into a new checkout to retry.
+
+
+```sql
+ALTER TABLE company_users ADD CONSTRAINT company_users_order_limit_nonnegative_chk
+  CHECK (order_limit_minor IS NULL OR order_limit_minor >= 0);
+CREATE TABLE order_approval_requests (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  order_id bigint NOT NULL REFERENCES orders(id),
+  requested_by_user_id bigint NOT NULL REFERENCES users(id),
+  approval_kind text NOT NULL CHECK (approval_kind IN ('buyer_limit','credit_exception')),
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','expired')),
+  order_gross_minor bigint NOT NULL CHECK (order_gross_minor >= 0),
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  decided_at timestamptz,
+  decided_by_user_id bigint REFERENCES users(id),
+  decision_reason text,
+  UNIQUE(order_id, approval_kind),
+  CHECK (expires_at > requested_at),
+  CHECK ((status = 'pending' AND decided_at IS NULL)
+      OR (status <> 'pending' AND decided_at IS NOT NULL))
+);
+CREATE INDEX order_approvals_company_queue_idx
+  ON order_approval_requests(company_id, status, requested_at DESC, id DESC);
+CREATE INDEX order_approvals_expiry_idx ON order_approval_requests(expires_at, id)
+  WHERE status = 'pending';
+ALTER TABLE invoices ADD COLUMN credited_minor bigint NOT NULL DEFAULT 0
+  CHECK (credited_minor >= 0);
+CREATE INDEX invoices_credit_unpaid_idx ON invoices(company_id, due_at, id)
+  INCLUDE(total_gross_minor, paid_minor, credited_minor)
+  WHERE status IN ('issued','part_paid','overdue');
+CREATE TABLE account_credit_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  event_key text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  event_kind text NOT NULL,
+  payload_hash char(64) NOT NULL,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  actor_user_id bigint REFERENCES users(id)
+);
+CREATE INDEX account_credit_events_company_idx
+  ON account_credit_events(company_id, occurred_at, id);
+CREATE TABLE credit_note_allocations (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  credit_note_id bigint NOT NULL REFERENCES credit_notes(id),
+  invoice_id bigint NOT NULL REFERENCES invoices(id),
+  event_id bigint NOT NULL REFERENCES account_credit_events(id),
+  amount_minor bigint NOT NULL CHECK (amount_minor <> 0),
+  reason_code text,
+  allocated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(event_id, credit_note_id, invoice_id),
+  CHECK (amount_minor > 0 OR reason_code IS NOT NULL)
+);
+CREATE INDEX credit_note_allocations_invoice_idx ON credit_note_allocations(invoice_id)
+  INCLUDE(amount_minor);
+CREATE INDEX credit_note_allocations_note_idx ON credit_note_allocations(credit_note_id)
+  INCLUDE(invoice_id, amount_minor);
+```
+
+```sql
+CREATE TABLE account_credit_movements (
+  id                  bigint GENERATED ALWAYS AS IDENTITY,
+  occurred_at         timestamptz NOT NULL DEFAULT now(),
+  company_id          bigint      NOT NULL,
+  event_id            bigint      NOT NULL,
+  entry_no            smallint    NOT NULL CHECK (entry_no > 0),
+  movement_type       text        NOT NULL,
+  amount_minor        bigint      NOT NULL,
+  balance_after_minor bigint,
+  reference_type      text,
+  reference_id        bigint,
+  credit_note_id      bigint,
+  order_id            bigint,
+  payment_id          bigint,
+  reason_code         text,
+  note                text,
+  actor_user_id       bigint,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (id, occurred_at),
+  UNIQUE(event_id, entry_no, occurred_at),
+  CONSTRAINT account_credit_movements_type_chk CHECK (movement_type IN
+    ('credit_note','applied_to_order','refunded_to_bank','refunded_to_card',
+     'adjustment','expiry','reversal','applied_to_invoice','payout_reserved')),
+  CONSTRAINT account_credit_movements_reason_chk
+    CHECK (movement_type <> 'adjustment' OR reason_code IS NOT NULL),
+  CONSTRAINT account_credit_movements_nonzero_chk CHECK (amount_minor <> 0)
+) PARTITION BY RANGE (occurred_at);
+
+CREATE TABLE account_credit_movements_2026 PARTITION OF account_credit_movements
+  FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
+CREATE TABLE account_credit_movements_default PARTITION OF account_credit_movements DEFAULT;
+CREATE INDEX account_credit_movements_company_idx
+  ON account_credit_movements(company_id, occurred_at, id) INCLUDE(amount_minor);
+CREATE INDEX account_credit_movements_reference_idx
+  ON account_credit_movements(reference_type, reference_id) WHERE reference_type IS NOT NULL;
+CREATE INDEX account_credit_movements_event_idx ON account_credit_movements(event_id, occurred_at);
+CREATE INDEX account_credit_movements_occurred_brin
+  ON account_credit_movements USING brin(occurred_at);
+```
+
+
+The nonpartitioned event registry supplies **global** idempotency; a partition-local
+UNIQUE cannot supply it alone. Insert registry + all movements + projections in one
+transaction; event key is derived from the domain source/action (not just a random
+HTTP request), hash rejects conflicting replays, each entry uses the registry's exact
+occurred_at and fixed entry_no. Replays return the committed result. Ledger keeps
+its deliberate no-FK write shape; reconciliation verifies registry references.
+Positive credit-note movement is followed, in the same transaction, by a negative
+applied_to_invoice movement for any debt extinguished. Only excess remains spendable.
+`credited_minor` rebuilds from signed credit_note_allocations; `paid_minor` continues
+to mean cash, not notes. Outstanding = max(0, gross − paid − credited); paid+credited
+cannot exceed gross. Invoice status/credit_used projection derive from this amount.
+Before approval/payment/credit-note writes lock company, then payment rows if any,
+then invoices in id order; any collection/stock locks precede these auxiliary locks.
+Any order/approval/hold/RMA rows come after the global resource locks, in stable id
+order. Document-number locks are acquired last, in key-name order. All writers,
+including reapers and existing cash allocation, must follow this extension.
+
+Bank/card payout needs a reservation before an external operation, even when queued:
+
+
+```sql
+CREATE TABLE account_credit_payouts (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  event_key text NOT NULL UNIQUE,
+  method text NOT NULL CHECK (method IN ('bank','original_card')),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  source_payment_id bigint REFERENCES payments(id),
+  completed_payment_id bigint REFERENCES payments(id),
+  destination_reference text NOT NULL,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','processing','paid','failed')),
+  requested_by_user_id bigint NOT NULL REFERENCES users(id),
+  approved_by_user_id bigint REFERENCES users(id),
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  CHECK (method <> 'original_card' OR source_payment_id IS NOT NULL)
+);
+CREATE INDEX account_credit_payouts_pending_idx ON account_credit_payouts(requested_at, id)
+  WHERE status IN ('pending','processing');
+```
+
+
+`destination_reference` points to an authorised protected bank-detail record/provider
+reference; never raw card data. Payout reservation debits spendable balance using
+payout_reserved; successful payment records the external result without another debit;
+definitive failure appends reversal. Unknown external outcomes stay reserved for
+reconciliation, not automatic release. No automatic balance expiry at launch.
+
+### 31.2 Self-service and PDFs (05.17)
+
+Reuse orders/order_lines/shipment snapshots, invoices, credit_notes, applications and
+attachments. No invoice_lines or credit_note_lines: 02 §14.5 deliberately derives
+those details from immutable order/RMA snapshots. A stored document payload fixes
+seller/customer details, line presentation and template version at issue, preventing
+later company or branding edits from changing a reprint. Statements fix an as-of
+cutoff and opening/closing debt and balance separately. Attachments are private.
+
+
+```sql
+CREATE TABLE document_renders (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint REFERENCES companies(id),
+  document_type text NOT NULL CHECK (document_type IN
+    ('invoice','credit_note','statement','quote','blind_packing_slip')),
+  source_id bigint NOT NULL,
+  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  template_version text NOT NULL,
+  payload jsonb NOT NULL,
+  payload_sha256 char(64) NOT NULL,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','rendering','ready','failed')),
+  attachment_id bigint REFERENCES attachments(id),
+  requested_by_user_id bigint REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  rendered_at timestamptz,
+  error_code text,
+  UNIQUE(document_type, source_id, version),
+  CHECK (status <> 'ready' OR (attachment_id IS NOT NULL AND rendered_at IS NOT NULL))
+);
+CREATE INDEX document_renders_company_idx
+  ON document_renders(company_id, created_at DESC, id DESC);
+CREATE INDEX document_renders_pending_idx ON document_renders(created_at, id)
+  WHERE status IN ('pending','failed');
+CREATE TABLE account_statements (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  from_on date NOT NULL,
+  to_on date NOT NULL,
+  cutoff_at timestamptz NOT NULL,
+  requested_by_user_id bigint NOT NULL REFERENCES users(id),
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (to_on >= from_on)
+);
+CREATE INDEX account_statements_company_idx
+  ON account_statements(company_id, requested_at DESC, id DESC);
+CREATE INDEX orders_trade_history_cursor_idx
+  ON orders(company_id, placed_at DESC, id DESC) WHERE company_id IS NOT NULL;
+CREATE INDEX invoices_trade_history_cursor_idx
+  ON invoices(company_id, issued_at DESC, id DESC) WHERE company_id IS NOT NULL;
+CREATE INDEX credit_notes_trade_history_cursor_idx
+  ON credit_notes(company_id, issued_at DESC, id DESC) WHERE company_id IS NOT NULL;
+```
+
+
+Statements use attachment type `statement`; blind slips use `shipment`, with the
+shipment's parent order determining company policy. Preserve all nine current types:
+
+```sql
+ALTER TABLE attachments DROP CONSTRAINT attachments_attachable_type_chk;
+ALTER TABLE attachments ADD CONSTRAINT attachments_attachable_type_chk CHECK (attachable_type IN
+  ('b2b_application','rma','purchase_order','container','product','sku','invoice',
+   'quote','credit_note','statement','shipment')) NOT VALID;
+ALTER TABLE attachments VALIDATE CONSTRAINT attachments_attachable_type_chk;
+```
+
+document_renders links these private attachments.
+Reconciliation asserts source/company match for the polymorphic source_id. Internal
+numeric ids never appear in routes or customer JSON; statements and renders use public_id.
+Rendered payloads and ready attachments are immutable; operational status fields may
+change. No raw technical render errors in customer responses. Applicant status reuses
+info_request/reviewed_at and existing reply attachment flow; no application table ALTER.
+
+### 31.3 Order-pad tools (05.1 §14)
+
+Reuse §14.4 saved_lists/saved_list_lines and §14.3 carts. Shared lists need a version
+for concurrent edits; imports are a staging object, not a shadow order/cart ledger.
+
+
+```sql
+ALTER TABLE saved_lists ADD COLUMN version bigint NOT NULL DEFAULT 0 CHECK (version >= 0);
+CREATE TABLE bulk_entry_imports (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  user_id bigint NOT NULL REFERENCES users(id),
+  tool text NOT NULL CHECK (tool IN ('order_pad','dropship')),
+  source text NOT NULL CHECK (source IN ('paste','csv','saved_list','reorder')),
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','processing','ready','failed','confirmed','expired')),
+  version bigint NOT NULL DEFAULT 0 CHECK (version >= 0),
+  input_sha256 char(64) NOT NULL,
+  private_storage_path text,
+  rows jsonb NOT NULL DEFAULT '[]'::jsonb,
+  confirmed_result jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  confirmed_at timestamptz,
+  CHECK (expires_at > created_at),
+  CHECK (jsonb_typeof(rows) = 'array')
+);
+CREATE INDEX saved_lists_updated_cursor_idx ON saved_lists(company_id, updated_at DESC, id DESC);
+CREATE INDEX bulk_entry_imports_owner_idx
+  ON bulk_entry_imports(company_id, user_id, created_at DESC, id DESC);
+CREATE INDEX bulk_entry_imports_expiry_idx ON bulk_entry_imports(expires_at, id);
+```
+
+
+Staging rows have a documented JSON shape in 05.1 §14; only temporary data uses JSON,
+not orders or saved list lines. Job uses the captured user/company context, never a
+worker's ambient company. Existing cart version/lock semantics govern confirmation;
+no database constraint alone can enforce SKU/pack/company cross-row ownership.
+
+### 31.4 Quotes and RFQ (05.3 §17)
+
+Adopt the existing 05.3 §5.1/§5.2/§6.3 DDL into 02 with the small proposed changes
+below. These tables are absent from the current migrations. Existing quote SQL in
+05.3 remains historical until sign-off; **this DRAFT is the proposed canonical version**.
+
+
+```sql
+CREATE TABLE quotes (
+  id                     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id              text        NOT NULL,
+  quote_number           text        NOT NULL,
+  revision               smallint    NOT NULL DEFAULT 1,
+
+  -- audience: an approved company, or a prospect not yet on file
+  company_id             bigint      REFERENCES companies (id),
+  b2b_application_id     bigint      REFERENCES b2b_applications (id),
+  contact_name           text,
+  contact_email          citext,
+  contact_phone          text,
+
+  requested_by_user_id   bigint      REFERENCES users (id),
+  owner_user_id          bigint      NOT NULL REFERENCES users (id),
+  origin                 text        NOT NULL DEFAULT 'customer_rfq',
+  status                 text        NOT NULL DEFAULT 'draft',
+
+  currency               char(3)     NOT NULL DEFAULT 'GBP' CHECK (currency = 'GBP'),
+  subtotal_net_minor     bigint      NOT NULL DEFAULT 0,
+  discount_net_minor     bigint      NOT NULL DEFAULT 0,
+  shipping_net_minor     bigint      NOT NULL DEFAULT 0,
+  tax_minor              bigint      NOT NULL DEFAULT 0,
+  total_gross_minor      bigint      NOT NULL DEFAULT 0,
+  total_cost_minor       bigint      NOT NULL DEFAULT 0,
+  spend_break_id         bigint      REFERENCES order_spend_breaks (id),
+  spend_break_discount_minor bigint  NOT NULL DEFAULT 0,
+  price_tier_snapshot    text,
+
+  reserve_stock          boolean     NOT NULL DEFAULT false CHECK (NOT reserve_stock),
+  version                bigint NOT NULL DEFAULT 0 CHECK (version >= 0),
+  expires_at             timestamptz NOT NULL,
+  customer_message       text,
+  internal_note          text,
+
+  approval_status        text        NOT NULL DEFAULT 'not_required',
+  approved_by_user_id    bigint      REFERENCES users (id),
+  approved_at            timestamptz,
+
+  sent_at                timestamptz,
+  viewed_at              timestamptz,
+  decided_at             timestamptz,
+  rejection_reason       text,
+
+  converted_order_id     bigint      REFERENCES orders (id),
+  supersedes_quote_id    bigint      REFERENCES quotes (id),
+  superseded_by_quote_id bigint      REFERENCES quotes (id),
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT quotes_number_uq          UNIQUE (quote_number),
+  CONSTRAINT quotes_public_id_uq       UNIQUE (public_id),
+  CONSTRAINT quotes_converted_order_uq UNIQUE (converted_order_id),
+  CONSTRAINT quotes_origin_chk CHECK (origin IN
+    ('customer_rfq','rep_proactive','basket_conversion')),
+  CONSTRAINT quotes_status_chk CHECK (status IN
+    ('draft','sent','viewed','accepted','rejected','expired','withdrawn','superseded')),
+  CONSTRAINT quotes_approval_chk CHECK (approval_status IN
+    ('not_required','pending','approved','rejected')),
+  CONSTRAINT quotes_audience_chk
+    CHECK (company_id IS NOT NULL OR contact_email IS NOT NULL),
+  CONSTRAINT quotes_accepted_chk CHECK (status <> 'accepted' OR decided_at IS NOT NULL)
+);
+
+CREATE INDEX quotes_company_created_idx ON quotes (company_id, created_at DESC, id DESC)
+  WHERE company_id IS NOT NULL;
+-- partial: the expiry sweep and reminder only look at live quotes
+CREATE INDEX quotes_open_expiry_idx ON quotes (expires_at)
+  WHERE status IN ('sent','viewed');
+CREATE INDEX quotes_owner_idx ON quotes (owner_user_id, created_at DESC)
+  WHERE status IN ('draft','sent','viewed');
+CREATE INDEX quotes_approval_idx ON quotes (created_at)
+  WHERE approval_status = 'pending';
+CREATE INDEX quotes_contact_email_idx ON quotes (contact_email)
+  WHERE contact_email IS NOT NULL;
+CREATE INDEX quotes_application_idx ON quotes (b2b_application_id)
+  WHERE b2b_application_id IS NOT NULL;
+```
+
+```sql
+CREATE TABLE quote_lines (
+  id                        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  quote_id                  bigint   NOT NULL REFERENCES quotes (id) ON DELETE CASCADE,
+  line_no                   smallint NOT NULL,
+  sku_id                    bigint   NOT NULL REFERENCES skus (id),
+  pack_id                   bigint   NOT NULL REFERENCES packs (id),
+
+  sku_code_snapshot         text     NOT NULL,
+  name_snapshot             text     NOT NULL,
+  pack_label_snapshot       text     NOT NULL,
+
+  pack_qty                  integer  NOT NULL,
+  pack_base_units           integer  NOT NULL,
+  base_qty                  integer  NOT NULL,
+
+  list_unit_price_e4        bigint   NOT NULL,
+  unit_price_net_e4         bigint   NOT NULL,
+  line_discount_minor       bigint   NOT NULL DEFAULT 0,
+  line_spend_discount_minor bigint   NOT NULL DEFAULT 0,
+  line_net_minor            bigint   NOT NULL,
+  tax_rate_bp               smallint NOT NULL,
+  line_tax_minor            bigint   NOT NULL,
+  line_gross_minor          bigint   NOT NULL,
+
+  price_source              text     NOT NULL DEFAULT 'base',
+  price_list_id             bigint   REFERENCES price_lists (id),
+  price_list_item_id        bigint,
+  applied_break_qty         integer,
+  override_reason_code      text,
+
+  unit_cost_e4              bigint,
+  sku_cost_id               bigint   REFERENCES sku_costs (id),
+  margin_bp                 integer,
+
+  is_optional               boolean  NOT NULL DEFAULT false,
+  is_accepted               boolean  NOT NULL DEFAULT true,
+  lead_time_days            smallint,
+
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT quote_lines_quote_line_uq     UNIQUE (quote_id, line_no),
+  CONSTRAINT quote_lines_quote_sku_pack_uq UNIQUE (quote_id, sku_id, pack_id),
+  CONSTRAINT quote_lines_price_source_chk CHECK (price_source IN
+    ('contract','customer','promotion','tier','base','manual')),
+  CONSTRAINT quote_lines_base_qty_chk CHECK (pack_qty > 0 AND pack_base_units > 0
+    AND base_qty = pack_qty * pack_base_units),
+  CONSTRAINT quote_lines_override_chk
+    CHECK (price_source <> 'manual' OR override_reason_code IS NOT NULL),
+  CONSTRAINT quote_lines_tax_chk CHECK (tax_rate_bp BETWEEN 0 AND 10000)
+);
+
+CREATE INDEX quote_lines_sku_idx ON quote_lines (sku_id, quote_id);
+-- partial: conversion only copies accepted lines
+CREATE INDEX quote_lines_accepted_idx ON quote_lines (quote_id) WHERE is_accepted;
+```
+
+```sql
+CREATE TABLE rep_category_discount_limits (
+  id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  user_id               bigint    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  category_id           bigint    NOT NULL REFERENCES categories (id) ON DELETE CASCADE,
+  max_discount_bp       smallint  NOT NULL,
+  max_quote_value_minor bigint CHECK (max_quote_value_minor IS NULL OR max_quote_value_minor >= 0),
+  granted_by_user_id    bigint    REFERENCES users (id),
+  note                  text,
+  validity              tstzrange NOT NULL DEFAULT tstzrange(now(), NULL, '[)'),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT rep_category_discount_limits_discount_chk
+    CHECK (max_discount_bp BETWEEN 0 AND 10000),
+  CONSTRAINT rep_category_discount_limits_validity_chk CHECK (NOT isempty(validity)),
+
+  -- one live grant per rep per category, enforced by the database
+  CONSTRAINT rep_category_discount_limits_no_overlap
+    EXCLUDE USING gist (user_id WITH =, category_id WITH =, validity WITH &&)
+);
+
+CREATE INDEX rep_category_discount_limits_resolve_idx
+  ON rep_category_discount_limits (user_id, category_id)
+  INCLUDE (max_discount_bp, max_quote_value_minor, validity);
+CREATE INDEX rep_category_discount_limits_category_idx
+  ON rep_category_discount_limits (category_id, user_id);
+```
+
+```sql
+ALTER TABLE orders ADD CONSTRAINT orders_quote_fk FOREIGN KEY (quote_id) REFERENCES quotes(id);
+CREATE TABLE rfqs (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id bigint NOT NULL REFERENCES companies(id),
+  requested_by_user_id bigint NOT NULL REFERENCES users(id),
+  assigned_to_user_id bigint REFERENCES users(id),
+  status text NOT NULL DEFAULT 'submitted'
+    CHECK (status IN ('submitted','assigned','quoted','declined')),
+  customer_message text,
+  response_message text,
+  quote_id bigint UNIQUE REFERENCES quotes(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX rfqs_company_queue_idx ON rfqs(company_id, created_at DESC, id DESC);
+CREATE INDEX rfqs_staff_queue_idx ON rfqs(status, created_at, id);
+CREATE TABLE rfq_lines (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  rfq_id bigint NOT NULL REFERENCES rfqs(id) ON DELETE CASCADE,
+  line_no smallint NOT NULL CHECK (line_no > 0),
+  sku_id bigint NOT NULL REFERENCES skus(id),
+  pack_id bigint NOT NULL REFERENCES packs(id),
+  pack_qty integer NOT NULL CHECK (pack_qty > 0),
+  pack_base_units integer NOT NULL CHECK (pack_base_units > 0),
+  base_qty integer NOT NULL CHECK (base_qty > 0),
+  UNIQUE(rfq_id, line_no),
+  UNIQUE(rfq_id, sku_id, pack_id),
+  CHECK (base_qty = pack_qty * pack_base_units)
+);
+CREATE TABLE quote_access_tokens (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  quote_id bigint NOT NULL REFERENCES quotes(id),
+  token_hash char(64) NOT NULL UNIQUE,
+  recipient_email citext NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (expires_at > created_at)
+);
+CREATE INDEX quote_access_tokens_quote_idx ON quote_access_tokens(quote_id);
+```
+
+
+RFQ is a buyer's request, not a priced draft quote exposed to the buyer. Company RFQs
+only at launch; prospects receive staff-created quotes. No new orders application link
+is required: quote_id -> quotes.b2b_application_id supplies the original provenance.
+
+### 31.5 Trade returns (05.4 §15)
+
+Reuse migrated rmas/rma_lines, including fee snapshots, waiver actor/reason and
+consumer/replacement amendments. Do not add a parallel trade-RMA table or duplicate
+financial lines. Proposed split trace tables preserve multiple batches/serials per line.
+
+
+```sql
+ALTER TABLE rmas ADD COLUMN fee_waived_at timestamptz;
+CREATE INDEX rmas_trade_history_cursor_idx
+  ON rmas(company_id, requested_at DESC, id DESC) WHERE company_id IS NOT NULL;
+CREATE TABLE rma_line_batches (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  rma_line_id bigint NOT NULL REFERENCES rma_lines(id),
+  batch_id bigint NOT NULL REFERENCES batches(id),
+  received_base_qty integer NOT NULL CHECK (received_base_qty > 0),
+  restocked_base_qty integer NOT NULL DEFAULT 0
+    CHECK (restocked_base_qty >= 0 AND restocked_base_qty <= received_base_qty),
+  UNIQUE(rma_line_id, batch_id)
+);
+CREATE TABLE rma_line_serials (
+  rma_line_id bigint NOT NULL REFERENCES rma_lines(id),
+  stock_serial_id bigint NOT NULL REFERENCES stock_serials(id),
+  PRIMARY KEY(rma_line_id, stock_serial_id)
+);
+```
+
+
+The service locks source shipment/serial rows and verifies these exact identifiers
+were dispatched to this company/order line, cumulative returned quantity and current
+state; sum of split quantities equals the accepted tracked quantity. Original
+rma_lines.batch_id remains a compatibility pointer only for a single batch. Receipt
+and inspection audit records preserve the original receipt even when a later
+restock decision changes; stock changes still require append-only movements.
+Settlement SQL is §31.1: allocations + ledger, no double benefit.
+
+### 31.6 Containers and landed cost (05.7 §17)
+
+Reuse migrated suppliers, purchase_orders, purchase_order_lines and containers. Adopt
+container_costs and commodity_duty_rates from 05.7 into 02; corrections below make
+negative rates impossible and input basis explicit. Launch operation is GBP only;
+existing FX-shaped columns are not permission to implement multi-currency.
+
+
+```sql
+CREATE TABLE container_costs (
+  id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  container_id         bigint      NOT NULL REFERENCES containers (id)
+                                     ON DELETE CASCADE,
+  cost_type            text        NOT NULL,
+  basis text NOT NULL CHECK (basis IN ('fob_value','weight','volume','units')),
+  apportion            boolean     NOT NULL DEFAULT true,
+  currency             char(3)     NOT NULL DEFAULT 'GBP',
+  fx_rate_e4           bigint,
+  amount_minor         bigint      NOT NULL,
+  amount_base_minor    bigint      NOT NULL CHECK (amount_base_minor >= 0),
+  supplier_invoice_ref text,
+  incurred_on          date,
+  note                 text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT container_costs_type_chk CHECK (cost_type IN
+    ('sea_freight','air_freight','insurance','duty','vat_deferred',
+     'port_handling','customs_clearance','inland_haulage',
+     'demurrage','inspection','other')),
+  CONSTRAINT container_costs_fx_chk CHECK (currency = 'GBP' AND amount_minor = amount_base_minor),
+  -- reclaimable import VAT is never a cost of goods (§6)
+  CONSTRAINT container_costs_vat_chk CHECK (cost_type <> 'vat_deferred' OR NOT apportion)
+);
+
+CREATE INDEX container_costs_container_idx ON container_costs (container_id, cost_type);
+CREATE INDEX container_costs_apportionable_idx ON container_costs (container_id)
+  INCLUDE (cost_type, amount_base_minor) WHERE apportion;
+```
+
+```sql
+CREATE TABLE commodity_duty_rates (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  hs_code        text      NOT NULL,
+  origin_country char(2),
+  duty_rate_bp   smallint  NOT NULL,
+  validity       tstzrange NOT NULL DEFAULT tstzrange(now(), NULL, '[)'),
+  note           text,
+
+  CONSTRAINT commodity_duty_rates_rate_chk CHECK (duty_rate_bp BETWEEN 0 AND 10000),
+  CONSTRAINT commodity_duty_rates_validity_chk CHECK (NOT isempty(validity)),
+  -- one rate per commodity per origin per window; NULL origin = the general rate.
+  -- origin_country is nullable, and gist EXCLUDE never fires a match between
+  -- two NULLs (NULL = NULL is unknown, not true), so two "general rate" rows
+  -- for the same hs_code with overlapping validity would both insert cleanly
+  -- without this. COALESCE collapses NULL to a real, comparable value so the
+  -- general-rate case is compared like any other. Correction 2026-09-22,
+  -- same class of bug as tax_rates_no_overlap (02 §6.2) and
+  -- order_spend_breaks_no_overlap (02 §6.7).
+  CONSTRAINT commodity_duty_rates_no_overlap
+    EXCLUDE USING gist (hs_code WITH =, COALESCE(origin_country, '') WITH =, validity WITH &&)
+);
+
+CREATE INDEX commodity_duty_rates_resolve_idx
+  ON commodity_duty_rates (hs_code, origin_country)
+  INCLUDE (duty_rate_bp, validity);
+```
+
+```sql
+ALTER TABLE containers ADD COLUMN public_id text;
+-- Backfill ULIDs before applying NOT NULL; application generates ULIDs, never DB ids.
+ALTER TABLE containers ALTER COLUMN public_id SET NOT NULL;
+ALTER TABLE containers ADD CONSTRAINT containers_public_id_uq UNIQUE(public_id);
+CREATE TABLE container_cost_runs (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  container_id bigint NOT NULL REFERENCES containers(id),
+  revision integer NOT NULL CHECK (revision > 0),
+  event_key text NOT NULL UNIQUE,
+  kind text NOT NULL CHECK (kind IN ('provisional','final','correction')),
+  input_snapshot jsonb NOT NULL,
+  input_sha256 char(64) NOT NULL,
+  correction_reason text,
+  created_by_user_id bigint NOT NULL REFERENCES users(id),
+  committed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(container_id, revision),
+  CHECK (kind <> 'correction' OR correction_reason IS NOT NULL)
+);
+CREATE INDEX container_cost_runs_latest_idx
+  ON container_cost_runs(container_id, revision DESC);
+CREATE TABLE container_cost_allocations (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  run_id bigint NOT NULL REFERENCES container_cost_runs(id),
+  container_id bigint NOT NULL REFERENCES containers(id),
+  purchase_order_line_id bigint NOT NULL REFERENCES purchase_order_lines(id),
+  sku_id bigint NOT NULL REFERENCES skus(id),
+  fob_base_minor bigint NOT NULL CHECK (fob_base_minor >= 0),
+  freight_minor bigint NOT NULL CHECK (freight_minor >= 0),
+  duty_minor bigint NOT NULL CHECK (duty_minor >= 0),
+  other_minor bigint NOT NULL CHECK (other_minor >= 0),
+  landed_total_minor bigint GENERATED ALWAYS AS
+    (fob_base_minor + freight_minor + duty_minor + other_minor) STORED,
+  base_qty integer NOT NULL CHECK (base_qty > 0),
+  unit_landed_e4 bigint NOT NULL CHECK (unit_landed_e4 >= 0),
+  basis_snapshot jsonb NOT NULL,
+  rounding_residual_minor bigint NOT NULL DEFAULT 0,
+  sku_cost_id bigint REFERENCES sku_costs(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(run_id, purchase_order_line_id)
+);
+CREATE INDEX container_cost_allocations_run_idx
+  ON container_cost_allocations(run_id, id) INCLUDE(landed_total_minor);
+CREATE INDEX container_cost_allocations_sku_idx
+  ON container_cost_allocations(sku_id, container_id);
+CREATE INDEX containers_ui_status_idx ON containers(status, eta_date, id);
+CREATE INDEX containers_ui_eta_cursor_idx ON containers(eta_date ASC NULLS LAST, id ASC);
+```
+
+
+This replaces the **unimplemented** 05.7 §7 CREATE proposal, whose unique
+(container_id, purchase_order_line_id) prevented retained revisions. Each run and
+allocation is immutable. Existing sku_costs has valid_from, not a validity range;
+append a newer cost row and never change old order-line cost snapshots. Coalesce
+multiple PO lines for the same SKU by base-quantity-weighted totals within one run.
+`basis_snapshot` stores each cost id, basis/value/total and apportioned pence for the
+line; run input_snapshot records line quantities/FOB/weight/volume and all costs.
+
+### 31.7 Reps and dropship (05.8 §16)
+
+Adopt the four existing 05.8 CREATE proposals below into 02. Add public IDs for exposed
+objects, append-only completion events and commission payout events. No staff-role
+named manager is invented; existing admin is the approval authority until separately
+approved. Dropship imports reuse §31.3 and PDFs reuse §31.2.
+
+
+```sql
+CREATE TABLE dropship_profiles (
+  id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  company_id           bigint      NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  sender_name          text        NOT NULL,
+  sender_phone         text,
+  sender_email         citext,
+  return_address       jsonb       NOT NULL,
+  logo_media_id        bigint      REFERENCES media (id),
+  note_template        text,
+  include_prices       boolean     NOT NULL DEFAULT false CHECK (NOT include_prices),
+  carriage_recharge_bp smallint,
+  status               text        NOT NULL DEFAULT 'pending_approval',
+  approved_by_user_id  bigint      REFERENCES users (id),
+  approved_at          timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT dropship_profiles_company_uq UNIQUE (company_id),
+  CONSTRAINT dropship_profiles_status_chk CHECK (status IN
+    ('pending_approval','active','suspended')),
+  CONSTRAINT dropship_profiles_recharge_chk
+    CHECK (carriage_recharge_bp IS NULL OR carriage_recharge_bp BETWEEN 0 AND 10000),
+  CONSTRAINT dropship_profiles_approved_chk
+    CHECK (status <> 'active' OR approved_by_user_id IS NOT NULL)
+);
+
+CREATE INDEX dropship_profiles_status_idx ON dropship_profiles (status);
+```
+
+```sql
+CREATE TABLE customer_activities (
+  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  company_id    bigint      NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
+  user_id       bigint      NOT NULL REFERENCES users (id),
+  activity_type text        NOT NULL,
+  subject       text,
+  body          text,
+  outcome       text,
+  follow_up_on  date,
+  related_type  text,
+  related_id    bigint,
+  occurred_at   timestamptz NOT NULL DEFAULT now(),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT customer_activities_type_chk CHECK (activity_type IN
+    ('call','visit','email','note','quote_sent','order_placed',
+     'complaint','credit_discussion','sample_sent','follow_up_completed')),
+  CONSTRAINT customer_activities_outcome_chk CHECK (outcome IS NULL
+    OR outcome IN ('positive','neutral','negative','no_contact'))
+);
+
+CREATE INDEX customer_activities_company_idx
+  ON customer_activities (company_id, occurred_at DESC, id);
+CREATE INDEX customer_activities_user_idx
+  ON customer_activities (user_id, occurred_at DESC);
+-- partial: a rep's daily list only wants outstanding follow-ups
+CREATE INDEX customer_activities_follow_up_idx
+  ON customer_activities (follow_up_on, user_id)
+  WHERE follow_up_on IS NOT NULL;
+CREATE INDEX customer_activities_related_idx
+  ON customer_activities (related_type, related_id) WHERE related_type IS NOT NULL;
+CREATE INDEX customer_activities_body_trgm
+  ON customer_activities USING gin (body gin_trgm_ops) WHERE body IS NOT NULL;
+
+CREATE UNIQUE INDEX customer_activities_followup_completed_uq
+  ON customer_activities(related_id) WHERE activity_type = 'follow_up_completed' AND related_type = 'activity';
+```
+
+```sql
+CREATE TABLE rep_commission_rules (
+  id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  user_id     bigint    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  category_id bigint    REFERENCES categories (id),
+  basis       text      NOT NULL DEFAULT 'net_margin',
+  rate_bp     smallint  NOT NULL,
+  validity    tstzrange NOT NULL DEFAULT tstzrange(now(), NULL, '[)'),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT rep_commission_rules_basis_chk
+    CHECK (basis IN ('net_margin','net_revenue')),
+  CONSTRAINT rep_commission_rules_rate_chk CHECK (rate_bp BETWEEN 0 AND 10000),
+  CONSTRAINT rep_commission_rules_validity_chk CHECK (NOT isempty(validity)),
+  -- one live rate per rep per category; NULL category = the rep default.
+  -- category_id is nullable, and gist EXCLUDE never matches two NULLs
+  -- (NULL = NULL is unknown, not true), so two overlapping "rep default"
+  -- rows for the same user_id would both insert cleanly without this.
+  -- COALESCE collapses NULL to a real, comparable value so the default
+  -- case is compared like any other category. Correction 2026-09-22,
+  -- same class of bug as tax_rates_no_overlap (02 §6.2) and
+  -- order_spend_breaks_no_overlap (02 §6.7).
+  CONSTRAINT rep_commission_rules_no_overlap
+    EXCLUDE USING gist (user_id WITH =, COALESCE(category_id, 0) WITH =, validity WITH &&)
+);
+
+CREATE INDEX rep_commission_rules_resolve_idx
+  ON rep_commission_rules (user_id, category_id)
+  INCLUDE (basis, rate_bp, validity);
+```
+
+```sql
+CREATE TABLE rep_commissions (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  user_id            bigint      NOT NULL REFERENCES users (id),
+  company_id         bigint      NOT NULL REFERENCES companies (id),
+  order_id           bigint      NOT NULL REFERENCES orders (id),
+  order_line_id      bigint      REFERENCES order_lines (id),
+  invoice_id         bigint      REFERENCES invoices (id),
+  rma_id             bigint      REFERENCES rmas (id),
+  basis              text        NOT NULL,
+  basis_amount_minor bigint      NOT NULL,
+  rate_bp            smallint    NOT NULL,
+  amount_minor       bigint      NOT NULL,
+  period_key         char(7)     NOT NULL,
+  status             text        NOT NULL DEFAULT 'accrued',
+  clawback_of_id     bigint      REFERENCES rep_commissions (id),
+  accrued_at         timestamptz NOT NULL DEFAULT now(),
+  paid_at            timestamptz,
+  note               text,
+
+
+  CONSTRAINT rep_commissions_basis_chk CHECK (basis IN ('net_margin','net_revenue')),
+  CONSTRAINT rep_commissions_status_chk CHECK (status IN
+    ('accrued','payable','paid','clawed_back','cancelled')),
+  CONSTRAINT rep_commissions_rate_chk CHECK (rate_bp BETWEEN 0 AND 10000),
+  -- a clawback is a negative row, never an edit
+  CONSTRAINT rep_commissions_sign_chk
+    CHECK ((clawback_of_id IS NULL AND amount_minor >= 0)
+        OR (clawback_of_id IS NOT NULL AND amount_minor < 0))
+);
+
+CREATE INDEX rep_commissions_user_period_idx
+  ON rep_commissions (user_id, period_key, status) INCLUDE (amount_minor);
+-- partial: the payment run only looks at what is not yet paid
+CREATE INDEX rep_commissions_payable_idx ON rep_commissions (accrued_at)
+  WHERE status IN ('accrued','payable');
+CREATE INDEX rep_commissions_order_idx ON rep_commissions (order_id);
+CREATE INDEX rep_commissions_clawback_idx ON rep_commissions (clawback_of_id)
+  WHERE clawback_of_id IS NOT NULL;
+
+CREATE UNIQUE INDEX rep_commissions_positive_accrual_uq
+  ON rep_commissions(order_line_id, invoice_id) WHERE clawback_of_id IS NULL;
+CREATE UNIQUE INDEX rep_commissions_rma_clawback_uq
+  ON rep_commissions(clawback_of_id, rma_id) WHERE clawback_of_id IS NOT NULL;
+```
+
+```sql
+CREATE TABLE rep_commission_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  public_id text NOT NULL UNIQUE,
+  commission_id bigint NOT NULL REFERENCES rep_commissions(id),
+  event_key text NOT NULL UNIQUE,
+  event_type text NOT NULL CHECK (event_type IN ('payable','paid','reversal')),
+  amount_minor bigint NOT NULL CHECK (amount_minor <> 0),
+  payment_reference text,
+  reason_code text,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  actor_user_id bigint REFERENCES users(id),
+  CHECK (event_type <> 'paid' OR payment_reference IS NOT NULL),
+  CHECK (event_type <> 'reversal' OR reason_code IS NOT NULL)
+);
+CREATE INDEX rep_commission_events_commission_idx
+  ON rep_commission_events(commission_id, occurred_at, id) INCLUDE(event_type, amount_minor);
+CREATE INDEX companies_rep_book_cursor_idx ON companies(assigned_rep_user_id, name, id);
+CREATE INDEX customer_activities_cursor_idx
+  ON customer_activities(company_id, occurred_at DESC, id DESC);
+CREATE INDEX rep_commissions_period_cursor_idx
+  ON rep_commissions(user_id, period_key, accrued_at DESC, id DESC);
+CREATE INDEX orders_rep_history_cursor_idx
+  ON orders(sales_rep_user_id, placed_at DESC, id DESC) WHERE sales_rep_user_id IS NOT NULL;
+```
+
+
+Positive accruals require non-null order_line_id and invoice_id; negative
+clawbacks require rma_id and original accrual:
+
+```sql
+ALTER TABLE rep_commissions ADD CONSTRAINT rep_commissions_source_chk CHECK (
+  order_line_id IS NOT NULL AND invoice_id IS NOT NULL
+  AND (clawback_of_id IS NULL OR rma_id IS NOT NULL));
+``` Economic commission rows never update
+status/paid_at after insert: those legacy proposal columns stay fixed; payable/paid
+status is derived from immutable events. This resolves 05.8 §10.4 versus §14's
+no-UPDATE requirement and permits two separate RMAs against one accrual.
+
+### 31.8 Append-only enforcement and adoption dependencies
+
+DRAFT reusable PostgreSQL guard for account_credit_movements, account_credit_events,
+credit_note_allocations, container_cost_runs, container_cost_allocations,
+customer_activities, rep_commissions and rep_commission_events:
+
+
+```sql
+CREATE FUNCTION reject_b2b_history_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'B2B history is append-only' USING ERRCODE = '55000';
+END;
+$$;
+-- Ledger parent row triggers cover its partitions.
+CREATE TRIGGER account_credit_movements_append_only
+  BEFORE UPDATE OR DELETE ON account_credit_movements
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER account_credit_movements_no_truncate
+  BEFORE TRUNCATE ON account_credit_movements
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER account_credit_events_append_only
+  BEFORE UPDATE OR DELETE ON account_credit_events
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER account_credit_events_no_truncate
+  BEFORE TRUNCATE ON account_credit_events
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER credit_note_allocations_append_only
+  BEFORE UPDATE OR DELETE ON credit_note_allocations
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER credit_note_allocations_no_truncate
+  BEFORE TRUNCATE ON credit_note_allocations
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER container_cost_runs_append_only
+  BEFORE UPDATE OR DELETE ON container_cost_runs
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER container_cost_runs_no_truncate
+  BEFORE TRUNCATE ON container_cost_runs
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER container_cost_allocations_append_only
+  BEFORE UPDATE OR DELETE ON container_cost_allocations
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER container_cost_allocations_no_truncate
+  BEFORE TRUNCATE ON container_cost_allocations
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER customer_activities_append_only
+  BEFORE UPDATE OR DELETE ON customer_activities
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER customer_activities_no_truncate
+  BEFORE TRUNCATE ON customer_activities
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER rep_commissions_append_only
+  BEFORE UPDATE OR DELETE ON rep_commissions
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER rep_commissions_no_truncate
+  BEFORE TRUNCATE ON rep_commissions
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER rep_commission_events_append_only
+  BEFORE UPDATE OR DELETE ON rep_commission_events
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER rep_commission_events_no_truncate
+  BEFORE TRUNCATE ON rep_commission_events
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+```
+
+
+Runtime role must lack UPDATE/DELETE/TRUNCATE and DDL rights on history tables;
+partition roles must also deny direct child writes/mutations. Runtime reads/inserts
+are allowed; role grants are a deployment amendment to review, not executed here.
+RMA receipt/inspection trace is mutable operational state with audit history, not
+one of these immutable financial tables. Document-render payload immutability is column-scoped: operational fields may change,
+but the source/template/payload is fixed. A ready attachment cannot be replaced.
+
+```sql
+CREATE FUNCTION guard_b2b_document_snapshot() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF ROW(NEW.document_type, NEW.source_id, NEW.company_id, NEW.version,
+         NEW.template_version, NEW.payload, NEW.payload_sha256)
+     IS DISTINCT FROM
+     ROW(OLD.document_type, OLD.source_id, OLD.company_id, OLD.version,
+         OLD.template_version, OLD.payload, OLD.payload_sha256)
+     OR (OLD.status = 'ready' AND ROW(NEW.attachment_id, NEW.status)
+         IS DISTINCT FROM ROW(OLD.attachment_id, OLD.status)) THEN
+    RAISE EXCEPTION 'Document snapshot is immutable' USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER document_renders_snapshot_guard BEFORE UPDATE ON document_renders
+  FOR EACH ROW EXECUTE FUNCTION guard_b2b_document_snapshot();
+CREATE TRIGGER document_renders_no_delete BEFORE DELETE ON document_renders
+  FOR EACH ROW EXECUTE FUNCTION reject_b2b_history_mutation();
+CREATE TRIGGER document_renders_no_truncate BEFORE TRUNCATE ON document_renders
+  FOR EACH STATEMENT EXECUTE FUNCTION reject_b2b_history_mutation();
+```
+
+Archive object keys are immutable/private in storage; attachment soft-delete is blocked
+for issued accounting documents by policy/retention, not used to erase an invoice.
+Statement source/date/cutoff rows are immutable with the same history guard on adoption.
+
+Adoption order: ledger/events + approval tables; render/statement + saved-list/import;
+quote/RFQ; trade trace; container costs/runs; reps/dropship. Existing tables are
+prerequisites. SQL references that form cycles (quotes/orders, RMA/credit note) use
+CREATE first and later ALTER FKs. Check historical data before new CHECK/NOT NULL,
+backfill explicitly and validate per 07 §11.1. None of this authorises migrations.

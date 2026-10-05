@@ -42,8 +42,10 @@ Conventions used below:
    `app/Domain/Delivery/ThresholdEvaluator.php` handles the independent keys and post-break
    subtotal (`DeliveryRatingTest.php`). It uses a £500 carriage fallback and no minimum when
    unset; neither is evidence of agreed go-live values. Obtain/configure the client values.
-5. **[ ] CI, not started.** No `.github/workflows/` pipeline; `composer.json` only provides
-   local quality/test scripts. §16's correctness/performance/security gates remain absent.
+5. **[x] Core CI exists.** `.github/workflows/ci.yml` runs the `quality` job on every
+   pull request (and pushes to `main`): `composer lint`, JavaScript tests/build, realtime
+   build and PHP tests against isolated PostgreSQL 16. **Partly built:** §16's remaining
+   concurrency, performance-baseline and accessibility gates still need delivery.
 6. **[ ] Partly built — audit foundation resolved, event coverage incomplete.**
    `2026_10_12_090100_create_audit_log_table.php`, `AuditLogger.php`, `AuditLoggerTest.php`
    and auth/application/member callers exist. Privileged warehouse callers and partition/
@@ -1318,10 +1320,14 @@ completely empty except for the bare `AdminPanelProvider` with no resources regi
       table first, in its own commit. After the upgrade, `composer audit` is clean and the
       two compensating controls can stay as defence in depth.
   **Audit 2026-10-05:** Not started — `composer.json` / `composer.lock` still select Laravel 11. The recorded advisories are historical; this source audit did not perform a current vulnerability-feed check. Stack amendment/upgrade remain pending.
-- [ ] `.github/workflows/ci.yml` — **does not exist.** Runs `composer lint`,
-      `composer analyse`, `composer test`, `npm run build`, and the axe-core accessibility
-      check (below) on every PR; fails the build on any CI gate from 07 §14's table.
-  **Audit 2026-10-05:** Not started — no `.github/workflows/ci.yml` or CI gates in this checkout.
+- [x] `.github/workflows/ci.yml` — core CI exists. The `quality` job runs on every
+      PR: `composer lint` (Pint + PHPStan), JavaScript tests and app build, realtime
+      gateway build, isolated PostgreSQL migrations and PHP tests.
+  **Audit correction 2026-10-05:** The previous audit missed the hidden `.github` directory.
+  Workflow source proves configuration, not a successful hosted run or required branch
+  protection. **Partly built:** axe, Lighthouse/baseline regression and the complete
+  07 §14 gate matrix remain outstanding; there is no separate `composer analyse` step,
+  but static analysis is included in `composer lint`.
 - [ ] `tests/Feature/Performance/BaselineRegressionTest.php` — 07 §2.5's "CI fails on 20%
       regression against recorded baseline" mechanism; extend the existing
       `HotPathExplainTest.php` pattern with stored baseline timings, not just plan-shape
@@ -1804,7 +1810,7 @@ work; “open question” requires a decision; “missing spec” requires signe
 | Reporting (§24) | Not started | Missing spec: 05.14 metrics/aggregate schema/refresh; dependency: stable transactional modules. Collection daily cash report is already built separately. |
 | Public integrations / POS (§25) | Not started | Deliberately deferred API/outbound webhooks; POS scope requires product-owner decision. Inbound payment/mail webhooks and collection cash do not complete either module. |
 | Demo seed / reference import (§26) | Partly built | Demo seeder exists but lacks batch/serial/ledger fixtures. Missing spec: 08 source mapping/staging/rejection plan; dependency: reference data access and agreed URL mapping. |
-| Quality, compliance, payments & PDFs (§0, §16) | Partly built | Argon2id, staff 2FA and Stripe slice built; no CI, parallel/property/baseline/a11y/redaction/GDPR/PITR suite. Real PDF renderer absent (`NullPdfRenderer` bound). Recorded Laravel upgrade requires approved stack amendment; live vulnerability/host checks were not performed. |
+| Quality, compliance, payments & PDFs (§0, §16) | Partly built | Argon2id, staff 2FA and Stripe slice built; core PR CI exists (`.github/workflows/ci.yml`, `quality`); parallel/property/baseline/a11y/redaction/GDPR/PITR coverage remains incomplete. Real PDF renderer absent (`NullPdfRenderer` bound). Recorded Laravel upgrade requires approved stack amendment; live vulnerability/host checks were not performed. |
 
 **Spec sign-off remains a separate dependency:** 05.3 (quotes), the trade portions of
 05.4, 05.8 (dropship/reps), and the container-cost/duty portions of 05.7 still carry draft
@@ -1842,7 +1848,7 @@ partial cancellation) do not sign off the rest of their parent documents.
 
 **Recommended remaining B2B build order:**
 
-1. CI/parallel-connection harness, realistic demo fixtures and import spec first: they make stock/credit/capacity claims testable; start HMRC/legal/threshold decisions alongside them.
+1. Extend existing PR CI with the parallel-connection harness and missing gates; add realistic demo fixtures and import spec first: they make stock/credit/capacity claims testable; start HMRC/legal/threshold decisions alongside them.
 2. Credit/overdue/suspension/buyer approvals, account-credit ledger, coordinated reaper/reconciliation, serial allocation and inventory events/audit: protect the shared trade order path.
 3. Applicant/buyer self-service, pad bulk/saved-list/reorder tools, collection rescheduling and packing, with pricing admin/activation validation and real PDFs: make daily trade operations usable.
 4. Resolve promotion/authority and amendment specs, then finish trade returns/cancellation and quotes; follow with landed costs/containers and rep/dropship, reusing credit/stock/documents.
