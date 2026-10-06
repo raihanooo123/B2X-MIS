@@ -4714,11 +4714,16 @@ applied_to_invoice movement for any debt extinguished. Only excess remains spend
 `credited_minor` rebuilds from signed credit_note_allocations; `paid_minor` continues
 to mean cash, not notes. Outstanding = max(0, gross − paid − credited); paid+credited
 cannot exceed gross. Invoice status/credit_used projection derive from this amount.
-Before approval/payment/credit-note writes lock company, then payment rows if any,
-then invoices in id order; any collection/stock locks precede these auxiliary locks.
-Any order/approval/hold/RMA rows come after the global resource locks, in stable id
-order. Document-number locks are acquired last, in key-name order. All writers,
-including reapers and existing cash allocation, must follow this extension.
+Writes to an existing trade order (approval decisions, funding, the reaper, payment
+after approval) lock **companies → orders → collection_slots (when booked) →
+stock_levels (sku, location, batch NULLS FIRST) → payments → invoices (id order) →
+order_approval_requests → credit_holds → collection_bookings**, matching dispatch,
+cancellation, partial cancellation, cash at collection and collection expiry, which
+all lock the order before slot and stock. Credit-note writes with no order lock
+company, then payments, then invoices in id order. Any RMA rows come after these, in
+stable id order. Document-number locks are acquired last, in key-name order. All
+writers, including reapers and existing cash allocation, must follow this extension.
+*(Corrected 2026-10-06: orders were listed after the stock and payment locks.)*
 
 Bank/card payout needs a reservation before an external operation, even when queued:
 
