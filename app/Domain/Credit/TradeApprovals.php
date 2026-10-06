@@ -94,7 +94,11 @@ final class TradeApprovals
 
         return (new DeadlockRetryPolicy)->run(fn () => DB::transaction(function () use ($requestId, $actor, $approve, $reason): OrderApprovalRequest {
             $peek = OrderApprovalRequest::query()->findOrFail($requestId, ['id', 'company_id', 'order_id']);
-            $company = Company::query()->where('id', $peek->company_id)->lockForUpdate()->firstOrFail();
+            // companies → orders → collection_slots first (CreditOrderLocks); funding adds stock after.
+            $locks = new CreditOrderLocks;
+            $head = $locks->head($peek->order_id);
+            $company = $head['company'];
+            $order = $head['order'];
             $actor = User::query()->findOrFail($actor->id);
             $request = OrderApprovalRequest::query()->findOrFail($peek->id);
             Gate::forUser($actor)->authorize('decide', $request);
@@ -110,7 +114,6 @@ final class TradeApprovals
                 throw new CreditRefused('approval_expired', 'This request expired at '.$request->expires_at->toIso8601String().'. The buyer can place the order again.', 409);
             }
 
-            $order = Order::query()->findOrFail($request->order_id);
             if ($order->status !== 'awaiting_approval') {
                 throw new CreditRefused('order_not_awaiting_approval', 'This order is no longer waiting for approval.', 409);
             }
@@ -122,8 +125,7 @@ final class TradeApprovals
                 }
             }
 
-            $locked = (new CreditOrderLocks)->lock($order->id);
-            $order = $locked['order'];
+            $locked = $head + ['booking' => $locks->tail($order->id)];
             $request->forceFill([
                 'status' => $outcome->value,
                 'decided_at' => now(),
@@ -159,8 +161,10 @@ final class TradeApprovals
             if ($peek->company_id === null || $peek->user_id !== $buyer->id) {
                 throw new CreditRefused('not_found', 'Order not found.', 404);
             }
-            $company = Company::query()->where('id', $peek->company_id)->lockForUpdate()->firstOrFail();
-            $order = Order::query()->findOrFail($orderId);
+            $locks = new CreditOrderLocks;
+            $head = $locks->head($orderId);
+            $company = $head['company'];
+            $order = $head['order'];
             $request = OrderApprovalRequest::query()->where('order_id', $order->id)
                 ->where('approval_kind', ApprovalKind::CreditException->value)->first();
             if ($order->status !== 'awaiting_approval' || $request?->status !== ApprovalStatus::Pending->value || now()->greaterThanOrEqualTo($request->expires_at)) {
@@ -171,7 +175,7 @@ final class TradeApprovals
             $order->forceFill(['payment_method' => PaymentMethod::Card->value, 'payment_status' => 'unpaid'])->save();
             $this->reserve($order);
 
-            $locked = (new CreditOrderLocks)->lock($order->id);
+            $locks->tail($order->id);
             $request->forceFill([
                 'status' => ApprovalStatus::Rejected->value,
                 'decided_at' => now(),
@@ -181,10 +185,10 @@ final class TradeApprovals
             $this->audit->decision($request, $buyer->id);
 
             if (! OrderApprovalRequest::query()->where('order_id', $order->id)->where('status', ApprovalStatus::Pending->value)->exists()) {
-                $this->release($locked['order'], $buyer->id);
+                $this->release($order, $buyer->id);
             }
 
-            return $locked['order']->refresh();
+            return $order->refresh();
         }), self::class);
     }
 
@@ -206,8 +210,8 @@ final class TradeApprovals
 
     /**
      * Accounts approves a shortfall: the credit must now be there. Funding
-     * reserves what checkout skipped, in invariant-6 order (company held →
-     * slot → stock), then the hold.
+     * reserves what checkout skipped, between CreditOrderLocks' head and
+     * tail (companies → orders → slot held; stock now), then the hold.
      */
     private function fund(Company $company, Order $order): void
     {
