@@ -75,6 +75,33 @@
     @apply gap-y-4;
 }
 
+/* List pages: no breadcrumb (the sidebar already shows where you are), and
+ * the status tabs move into the table toolbar beside the search (ToolbarTabs). */
+.fi-resource-list-records-page .fi-header .fi-breadcrumbs {
+    @apply hidden;
+}
+
+.fi-resource-list-records-page:has(.b2x-toolbar-tabs) nav.fi-tabs:not(.b2x-toolbar-tabs):not(.fi-contained) {
+    @apply hidden;
+}
+
+/* Tabs and search share the toolbar; on narrower screens the search wraps below. */
+.fi-ta-header-toolbar:has(.b2x-toolbar-tabs) {
+    @apply flex-wrap gap-y-3;
+}
+
+.fi-ta-header-toolbar .b2x-toolbar-tabs {
+    @apply mx-0 min-w-0 gap-x-0.5 rounded-lg bg-gray-100 p-1 shadow-none ring-0 dark:bg-white/5;
+}
+
+.fi-ta-header-toolbar .b2x-toolbar-tabs .fi-tabs-item {
+    @apply px-2.5 py-1.5;
+}
+
+.fi-ta-header-toolbar .b2x-toolbar-tabs .fi-tabs-item.fi-active {
+    @apply bg-white shadow-sm dark:bg-gray-800;
+}
+
 /* Page header */
 .fi-header-heading {
     @apply text-2xl tracking-tight sm:text-2xl;

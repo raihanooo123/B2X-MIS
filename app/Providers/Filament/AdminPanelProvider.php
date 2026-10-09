@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Domain\Storefront\Branding;
 use App\Filament\Pages\Dashboard;
+use App\Filament\Support\ToolbarTabs;
 use App\Http\Middleware\EnforceSessionPolicy;
 use App\Http\Middleware\RequireStaffTwoFactor;
 use App\Models\CollectionBooking;
@@ -20,6 +21,7 @@ use Filament\Navigation\NavigationItem;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\Tables\View\TablesRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -104,6 +106,8 @@ class AdminPanelProvider extends PanelProvider
                     ->url(fn (): string => route('warehouse.stocktake'))
                     ->visible(fn (): bool => Gate::allows('viewAny', Stocktake::class)),
             ])
+            // Status tabs live in the table toolbar, beside the search.
+            ->renderHook(TablesRenderHook::TOOLBAR_START, fn (): string => ToolbarTabs::render())
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
