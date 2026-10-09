@@ -33,9 +33,9 @@ class StorefrontSettingsPage extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    protected static ?string $navigationIcon = 'heroicon-o-building-storefront';
-
     protected static ?string $navigationGroup = 'Settings';
+
+    protected static ?int $navigationSort = 20;
 
     protected static ?string $navigationLabel = 'Storefront';
 

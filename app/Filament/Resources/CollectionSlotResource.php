@@ -26,9 +26,9 @@ class CollectionSlotResource extends Resource
 {
     protected static ?string $model = CollectionSlot::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
-
     protected static ?string $navigationGroup = 'Collections';
+
+    protected static ?int $navigationSort = 20;
 
     protected static ?string $navigationLabel = 'Slots';
 

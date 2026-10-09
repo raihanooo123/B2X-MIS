@@ -24,9 +24,9 @@ class OutstandingPurchaseOrderResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Outstanding POs';
 
-    protected static ?string $navigationIcon = 'heroicon-o-clock';
-
     protected static ?string $navigationGroup = 'Purchasing';
+
+    protected static ?int $navigationSort = 20;
 
     /** @return Builder<PurchaseOrderLine> */
     public static function getEloquentQuery(): Builder

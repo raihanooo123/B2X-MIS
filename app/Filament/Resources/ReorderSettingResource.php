@@ -30,9 +30,9 @@ class ReorderSettingResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Reorder settings';
 
-    protected static ?string $navigationIcon = 'heroicon-o-adjustments-horizontal';
-
     protected static ?string $navigationGroup = 'Purchasing';
+
+    protected static ?int $navigationSort = 40;
 
     /** @return Builder<ReorderSetting> */
     public static function getEloquentQuery(): Builder

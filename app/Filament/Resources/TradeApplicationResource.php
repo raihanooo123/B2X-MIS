@@ -42,8 +42,6 @@ class TradeApplicationResource extends Resource
 {
     protected static ?string $model = B2bApplication::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
-
     protected static ?string $navigationGroup = 'Customers';
 
     protected static ?string $navigationLabel = 'Trade applications';

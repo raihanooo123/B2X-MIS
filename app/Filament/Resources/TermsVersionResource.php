@@ -33,8 +33,6 @@ class TermsVersionResource extends Resource
 {
     protected static ?string $model = TermsVersion::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
-
     protected static ?string $navigationGroup = 'Settings';
 
     protected static ?string $navigationLabel = 'Terms';

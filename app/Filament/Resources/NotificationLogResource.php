@@ -22,9 +22,9 @@ class NotificationLogResource extends Resource
 {
     protected static ?string $model = NotificationLog::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-envelope';
-
     protected static ?string $navigationGroup = 'Accounts';
+
+    protected static ?int $navigationSort = 20;
 
     protected static ?string $navigationLabel = 'Notifications';
 

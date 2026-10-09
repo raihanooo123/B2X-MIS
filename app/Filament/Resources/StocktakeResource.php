@@ -30,8 +30,6 @@ class StocktakeResource extends Resource
 {
     protected static ?string $model = Stocktake::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
-
     protected static ?string $navigationGroup = 'Warehouse';
 
     protected static ?string $navigationLabel = 'Stocktake history';

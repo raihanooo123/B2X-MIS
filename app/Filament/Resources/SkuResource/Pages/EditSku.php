@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SkuResource\Pages;
 
 use App\Filament\Resources\SkuResource;
+use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditSku extends EditRecord
@@ -15,6 +16,8 @@ class EditSku extends EditRecord
      */
     protected function getHeaderActions(): array
     {
-        return [];
+        return [
+            ViewAction::make(),
+        ];
     }
 }

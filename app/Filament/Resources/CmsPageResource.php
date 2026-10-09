@@ -31,9 +31,9 @@ class CmsPageResource extends Resource
 {
     protected static ?string $model = CmsPage::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-duplicate';
-
     protected static ?string $navigationGroup = 'Content';
+
+    protected static ?int $navigationSort = 10;
 
     protected static ?string $navigationLabel = 'Pages';
 

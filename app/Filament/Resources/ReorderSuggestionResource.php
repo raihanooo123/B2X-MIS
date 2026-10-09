@@ -24,9 +24,9 @@ class ReorderSuggestionResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Reorder suggestions';
 
-    protected static ?string $navigationIcon = 'heroicon-o-arrow-path';
-
     protected static ?string $navigationGroup = 'Purchasing';
+
+    protected static ?int $navigationSort = 30;
 
     /** @return Builder<ReorderSuggestion> */
     public static function getEloquentQuery(): Builder

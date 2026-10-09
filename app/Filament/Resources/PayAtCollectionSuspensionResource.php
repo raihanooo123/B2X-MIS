@@ -27,9 +27,9 @@ class PayAtCollectionSuspensionResource extends Resource
 {
     protected static ?string $model = PayAtCollectionSuspension::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-no-symbol';
-
     protected static ?string $navigationGroup = 'Collections';
+
+    protected static ?int $navigationSort = 40;
 
     protected static ?string $navigationLabel = 'Pay at collection suspensions';
 
