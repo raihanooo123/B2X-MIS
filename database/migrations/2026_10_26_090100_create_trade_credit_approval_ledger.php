@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         DB::unprepared(<<<'SQL'
-CREATE FUNCTION reject_b2b_history_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION reject_b2b_history_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  RAISE EXCEPTION 'B2B history is append-only' USING ERRCODE = '55000';
 END;
@@ -188,7 +188,7 @@ DROP TABLE order_approval_requests;
 DROP INDEX invoices_credit_unpaid_idx;
 ALTER TABLE invoices DROP COLUMN credited_minor;
 ALTER TABLE company_users DROP CONSTRAINT company_users_order_limit_nonnegative_chk;
-DROP FUNCTION reject_b2b_history_mutation();
+DROP FUNCTION IF EXISTS reject_b2b_history_mutation();
 SQL);
     }
 };
