@@ -63,7 +63,7 @@ beforeEach(function () {
 /** A trade company on 30-day terms with £10,000 credit, and its first buyer. */
 function tafCompany(array $company = [], array $membership = []): array
 {
-    $record = Company::factory()->create(['payment_terms' => 'net30', 'credit_limit_minor' => 1_000_000] + $company);
+    $record = Company::factory()->create($company + ['payment_terms' => 'net30', 'credit_limit_minor' => 1_000_000]);
 
     return [$record, tafMember($record, $membership + ['role' => 'buyer'])];
 }

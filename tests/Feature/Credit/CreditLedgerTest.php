@@ -65,7 +65,7 @@ it('settles £120 against £100 unpaid: £100 extinguishes the debt, only £20 b
         ->and($invoice->fresh()->credited_minor)->toBe(10_000)
         ->and($invoice->fresh()->paid_minor)->toBe(0)
         ->and($invoice->fresh()->status)->toBe('credited')
-        ->and(DB::table('credit_note_allocations')->where('credit_note_id', $note->id)->sum('amount_minor'))->toBe(10_000);
+        ->and((int) DB::table('credit_note_allocations')->where('credit_note_id', $note->id)->sum('amount_minor'))->toBe(10_000);
 });
 
 it('makes the whole note balance when the goods were already paid for', function () {
@@ -140,11 +140,11 @@ it('enforces the new 02 §31.1 constraints', function () {
     $company = Company::factory()->create();
     $user = User::factory()->create();
     $order = Order::factory()->create(['company_id' => $company->id, 'user_id' => $user->id]);
-    $request = fn (array $overrides = []): array => [
+    $request = fn (array $overrides = []): array => $overrides + [
         'public_id' => (string) Str::ulid(), 'company_id' => $company->id, 'order_id' => $order->id, 'requested_by_user_id' => $user->id,
         'approval_kind' => 'buyer_limit', 'status' => 'pending', 'order_gross_minor' => 100,
         'requested_at' => now(), 'expires_at' => now()->addHours(48),
-    ] + $overrides;
+    ];
 
     expect(fn () => DB::transaction(fn () => DB::table('company_users')->insert(['company_id' => $company->id, 'user_id' => User::factory()->create()->id, 'role' => 'buyer', 'order_limit_minor' => -1])))
         ->toThrow(QueryException::class, 'company_users_order_limit_nonnegative_chk');

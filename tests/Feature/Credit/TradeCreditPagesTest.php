@@ -50,10 +50,10 @@ function tcpPending(Company $company, User $buyer, array $request = []): OrderAp
     CreditHold::factory()->create(['company_id' => $company->id, 'order_id' => $order->id, 'amount_minor' => 1200, 'status' => 'held']);
     DB::table('companies')->where('id', $company->id)->increment('credit_held_minor', 1200);
 
-    return OrderApprovalRequest::query()->create([
+    return OrderApprovalRequest::query()->create($request + [
         'company_id' => $company->id, 'order_id' => $order->id, 'requested_by_user_id' => $buyer->id, 'approval_kind' => 'buyer_limit',
         'status' => 'pending', 'order_gross_minor' => 1200, 'requested_at' => now(), 'expires_at' => now()->addHours(48),
-    ] + $request);
+    ]);
 }
 
 function tcpStaff(string $role): User

@@ -81,10 +81,10 @@ function cloOrder(string $kind = 'buyer_limit', bool $funded = true, string $met
         }
     }
 
-    $approval = OrderApprovalRequest::query()->create([
+    $approval = OrderApprovalRequest::query()->create($request + [
         'company_id' => $company->id, 'order_id' => $order->id, 'requested_by_user_id' => $buyer->id, 'approval_kind' => $kind,
         'status' => 'pending', 'order_gross_minor' => 1200, 'requested_at' => now()->subHour(), 'expires_at' => now()->addHours(47),
-    ] + $request);
+    ]);
 
     return ['order' => $order, 'request' => $approval, 'buyer' => $buyer, 'approver' => $approver];
 }

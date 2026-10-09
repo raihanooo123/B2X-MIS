@@ -59,6 +59,16 @@ class CompanyCredit extends Page implements HasForms
         return Gate::allows('manageAnyCredit', Company::class);
     }
 
+    /**
+     * Filament first requires access to the whole resource, which is
+     * admin-only (CompanyPolicy::viewAny); accounts reach this one page
+     * through manageAnyCredit instead.
+     */
+    public static function authorizeResourceAccess(): void
+    {
+        abort_unless(static::canAccess(), 403);
+    }
+
     public function getTitle(): string
     {
         return 'Credit — '.$this->company()->name;
