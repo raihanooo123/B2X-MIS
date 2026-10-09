@@ -11,6 +11,9 @@ use Filament\Widgets\TableWidget;
 /** The oldest open trade applications first, as the review queue (05.2 §5). */
 class TradeApplicationQueue extends TableWidget
 {
+    /** Rendered with the dashboard, not fetched after it loads. */
+    protected static bool $isLazy = false;
+
     protected static ?int $sort = 20;
 
     protected int|string|array $columnSpan = ['default' => 1, 'lg' => 2];

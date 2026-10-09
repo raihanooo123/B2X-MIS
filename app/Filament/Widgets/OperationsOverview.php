@@ -26,6 +26,9 @@ use Illuminate\Support\Facades\Gate;
  */
 class OperationsOverview extends StatsOverviewWidget
 {
+    /** Rendered with the dashboard, not fetched after it loads. */
+    protected static bool $isLazy = false;
+
     protected static ?int $sort = 10;
 
     protected static ?string $pollingInterval = null;

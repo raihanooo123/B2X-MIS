@@ -154,7 +154,7 @@ class ProductResource extends Resource
                                     ->rule('regex:/^\d{1,9}(\.\d{1,2})?$/')
                                     ->formatStateUsing(fn (?int $state): ?string => MoneyFormatter::minorToDecimalString($state))
                                     ->dehydrateStateUsing(fn (?string $state): ?int => MoneyFormatter::decimalStringToMinor($state))
-                                    ->helperText('Recommended retail price, pounds and pence — e.g. 12.99. Stored as whole pence; parsed as text, never as a float.'),
+                                    ->helperText('Recommended retail price in pounds and pence, e.g. 12.99.'),
                             ]),
 
                         Section::make('Record')

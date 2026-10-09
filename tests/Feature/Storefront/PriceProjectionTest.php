@@ -107,15 +107,19 @@ it('follows price, product and SKU writes, and keeps unpriced active products as
 });
 
 it('refreshes a row when a scheduled base list takes effect', function () {
-    $now = CarbonImmutable::parse('2026-10-05 12:00:00', 'UTC');
+    // Relative to the real clock, never behind it: the base list and tax rate
+    // made in beforeEach start at the database's now(), which travelTo()
+    // cannot move. Fixed dates broke this test once they fell into the past.
+    $now = CarbonImmutable::now('UTC')->addSecond();
+    $switch = $now->addDay()->startOfDay();
     $this->travelTo($now);
-    DB::table('price_lists')->where('id', $this->baseList->id)->update(['validity' => DB::raw("tstzrange('2026-01-01', '2026-10-06', '[)')")]);
-    $next = PriceList::factory()->create(['scope' => 'base', 'validity' => '[2026-10-06,)']);
+    DB::table('price_lists')->where('id', $this->baseList->id)->update(['validity' => DB::raw("tstzrange('2026-01-01', '{$switch->toIso8601String()}', '[)')")]);
+    $next = PriceList::factory()->create(['scope' => 'base', 'validity' => '['.$switch->toIso8601String().',)']);
     $product = projProduct('Scheduled Pan', [[10000, $this->standard]]);
     PriceListItem::factory()->for($next, 'priceList')->for($product->skus()->sole())->create(['min_base_qty' => 1, 'unit_price_e4' => 50000]);
 
     expect((int) projRow($product)['from_unit_net_e4'])->toBe(10000)
-        ->and(CarbonImmutable::parse(projRow($product)['stale_after'])->toDateString())->toBe('2026-10-06');
+        ->and(CarbonImmutable::parse(projRow($product)['stale_after'])->equalTo($switch))->toBeTrue();
 
     $this->travelTo($now->addDays(2));
     $this->artisan('storefront:refresh-price-projection --stale')->assertSuccessful();

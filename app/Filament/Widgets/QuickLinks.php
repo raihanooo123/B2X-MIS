@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\Gate;
 /** Shortcuts to the day's common jobs, each behind the policy of the screen it opens. */
 class QuickLinks extends Widget
 {
+    /** Rendered with the dashboard, not fetched after it loads. */
+    protected static bool $isLazy = false;
+
     protected static ?int $sort = 30;
 
     protected static string $view = 'filament.widgets.quick-links';

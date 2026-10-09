@@ -46,6 +46,10 @@ class SkuResource extends Resource
 
     protected static ?string $navigationGroup = 'Catalogue';
 
+    protected static ?string $modelLabel = 'SKU';
+
+    protected static ?string $pluralModelLabel = 'SKUs';
+
     protected static ?int $navigationSort = 20;
 
     protected static ?string $recordTitleAttribute = 'sku_code';
@@ -135,14 +139,14 @@ class SkuResource extends Resource
                             ignoreRecord: true,
                             modifyRuleUsing: fn (Unique $rule) => $rule->whereNull('deleted_at'),
                         )
-                        ->helperText('Unique across active SKUs; a duplicate is rejected here, before it reaches the database.'),
+                        ->helperText('Must be unique among active SKUs.'),
                     TextInput::make('variant_label')
                         ->maxLength(255)
                         ->helperText('How this variant differs from its siblings, e.g. "500ml" or "Blue".'),
                     TextInput::make('barcode_ean')
                         ->label('Barcode (EAN)')
                         ->maxLength(255)
-                        ->helperText('Matched against a scanned barcode on the order pad (05.1 §8.2).'),
+                        ->helperText('Used when a barcode is scanned on the order pad.'),
                     TextInput::make('supplier_ref')
                         ->label('Supplier reference')
                         ->maxLength(255),
@@ -189,7 +193,7 @@ class SkuResource extends Resource
                         ->options(self::TRACKING_MODES)
                         ->default('none')
                         ->required()
-                        ->helperText('Which SKUs enable batch/serial tracking at launch is an open decision (CLAUDE.md) — leave at "None" unless explicitly approved.'),
+                        ->helperText('Leave at "None" unless batch or serial tracking has been approved for this SKU.'),
                     Select::make('allocation_strategy')
                         ->options(self::ALLOCATION_STRATEGIES)
                         ->default('none')
@@ -235,7 +239,7 @@ class SkuResource extends Resource
                         ->options(CatalogueStatus::LIFECYCLE)
                         ->default('draft')
                         ->required()
-                        ->helperText('Only "Active" SKUs are purchasable (03 §4.6).'),
+                        ->helperText('Only active SKUs can be bought.'),
                 ]),
 
             Section::make('Tax & unit')
@@ -263,7 +267,7 @@ class SkuResource extends Resource
                     Placeholder::make('current_cost')
                         ->label('Current landed cost')
                         ->content(fn (?Sku $record): string => $record === null ? 'Available once the SKU is saved.' : self::currentCost($record))
-                        ->helperText('Visible only to admin, rep and purchasing staff (CLAUDE.md invariant 9).'),
+                        ->helperText('Visible only to admin, rep and purchasing staff.'),
                 ]),
         ];
     }
