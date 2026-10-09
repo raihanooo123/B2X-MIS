@@ -5,12 +5,18 @@ namespace App\Filament\Resources\PurchaseOrderResource\Pages;
 use App\Domain\Purchasing\PurchaseOrderService;
 use App\Filament\Resources\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
+use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 
 class EditPurchaseOrder extends EditRecord
 {
     protected static string $resource = PurchaseOrderResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [ViewAction::make()];
+    }
 
     /** @param array<string, mixed> $data
      * @return array<string, mixed>

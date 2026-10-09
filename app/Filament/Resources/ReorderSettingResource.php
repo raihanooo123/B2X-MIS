@@ -12,7 +12,6 @@ use Filament\Resources\Resource;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -37,31 +36,57 @@ class ReorderSettingResource extends Resource
     /** @return Builder<ReorderSetting> */
     public static function getEloquentQuery(): Builder
     {
-        return app(ReorderSettingsService::class)->query()->with(['sku', 'location']);
+        return app(ReorderSettingsService::class)->query()->with(['sku.product', 'location']);
     }
 
     public static function table(Table $table): Table
     {
-        return $table->columns([
-            TextColumn::make('sku.sku_code')->label('SKU')->searchable(),
-            TextColumn::make('location.code')->label('Location'),
-            TextColumn::make('available_base_qty')->label('Available')->alignEnd()->sortable(),
-            TextColumn::make('incoming_base_qty')->label('On order')->alignEnd()->sortable(),
-            TextColumn::make('reorder_point_base_qty')->label('Reorder point')->alignEnd()->sortable()
-                ->formatStateUsing(fn (int $state): string => $state === 0 ? 'Not set' : (string) $state),
-            TextColumn::make('reorder_qty_base_qty')->label('Reorder qty')->alignEnd()->sortable(),
-        ])->filters([
-            TernaryFilter::make('has_reorder_point')->label('Reorder point')
-                ->trueLabel('Set')->falseLabel('Not set')
-                ->queries(
-                    true: fn (Builder $query) => $query->where('reorder_point_base_qty', '>', 0),
-                    false: fn (Builder $query) => $query->where('reorder_point_base_qty', 0),
-                ),
-            SelectFilter::make('location_id')->label('Location')
-                ->options(fn (): array => Location::query()->where('is_sellable', true)->orderBy('name')->pluck('name', 'id')->all()),
-        ])->actions([
-            self::editAction(),
-        ])->defaultSort('sku_id');
+        return $table
+            ->columns([
+                TextColumn::make('sku.sku_code')
+                    ->label('SKU')
+                    ->weight('medium')
+                    ->fontFamily('mono')
+                    ->description(fn (ReorderSetting $record): ?string => $record->sku?->product?->name)
+                    ->searchable(),
+                TextColumn::make('location.name')
+                    ->label('Location')
+                    ->toggleable(),
+                TextColumn::make('available_base_qty')
+                    ->label('Available')
+                    ->numeric()
+                    ->alignEnd()
+                    ->sortable(),
+                TextColumn::make('incoming_base_qty')
+                    ->label('On order')
+                    ->numeric()
+                    ->alignEnd()
+                    ->sortable(),
+                TextColumn::make('reorder_point_base_qty')
+                    ->label('Reorder point')
+                    ->alignEnd()
+                    ->sortable()
+                    ->weight(fn (int $state): string => $state === 0 ? 'normal' : 'semibold')
+                    ->color(fn (int $state): ?string => $state === 0 ? 'gray' : null)
+                    ->formatStateUsing(fn (int $state): string => $state === 0 ? 'Not set' : (string) $state),
+                TextColumn::make('reorder_qty_base_qty')
+                    ->label('Reorder quantity')
+                    ->numeric()
+                    ->alignEnd()
+                    ->sortable(),
+            ])
+            ->filters([
+                SelectFilter::make('location_id')->label('Location')
+                    ->options(fn (): array => Location::query()->where('is_sellable', true)->orderBy('name')->pluck('name', 'id')->all()),
+            ])
+            ->actions([
+                self::editAction(),
+            ])
+            ->striped()
+            ->defaultSort('sku_id')
+            ->emptyStateIcon('heroicon-o-adjustments-horizontal')
+            ->emptyStateHeading('No stock-tracked SKUs')
+            ->emptyStateDescription('Active, stock-tracked SKUs appear here once per sellable location.');
     }
 
     /**
@@ -71,20 +96,21 @@ class ReorderSettingResource extends Resource
     public static function editAction(): Action
     {
         return Action::make('editReorderLevels')
-            ->label('Edit reorder levels')
+            ->label('Set levels')
             ->icon('heroicon-o-pencil-square')
+            ->modalHeading('Reorder levels')
             ->visible(fn (): bool => Gate::allows('update', ReorderSetting::class))
-            ->modalDescription('Units, not packs. A reorder point of 0 stops suggestions for this SKU here.')
+            ->modalDescription('In base units, not packs. Set the reorder point to 0 to stop suggestions for this SKU at this location.')
             ->fillForm(fn (Model $record): array => [
                 'reorder_point_base_qty' => $record->getAttribute('reorder_point_base_qty'),
                 'reorder_qty_base_qty' => $record->getAttribute('reorder_qty_base_qty'),
             ])
             ->form([
                 TextInput::make('reorder_point_base_qty')->label('Reorder point (units)')
-                    ->helperText('Suggest a reorder when available + on order falls to this.')
+                    ->helperText('Suggest buying more when available stock plus stock on order falls to this.')
                     ->integer()->minValue(0)->maxValue(2147483647)->required(),
                 TextInput::make('reorder_qty_base_qty')->label('Reorder quantity (units)')
-                    ->helperText('The least a suggestion will ever propose.')
+                    ->helperText('The smallest amount a suggestion will propose.')
                     ->integer()->minValue(0)->maxValue(2147483647)->required(),
             ])
             ->action(function (Action $action, Model $record, array $data): void {

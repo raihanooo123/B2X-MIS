@@ -30,6 +30,8 @@ use Illuminate\Support\Carbon;
  * @property int $goods_total_base_minor
  * @property Carbon|null $expected_at
  * @property Carbon|null $received_at
+ * @property string|null $supplier_reference
+ * @property string|null $note
  */
 class PurchaseOrder extends Model
 {
