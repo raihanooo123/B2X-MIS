@@ -32,13 +32,22 @@ final class StatusTabs
     /**
      * One tab per group of statuses, e.g. "Open" covering several.
      *
-     * @param  class-string<Model>  $model
+     * `$source` is a model class, or the resource's own scoped query when
+     * the list shows only some of the model's rows (customer users, not staff).
+     *
+     * @template TModel of Model
+     *
+     * @param  class-string<TModel>|Builder<TModel>  $source
      * @param  array<string, array{0: string, 1: list<string>, 2: string}>  $groups  key => [label, statuses, badge colour]
      * @return array<string, Tab>
      */
-    public static function groups(string $model, array $groups): array
+    public static function groups(string|Builder $source, array $groups): array
     {
-        $counts = $model::query()
+        $query = is_string($source) ? $source::query() : $source->clone();
+
+        $counts = $query
+            ->toBase()
+            ->reorder()
             ->selectRaw('status, COUNT(*) AS n')
             ->groupBy('status')
             ->pluck('n', 'status');
