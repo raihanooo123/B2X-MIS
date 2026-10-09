@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\OutstandingPurchaseOrderResource\Pages;
 use App\Filament\Support\PurchasingStatus;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Location;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderLine;
@@ -17,6 +18,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class OutstandingPurchaseOrderResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = PurchaseOrderLine::class;
 
     protected static ?string $slug = 'outstanding-purchase-orders';

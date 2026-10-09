@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\CategoryResource\Pages;
 use App\Filament\Support\CatalogueStatus;
 use App\Filament\Support\CategoryTree;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Category;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
@@ -18,7 +19,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -35,6 +35,8 @@ use Illuminate\Support\Str;
  */
 class CategoryResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Category::class;
 
     protected static ?string $navigationGroup = 'Catalogue';
@@ -209,10 +211,8 @@ class CategoryResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->iconButton()->tooltip('Edit'),
             ])
             ->emptyStateIcon('heroicon-o-folder')
             ->emptyStateHeading('No categories yet')

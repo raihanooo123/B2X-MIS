@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Domain\Purchasing\ReorderSettingsService;
 use App\Filament\Resources\ReorderSettingResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Location;
 use App\Models\ReorderSetting;
 use Filament\Forms\Components\TextInput;
@@ -21,6 +22,8 @@ use Illuminate\Validation\ValidationException;
 /** 05.7 §10.7 — where purchasing opts a SKU into reorder suggestions. */
 class ReorderSettingResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = ReorderSetting::class;
 
     protected static ?string $slug = 'reorder-settings';

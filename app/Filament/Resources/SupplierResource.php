@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\SupplierResource\Pages;
 use App\Filament\Resources\SupplierResource\RelationManagers\PurchaseOrdersRelationManager;
 use App\Filament\Support\PurchasingStatus;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use Filament\Forms\Components\Group;
@@ -18,7 +19,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -28,6 +28,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class SupplierResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Supplier::class;
 
     protected static ?string $navigationGroup = 'Purchasing';
@@ -257,10 +259,8 @@ class SupplierResource extends Resource
                     ->options(fn (): array => Supplier::query()->distinct()->orderBy('country_code')->pluck('country_code', 'country_code')->all()),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->iconButton()->tooltip('Edit'),
             ])
             ->striped()
             ->defaultSort('name')

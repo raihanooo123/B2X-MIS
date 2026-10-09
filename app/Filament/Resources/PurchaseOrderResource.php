@@ -6,6 +6,7 @@ use App\Filament\Resources\PurchaseOrderResource\Pages;
 use App\Filament\Resources\PurchaseOrderResource\RelationManagers\LinesRelationManager;
 use App\Filament\Support\MoneyFormatter;
 use App\Filament\Support\PurchasingStatus;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Location;
 use App\Models\Pack;
 use App\Models\PurchaseOrder;
@@ -27,7 +28,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -37,6 +37,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class PurchaseOrderResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = PurchaseOrder::class;
 
     protected static ?string $navigationGroup = 'Purchasing';
@@ -254,10 +256,8 @@ class PurchaseOrderResource extends Resource
                     ->options(fn (): array => Location::query()->orderBy('name')->pluck('name', 'id')->all()),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make()->visible(fn (PurchaseOrder $record): bool => $record->status === 'draft'),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->visible(fn (PurchaseOrder $record): bool => $record->status === 'draft')->iconButton()->tooltip('Edit'),
             ])
             ->striped()
             ->defaultSort('created_at', 'desc')

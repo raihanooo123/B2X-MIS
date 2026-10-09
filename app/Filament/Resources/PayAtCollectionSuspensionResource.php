@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Domain\Collection\CashRefused;
 use App\Domain\Collection\PayAtCollectionSuspensions;
 use App\Filament\Resources\PayAtCollectionSuspensionResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\PayAtCollectionSuspension;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -25,6 +26,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class PayAtCollectionSuspensionResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = PayAtCollectionSuspension::class;
 
     protected static ?string $navigationGroup = 'Collections';

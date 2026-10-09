@@ -7,6 +7,7 @@ use App\Filament\Resources\ProductResource\RelationManagers\SkusRelationManager;
 use App\Filament\Support\CatalogueStatus;
 use App\Filament\Support\CategoryTree;
 use App\Filament\Support\MoneyFormatter;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Product;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Group;
@@ -26,7 +27,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -47,6 +47,8 @@ use Throwable;
  */
 class ProductResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Product::class;
 
     protected static ?string $navigationGroup = 'Catalogue';
@@ -335,10 +337,8 @@ class ProductResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->iconButton()->tooltip('Edit'),
             ])
             ->filters([
                 SelectFilter::make('brand_id')

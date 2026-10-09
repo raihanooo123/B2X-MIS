@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Domain\Collection\CollectionSlots;
 use App\Filament\Resources\CollectionSlotResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\CollectionSlot;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class CollectionSlotResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = CollectionSlot::class;
 
     protected static ?string $navigationGroup = 'Collections';

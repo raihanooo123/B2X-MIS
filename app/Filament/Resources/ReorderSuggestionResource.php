@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Domain\Purchasing\ReorderSuggestionService;
 use App\Filament\Resources\ReorderSuggestionResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Location;
 use App\Models\ReorderSuggestion;
 use App\Models\Supplier;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
 /** 05.7 §10 — advisory; purchasing reviews and edits before raising a PO. */
 class ReorderSuggestionResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = ReorderSuggestion::class;
 
     protected static ?string $slug = 'reorder-suggestions';
@@ -66,11 +69,11 @@ class ReorderSuggestionResource extends Resource
                     ]))),
                 TextColumn::make('available_base_qty')->label('Available')->numeric()->alignEnd()->sortable(),
                 TextColumn::make('incoming_base_qty')->label('On order')->numeric()->alignEnd()->sortable(),
-                TextColumn::make('sold_base_qty')->label('Sold')->numeric()->alignEnd()->sortable()
+                TextColumn::make('sold_base_qty')->label('Sold')->numeric()->alignEnd()->sortable()->toggleable(isToggledHiddenByDefault: true)
                     ->description(fn (ReorderSuggestion $record): string => "last {$record->sales_window_days} days"),
                 TextColumn::make('cover_days')->label('Lasts')->suffix(' days')->alignEnd()->sortable()->placeholder('No sales'),
-                TextColumn::make('supplier.name')->label('Last supplier')->placeholder('No PO yet')->toggleable(),
-                TextColumn::make('location.name')->label('Location')->toggleable(),
+                TextColumn::make('supplier.name')->label('Last supplier')->placeholder('No PO yet')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('location.name')->label('Location')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('reorder_point_base_qty')->label('Reorder point')->numeric()->alignEnd()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('lead_time_days')->label('Lead time')->suffix(' days')->alignEnd()->toggleable(isToggledHiddenByDefault: true),
             ])

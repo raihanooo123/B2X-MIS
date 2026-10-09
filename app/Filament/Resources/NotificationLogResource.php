@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Domain\Notifications\NotificationKey;
 use App\Domain\Notifications\NotificationStatus;
 use App\Filament\Resources\NotificationLogResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\NotificationLog;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class NotificationLogResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = NotificationLog::class;
 
     protected static ?string $navigationGroup = 'Accounts';

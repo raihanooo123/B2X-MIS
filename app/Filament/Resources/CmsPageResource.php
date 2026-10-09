@@ -7,6 +7,7 @@ use App\Domain\Cms\PageKey;
 use App\Domain\Cms\SafeMarkdown;
 use App\Filament\Resources\CmsPageResource\Pages;
 use App\Filament\Resources\CmsPageResource\RelationManagers\VersionsRelationManager;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\CmsPage;
 use Filament\Forms\Components\MarkdownEditor;
 use Filament\Forms\Components\Placeholder;
@@ -29,6 +30,8 @@ use Illuminate\Support\HtmlString;
  */
 class CmsPageResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = CmsPage::class;
 
     protected static ?string $navigationGroup = 'Content';

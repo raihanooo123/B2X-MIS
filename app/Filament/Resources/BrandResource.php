@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\BrandResource\Pages;
 use App\Filament\Support\CatalogueStatus;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Brand;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
@@ -18,7 +19,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -31,6 +31,8 @@ use Illuminate\Support\Str;
  */
 class BrandResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Brand::class;
 
     protected static ?string $navigationGroup = 'Catalogue';
@@ -170,10 +172,8 @@ class BrandResource extends Resource
                     ->sortable(),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->iconButton()->tooltip('Edit'),
             ])
             ->striped()
             ->defaultSort('name')

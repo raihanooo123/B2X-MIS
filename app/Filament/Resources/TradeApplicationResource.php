@@ -14,6 +14,7 @@ use App\Domain\Delivery\ZoneResolver;
 use App\Domain\Identity\BusinessType;
 use App\Filament\Resources\TradeApplicationResource\Pages;
 use App\Filament\Support\MoneyFormatter;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Attachment;
 use App\Models\B2bApplication;
 use App\Models\CompaniesHouseCheck;
@@ -40,6 +41,8 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class TradeApplicationResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = B2bApplication::class;
 
     protected static ?string $navigationGroup = 'Customers';

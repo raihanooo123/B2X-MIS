@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Domain\Accounts\TermsKind;
 use App\Filament\Resources\TermsVersionResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\TermsVersion;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DateTimePicker;
@@ -31,6 +32,8 @@ use Illuminate\Support\Str;
  */
 class TermsVersionResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = TermsVersion::class;
 
     protected static ?string $navigationGroup = 'Settings';

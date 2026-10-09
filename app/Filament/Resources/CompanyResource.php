@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CompanyResource\Pages;
 use App\Filament\Resources\CompanyResource\RelationManagers;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Company;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -15,6 +16,8 @@ use Filament\Tables\Table;
 /** Admin-only directory; member writes go through the same services as the owner UI. */
 class CompanyResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Company::class;
 
     protected static ?string $navigationGroup = 'Customers';

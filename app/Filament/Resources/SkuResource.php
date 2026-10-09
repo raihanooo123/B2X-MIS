@@ -6,6 +6,7 @@ use App\Filament\Resources\SkuResource\Pages;
 use App\Filament\Resources\SkuResource\RelationManagers\PacksRelationManager;
 use App\Filament\Support\CatalogueStatus;
 use App\Filament\Support\MoneyFormatter;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Sku;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Placeholder;
@@ -21,7 +22,6 @@ use Filament\Infolists\Components\Section as InfolistSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -42,6 +42,8 @@ use Illuminate\Validation\Rules\Unique;
  */
 class SkuResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Sku::class;
 
     protected static ?string $navigationGroup = 'Catalogue';
@@ -436,10 +438,8 @@ class SkuResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
-                ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                ]),
+                ViewAction::make()->iconButton()->tooltip('View'),
+                EditAction::make()->iconButton()->tooltip('Edit'),
             ])
             ->filters([
                 SelectFilter::make('tax_class_id')

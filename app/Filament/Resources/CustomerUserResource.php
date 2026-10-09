@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerUserResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\B2bApplication;
 use App\Models\User;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -29,6 +30,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class CustomerUserResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = User::class;
 
     protected static ?string $navigationGroup = 'Customers';
