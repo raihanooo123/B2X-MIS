@@ -60,6 +60,21 @@
     @apply h-16 border-b border-gray-200 shadow-none ring-0 dark:border-white/10;
 }
 
+/* Page rhythm: tighter than Filament's default 2rem gaps, so lists start near the top */
+.fi-page > section {
+    @apply gap-y-5 py-5;
+}
+
+/* List status tabs: left-aligned with the table, compact, not a floating centred bar */
+.fi-resource-list-records-page .fi-tabs,
+.fi-resource-manage-related-records-page .fi-tabs {
+    @apply mx-0 p-1;
+}
+
+.fi-resource-list-records-page > section > div {
+    @apply gap-y-4;
+}
+
 /* Page header */
 .fi-header-heading {
     @apply text-2xl tracking-tight sm:text-2xl;
