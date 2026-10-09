@@ -277,6 +277,49 @@ it('takes staff with 2FA through the challenge and on to the panel', function ()
     $this->post('/two-factor-challenge', ['code' => currentTotp()])->assertRedirect(url('/admin'));
 });
 
+it('sends staff to the dashboard, not to a storefront page they were browsing before signing in', function () {
+    $staff = signInStaff('admin', twoFactor: true);
+
+    $this->withSession(['url.intended' => url('/products/some-product')])
+        ->post('/login', ['email' => $staff->email, 'password' => SIGN_IN_PASSWORD]);
+    $this->post('/two-factor-challenge', ['code' => currentTotp()])
+        ->assertRedirect(route('filament.admin.pages.dashboard'));
+
+    expect(session()->has('url.intended'))->toBeFalse();
+});
+
+it('returns staff to the panel page they were sent away from', function () {
+    $staff = signInStaff('admin', twoFactor: true);
+
+    $this->get('/admin/products')->assertRedirect(route('login'));
+    $this->post('/login', ['email' => $staff->email, 'password' => SIGN_IN_PASSWORD]);
+    $this->post('/two-factor-challenge', ['code' => currentTotp()])->assertRedirect(url('/admin/products'));
+});
+
+it('sends an Inertia sign-in to the panel with a full page visit, since the panel is not an Inertia page', function () {
+    $staff = signInStaff('admin', twoFactor: true);
+    $inertia = ['X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest'];
+
+    $this->withHeaders($inertia)
+        ->post('/login', ['email' => $staff->email, 'password' => SIGN_IN_PASSWORD])
+        ->assertRedirect(route('two-factor.challenge'));
+
+    $this->withHeaders($inertia)
+        ->post('/two-factor-challenge', ['code' => currentTotp()])
+        ->assertStatus(409)
+        ->assertHeader('X-Inertia-Location', route('filament.admin.pages.dashboard'));
+
+    $this->assertAuthenticatedAs($staff);
+});
+
+it('keeps an Inertia sign-in for a customer as an ordinary redirect', function () {
+    $user = signInUser();
+
+    $this->withHeaders(['X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest'])
+        ->post('/login', ['email' => $user->email, 'password' => SIGN_IN_PASSWORD])
+        ->assertRedirect(route('home'));
+});
+
 it('signs out', function () {
     $user = signInUser();
     $this->post('/login', ['email' => $user->email, 'password' => SIGN_IN_PASSWORD]);

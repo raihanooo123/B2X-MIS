@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * 05.13 §12.3 — the second step of sign-in. The password was right; the
@@ -30,7 +31,7 @@ class TwoFactorChallengeController extends Controller
         return Inertia::render('Auth/TwoFactorChallenge');
     }
 
-    public function store(TwoFactorCodeRequest $request): RedirectResponse
+    public function store(TwoFactorCodeRequest $request): SymfonyResponse
     {
         $user = $this->signIn->pendingTwoFactorUser($request);
         if ($user === null) {
