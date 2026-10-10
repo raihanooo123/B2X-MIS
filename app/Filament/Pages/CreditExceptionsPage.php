@@ -42,8 +42,6 @@ class CreditExceptionsPage extends Page implements HasTable
 {
     use InteractsWithTable;
 
-    protected static ?string $navigationIcon = 'heroicon-o-scale';
-
     protected static ?string $navigationGroup = 'Customers';
 
     protected static ?string $navigationLabel = 'Credit control';
