@@ -63,6 +63,8 @@ function stmCash(Invoice $invoice, int $amount, string $at): void
         'payment_id' => Payment::factory()->create(['company_id' => $invoice->company_id, 'amount_minor' => abs($amount)])->id,
         'invoice_id' => $invoice->id,
         'amount_minor' => $amount,
+        // A negative allocation is a reversal, which must carry a reason (payment_allocations_reason_chk).
+        'reason_code' => $amount < 0 ? 'reversal' : null,
         'allocated_at' => CarbonImmutable::parse($at, 'UTC'),
     ]);
 }

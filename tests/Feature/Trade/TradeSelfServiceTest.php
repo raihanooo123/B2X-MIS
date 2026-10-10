@@ -291,6 +291,7 @@ it('keeps queries constant as the order history grows', function () {
     };
 
     tssOrder($company);
+    $count(); // warm-up: one-off per-session lookups land here, not in the comparison
     $few = $count();
     foreach (range(1, 30) as $i) {
         tssOrder($company);

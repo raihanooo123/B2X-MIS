@@ -208,7 +208,8 @@ it('refuses, in the database, any change to a payload or a ready archive', funct
 it('captures a credit note when issued, whichever service issues it', function () {
     $company = Company::factory()->create();
     $order = drOrder(['company_id' => $company->id]);
-    NumberSequence::factory()->forSeries('credit_note_number', 'CN-')->create(['next_value' => 1, 'padding' => 6]);
+    // The credit_note_number series is seeded by its migration.
+    NumberSequence::query()->updateOrCreate(['key_name' => 'credit_note_number'], ['prefix' => 'CN-', 'next_value' => 1, 'padding' => 6]);
 
     $note = CreditNote::query()->create([
         'credit_note_number' => 'CN-000001', 'company_id' => $company->id, 'order_id' => $order->id,
