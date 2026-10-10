@@ -24,12 +24,11 @@
  * quantity is shown but deliberately not pre-filled: pre-filling it is
  * the workaround 05.5 §4.4 warns loses the variance.
  */
-import { Head } from '@inertiajs/react';
 import { AlertTriangle, Check, PackageCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
+import { EmptyState, ErrorState, LoadingState } from '@/components/warehouse/states';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError as describe, formatTime, useScanFocus } from '@/components/warehouse/scan';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,26 +97,13 @@ export default function GoodsIn(props: GoodsInProps) {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Goods in" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <PackageCheck className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Goods in</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-6xl space-y-6 px-4 pt-6">
-                {receiptId === null ? (
-                    <StartPanel {...props} onOpened={go} />
-                ) : (
-                    <ReceiptPanel key={receiptId} receiptId={receiptId} props={props} onLeave={() => go(null)} />
-                )}
-            </main>
-        </div>
+        <WarehouseShell title="Goods in" icon={PackageCheck} wide>
+            {receiptId === null ? (
+                <StartPanel {...props} onOpened={go} />
+            ) : (
+                <ReceiptPanel key={receiptId} receiptId={receiptId} props={props} onLeave={() => go(null)} />
+            )}
+        </WarehouseShell>
     );
 }
 
@@ -166,7 +152,7 @@ function StartPanel({ open_receipts: openReceipts, locations, can_receive: canRe
             {message && <Notice tone={message.tone}>{message.text}</Notice>}
 
             {canReceive && (
-                <section aria-labelledby="manual-heading" className="rounded-xl border border-slate-300 bg-white p-4">
+                <section aria-labelledby="manual-heading" className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                     <h2 id="manual-heading" className="text-xl font-semibold">
                         No paperwork?
                     </h2>
@@ -201,12 +187,12 @@ function StartPanel({ open_receipts: openReceipts, locations, can_receive: canRe
                     Open receipts
                 </h2>
                 {openReceipts.length === 0 ? (
-                    <p className="text-base text-slate-600">None open.</p>
+                    <EmptyState icon={PackageCheck} title="No receipts open">Scan a PO number or container reference above to start receiving.</EmptyState>
                 ) : (
                     <ul className="grid gap-2 sm:grid-cols-2">
                         {openReceipts.map((r) => (
                             <li key={r.id}>
-                                <Button type="button" variant="outline" className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base" onClick={() => onOpened(r.id)}>
+                                <Button type="button" variant="outline" className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50" onClick={() => onOpened(r.id)}>
                                     <span>
                                         <span className={cn('block font-semibold', MONO)}>{r.reference ?? 'Manual receipt'}</span>
                                         <span className="block text-sm text-slate-600">
@@ -316,23 +302,22 @@ function ReceiptPanel({ receiptId, props, onLeave }: { receiptId: Ulid; props: G
     };
 
     if (receiptQuery.isPending) {
-        return <Notice tone="info">Loading receipt…</Notice>;
+        return <LoadingState label="Loading receipt…" />;
     }
 
     if (receipt === undefined) {
         return (
-            <>
-                <Notice tone="error">{describe(receiptQuery.error)}</Notice>
+            <ErrorState message={describe(receiptQuery.error)} onRetry={() => void receiptQuery.refetch()}>
                 <Button type="button" variant="outline" className={TARGET} onClick={onLeave}>
                     Back to goods in
                 </Button>
-            </>
+            </ErrorState>
         );
     }
 
     return (
         <>
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white p-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                 <div>
                     <p className="text-sm uppercase tracking-wide text-slate-600">{receipt.source === 'manual' ? 'Manual receipt' : receipt.source === 'container' ? 'Container' : 'Purchase order'}</p>
                     <p className={cn('text-2xl font-bold', MONO)}>{receipt.reference ?? 'No reference'}</p>
@@ -394,7 +379,7 @@ function Choices({ choices, onChoose, onCancel }: { choices: EntryTarget[]; onCh
     useEffect(() => first.current?.focus(), []);
 
     return (
-        <section aria-labelledby="choices-heading" className="rounded-xl border-2 border-slate-800 bg-white p-4" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+        <section aria-labelledby="choices-heading" className="rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-4" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
             <h2 id="choices-heading" className="mb-3 text-xl font-semibold">
                 Which one?
             </h2>
@@ -422,38 +407,38 @@ function Choices({ choices, onChoose, onCancel }: { choices: EntryTarget[]; onCh
 
 function ExpectedTable({ lines, canStart, onStart }: { lines: ExpectedLine[]; canStart: boolean; onStart: (l: ExpectedLine) => void }) {
     return (
-        <section aria-labelledby="expected-heading" className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
+        <section aria-labelledby="expected-heading" className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
             <h2 id="expected-heading" className="px-4 pt-4 text-xl font-semibold">
                 Expected
             </h2>
             <table className="mt-2 w-full text-left text-base">
-                <thead className="border-b border-slate-300 text-sm uppercase tracking-wide text-slate-600">
+                <thead className="border-y border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     <tr>
-                        <th scope="col" className="px-4 py-2">PO line</th>
-                        <th scope="col" className="px-4 py-2">SKU</th>
-                        <th scope="col" className="px-4 py-2">Ordered</th>
-                        <th scope="col" className="px-4 py-2 text-right">Received</th>
-                        <th scope="col" className="px-4 py-2 text-right">Outstanding</th>
-                        <th scope="col" className="px-4 py-2"><span className="sr-only">Action</span></th>
+                        <th scope="col" className="px-4 py-3">PO line</th>
+                        <th scope="col" className="px-4 py-3">SKU</th>
+                        <th scope="col" className="px-4 py-3">Ordered</th>
+                        <th scope="col" className="px-4 py-3 text-right">Received</th>
+                        <th scope="col" className="px-4 py-3 text-right">Outstanding</th>
+                        <th scope="col" className="px-4 py-3"><span className="sr-only">Action</span></th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-100">
                     {lines.map((l) => {
                         const done = l.outstanding_base_qty === 0;
 
                         return (
-                            <tr key={`${l.po_number}:${l.line_no}`} className={cn(done && 'bg-emerald-50')}>
-                                <td className={cn('px-4 py-2', MONO)}>
+                            <tr key={`${l.po_number}:${l.line_no}`} className={cn(done && 'bg-emerald-50/60')}>
+                                <td className={cn('px-4 py-3', MONO)}>
                                     {l.po_number}/{l.line_no}
                                 </td>
-                                <td className="px-4 py-2">
+                                <td className="px-4 py-3">
                                     <span className={cn('block font-semibold', MONO)}>{l.sku?.sku_code}</span>
                                     <span className="block text-sm text-slate-600">{l.sku?.name}</span>
                                 </td>
-                                <td className="px-4 py-2">{packEquivalent(l.ordered_pack_qty, l.pack_label ?? 'packs', l.pack_base_units)}</td>
-                                <td className="px-4 py-2 text-right tabular-nums">{l.received_base_qty.toLocaleString('en-GB')}</td>
-                                <td className="px-4 py-2 text-right font-semibold tabular-nums">{done ? <Check className="ml-auto size-5 text-emerald-700" aria-label="Complete" /> : l.outstanding_base_qty.toLocaleString('en-GB')}</td>
-                                <td className="px-4 py-2 text-right">
+                                <td className="px-4 py-3">{packEquivalent(l.ordered_pack_qty, l.pack_label ?? 'packs', l.pack_base_units)}</td>
+                                <td className="px-4 py-3 text-right tabular-nums">{l.received_base_qty.toLocaleString('en-GB')}</td>
+                                <td className="px-4 py-3 text-right font-semibold tabular-nums">{done ? <Check className="ml-auto size-5 text-emerald-700" aria-label="Complete" /> : l.outstanding_base_qty.toLocaleString('en-GB')}</td>
+                                <td className="px-4 py-3 text-right">
                                     {canStart && l.sku && (
                                         <Button type="button" variant="outline" className={cn(TARGET, 'px-4')} onClick={() => onStart(l)}>
                                             Receive
@@ -471,7 +456,7 @@ function ExpectedTable({ lines, canStart, onStart }: { lines: ExpectedLine[]; ca
 
 function ReceivedList({ receipt }: { receipt: GoodsReceipt }) {
     return (
-        <section aria-labelledby="received-heading" className="rounded-xl border border-slate-300 bg-white p-4">
+        <section aria-labelledby="received-heading" className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
             <h2 id="received-heading" className="text-xl font-semibold">
                 Booked on this receipt
             </h2>
@@ -660,7 +645,7 @@ function EntryForm({
                 submit();
             }}
             onKeyDown={onKeyDown}
-            className="space-y-5 rounded-xl border-2 border-slate-800 bg-white p-5"
+            className="space-y-5 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5"
             aria-labelledby="entry-heading"
             noValidate
         >
@@ -680,7 +665,7 @@ function EntryForm({
                 <legend className="text-base font-semibold">Pack</legend>
                 <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Pack">
                     {packs.map((p) => (
-                        <label key={p.code} className={cn('flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-base', p.code === packCode ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white')}>
+                        <label key={p.code} className={cn('flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-base', p.code === packCode ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white')}>
                             <input type="radio" name="pack" value={p.code} checked={p.code === packCode} onChange={() => setPackCode(p.code)} className="size-5" data-entry-field={p.code === packCode ? true : undefined} />
                             {p.label} <span className="text-sm opacity-80">({p.base_units})</span>
                         </label>
@@ -744,7 +729,7 @@ function EntryForm({
                         {fieldError('expires_on') && <p className="mt-1 text-base text-red-700">{fieldError('expires_on')}</p>}
                     </div>
                     {warnings.length > 0 && (
-                        <div role="alert" className="rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-base text-amber-950 sm:col-span-2">
+                        <div role="alert" className="rounded-lg bg-amber-50 ring-2 ring-amber-400 p-4 text-base text-amber-950 sm:col-span-2">
                             <p className="flex items-center gap-2 font-semibold">
                                 <AlertTriangle className="size-5" aria-hidden /> {warnings.map((w) => WARNING_TEXT[w]).join(' ')}
                             </p>
@@ -869,7 +854,7 @@ function ClosePanel({ receipt, reasons, onCancel, onClosed }: { receipt: GoodsRe
     };
 
     return (
-        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="space-y-4 rounded-xl border-2 border-slate-800 bg-white p-5" aria-labelledby="close-heading">
+        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="space-y-4 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5" aria-labelledby="close-heading">
             <h2 id="close-heading" className="text-2xl font-bold">
                 Close receipt
             </h2>
@@ -885,7 +870,7 @@ function ClosePanel({ receipt, reasons, onCancel, onClosed }: { receipt: GoodsRe
                             const serverError = errors.find((d) => d.field === `variances.${l.po_number}.${l.line_no}`);
 
                             return (
-                                <li key={key} className="rounded-lg border border-slate-300 p-3">
+                                <li key={key} className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
                                     <label htmlFor={`variance-${key}`} className="block text-base">
                                         <span className={cn('font-semibold', MONO)}>
                                             {l.po_number}/{l.line_no} {l.sku?.sku_code}

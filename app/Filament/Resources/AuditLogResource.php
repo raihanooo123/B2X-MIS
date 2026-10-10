@@ -4,9 +4,11 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\AuditLogResource\Pages;
 use App\Filament\Support\AuditSubjectLabel;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\AuditLog;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\Group;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -21,9 +23,9 @@ use Illuminate\Support\Carbon;
 
 class AuditLogResource extends Resource
 {
-    protected static ?string $model = AuditLog::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-shield-check';
+    protected static ?string $model = AuditLog::class;
 
     protected static ?string $navigationGroup = 'Settings';
 
@@ -33,7 +35,7 @@ class AuditLogResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'id';
 
-    private const FAMILIES = [
+    public const FAMILIES = [
         'auth' => 'Authentication',
         'permission' => 'Permissions',
         'credit_limit' => 'Credit limit',
@@ -58,50 +60,98 @@ class AuditLogResource extends Resource
         return parent::getEloquentQuery()->with(['actor:id,email', 'company:id,name']);
     }
 
+    public static function familyLabel(string $family): string
+    {
+        return self::FAMILIES[$family] ?? ucfirst(str_replace('_', ' ', $family));
+    }
+
+    public static function familyColor(string $family): string
+    {
+        return match ($family) {
+            'auth', 'permission' => 'info',
+            'credit_limit', 'price', 'price_override', 'discount_authority', 'fee_waiver' => 'warning',
+            'stock_adjustment', 'rma_disposition' => 'success',
+            default => 'gray',
+        };
+    }
+
     public static function infolist(Infolist $infolist): Infolist
     {
-        return $infolist->schema([
-            Section::make('Event')->schema([
-                TextEntry::make('occurred_at')->label('When')->dateTime(),
-                TextEntry::make('event_family')->label('Family'),
-                TextEntry::make('action'),
-                TextEntry::make('actor_type')->label('Actor type'),
-                TextEntry::make('actor.email')->label('Actor')->placeholder('—'),
-                TextEntry::make('company.name')->label('Company')->placeholder('—'),
-                TextEntry::make('acting_for_company_id')->label('Acting for company ID')->placeholder('—'),
-                TextEntry::make('subject_type')->label('Subject type')->placeholder('—'),
-                TextEntry::make('subject_id')->label('Subject ID')->placeholder('—'),
-                TextEntry::make('subject_label')->label('Subject')->placeholder('—')
-                    ->state(fn (AuditLog $record): ?string => AuditSubjectLabel::for($record->subject_type, $record->subject_id)),
-                TextEntry::make('ip')->label('IP address')->placeholder('—'),
-                TextEntry::make('user_agent')->label('User agent')->placeholder('—')->columnSpanFull(),
-                TextEntry::make('reason')->placeholder('—')->columnSpanFull(),
-            ])->columns(3),
-            Section::make('Changes')->schema([
-                TextEntry::make('before')->state(fn (AuditLog $record): ?string => self::json($record->before))
-                    ->placeholder('—')->columnSpanFull(),
-                TextEntry::make('after')->state(fn (AuditLog $record): ?string => self::json($record->after))
-                    ->placeholder('—')->columnSpanFull(),
-            ]),
-        ]);
+        return $infolist
+            ->columns(['default' => 1, 'lg' => 3])
+            ->schema([
+                Group::make()
+                    ->columnSpan(['lg' => 2])
+                    ->schema([
+                        Section::make('Event')
+                            ->icon('heroicon-o-shield-check')
+                            ->schema([
+                                TextEntry::make('action')->fontFamily('mono')->weight('semibold')
+                                    ->size(TextEntry\TextEntrySize::Large)->copyable(),
+                                TextEntry::make('event_family')->label('Family')->badge()
+                                    ->formatStateUsing(fn (string $state): string => self::familyLabel($state))
+                                    ->color(fn (string $state): string => self::familyColor($state)),
+                                TextEntry::make('occurred_at')->label('When')->dateTime(),
+                                TextEntry::make('reason')->placeholder('—')->columnSpanFull(),
+                            ])
+                            ->columns(2),
+                        Section::make('Changes')
+                            ->icon('heroicon-o-arrows-right-left')
+                            ->description('The record as it was before and after, exactly as stored.')
+                            ->schema([
+                                TextEntry::make('before')->state(fn (AuditLog $record): ?string => self::json($record->before))
+                                    ->placeholder('—')->fontFamily('mono')->extraAttributes(['class' => 'whitespace-pre-wrap break-all text-xs']),
+                                TextEntry::make('after')->state(fn (AuditLog $record): ?string => self::json($record->after))
+                                    ->placeholder('—')->fontFamily('mono')->extraAttributes(['class' => 'whitespace-pre-wrap break-all text-xs']),
+                            ])
+                            ->columns(['default' => 1, 'md' => 2]),
+                    ]),
+                Group::make()
+                    ->columnSpan(['lg' => 1])
+                    ->schema([
+                        Section::make('Who')
+                            ->schema([
+                                TextEntry::make('actor_type')->label('Actor type')->formatStateUsing(fn (string $state): string => ucfirst($state)),
+                                TextEntry::make('actor.email')->label('Actor')->placeholder('—'),
+                                TextEntry::make('company.name')->label('Company')->placeholder('—'),
+                                TextEntry::make('acting_for_company_id')->label('Acting for company ID')->placeholder('—'),
+                            ]),
+                        Section::make('What it was about')
+                            ->schema([
+                                TextEntry::make('subject_label')->label('Subject')->placeholder('—')
+                                    ->state(fn (AuditLog $record): ?string => AuditSubjectLabel::for($record->subject_type, $record->subject_id)),
+                                TextEntry::make('subject_type')->label('Subject type')->placeholder('—'),
+                                TextEntry::make('subject_id')->label('Subject ID')->placeholder('—'),
+                            ]),
+                        Section::make('Where from')
+                            ->collapsible()
+                            ->schema([
+                                TextEntry::make('ip')->label('IP address')->placeholder('—')->fontFamily('mono'),
+                                TextEntry::make('user_agent')->label('Browser')->placeholder('—')->extraAttributes(['class' => 'break-all text-xs']),
+                            ]),
+                    ]),
+            ]);
     }
 
     public static function table(Table $table): Table
     {
         return $table->columns([
             TextColumn::make('occurred_at')->label('When')->dateTime()->sortable(),
-            TextColumn::make('event_family')->label('Family')->badge(),
-            TextColumn::make('action')->searchable(),
+            TextColumn::make('event_family')->label('Family')->badge()
+                ->formatStateUsing(fn (string $state): string => self::familyLabel($state))
+                ->color(fn (string $state): string => self::familyColor($state)),
+            TextColumn::make('action')->fontFamily('mono')->searchable(),
             TextColumn::make('actor_display')->label('Actor')
                 ->state(fn (AuditLog $record): string => $record->actor->email
                     ?? ($record->actor_type === 'user' ? 'User #'.$record->actor_user_id : ucfirst($record->actor_type))),
-            TextColumn::make('company_display')->label('Company')
-                ->state(fn (AuditLog $record): ?string => $record->company->name
-                    ?? ($record->company_id === null ? null : 'Company #'.$record->company_id))
-                ->placeholder('—'),
             TextColumn::make('subject_display')->label('Subject')
                 ->state(fn (AuditLog $record): ?string => AuditSubjectLabel::display($record->subject_type, $record->subject_id))
                 ->placeholder('—'),
+            TextColumn::make('company_display')->label('Company')
+                ->state(fn (AuditLog $record): ?string => $record->company->name
+                    ?? ($record->company_id === null ? null : 'Company #'.$record->company_id))
+                ->placeholder('—')
+                ->toggleable(),
         ])->filters([
             SelectFilter::make('event_family')->label('Family')->options(self::FAMILIES),
             Filter::make('action')->form([TextInput::make('value')->label('Action')])
@@ -126,7 +176,11 @@ class AuditLogResource extends Resource
                     ->where('occurred_at', '>=', Carbon::parse($from, config('app.display_timezone'))->startOfDay()->utc()))
                 ->when($data['to'] ?? null, fn (Builder $query, string $to) => $query
                     ->where('occurred_at', '<', Carbon::parse($to, config('app.display_timezone'))->addDay()->startOfDay()->utc()))),
-        ])->actions([ViewAction::make()])->defaultSort('occurred_at', 'desc');
+        ])->actions([ViewAction::make()->iconButton()->tooltip('View')])
+            ->striped()
+            ->defaultSort('occurred_at', 'desc')
+            ->emptyStateIcon('heroicon-o-shield-check')
+            ->emptyStateHeading('No events match');
     }
 
     public static function getPages(): array

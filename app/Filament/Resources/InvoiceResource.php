@@ -2,12 +2,11 @@
 
 namespace App\Filament\Resources;
 
-use App\Domain\Billing\Documents\InvoiceDocumentBuilder;
 use App\Filament\Resources\InvoiceResource\Pages;
 use App\Filament\Support\MoneyFormatter;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Invoice;
-use App\Models\OrderLine;
-use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\Group;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -15,7 +14,6 @@ use Filament\Resources\Resource;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,11 +28,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class InvoiceResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Invoice::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
-
     protected static ?string $navigationGroup = 'Accounts';
+
+    protected static ?int $navigationSort = 10;
 
     protected static ?string $recordTitleAttribute = 'invoice_number';
 
@@ -52,89 +52,100 @@ class InvoiceResource extends Resource
         return false;
     }
 
+    public static function statusColor(string $status): string
+    {
+        return match ($status) {
+            'paid' => 'success',
+            'part_paid' => 'warning',
+            'overdue' => 'danger',
+            'credited', 'void' => 'gray',
+            default => 'info',
+        };
+    }
+
     public static function infolist(Infolist $infolist): Infolist
     {
-        return $infolist->schema([
-            Section::make('Document')
-                ->schema([
-                    TextEntry::make('invoice_number')->label('Number'),
-                    TextEntry::make('kind')->state(fn (Invoice $record) => $record->isReceipt() ? 'Receipt' : 'VAT invoice'),
-                    TextEntry::make('status')->badge()->formatStateUsing(fn (string $state) => self::STATUSES[$state] ?? $state),
-                    TextEntry::make('order.order_number')->label('Order'),
-                    TextEntry::make('issued_at')->label('Issued')->dateTime(),
-                    TextEntry::make('payment_terms')->placeholder('—'),
-                    TextEntry::make('due_at')->label('Due')->date()->placeholder('—'),
-                    TextEntry::make('customer')->state(fn (Invoice $record) => self::customerName($record)),
-                ])
-                ->columns(4),
+        return $infolist
+            ->columns(['default' => 1, 'lg' => 3])
+            ->schema([
+                Group::make()
+                    ->columnSpan(['lg' => 2])
+                    ->schema([
+                        Section::make('Document')
+                            ->icon('heroicon-o-document-text')
+                            ->schema([
+                                TextEntry::make('invoice_number')->label('Number')
+                                    ->size(TextEntry\TextEntrySize::Large)->weight('semibold')->fontFamily('mono')->copyable(),
+                                TextEntry::make('kind')->state(fn (Invoice $record) => $record->isReceipt() ? 'Receipt' : 'VAT invoice'),
+                                TextEntry::make('customer')->state(fn (Invoice $record) => self::customerName($record)),
+                                TextEntry::make('order.order_number')->label('Order')->fontFamily('mono'),
+                            ])
+                            ->columns(2),
+                    ]),
 
-            Section::make('Lines')
-                ->schema([
-                    RepeatableEntry::make('orderLines')
-                        ->hiddenLabel()
-                        ->schema([
-                            TextEntry::make('sku_code_snapshot')->label('SKU'),
-                            TextEntry::make('name_snapshot')->label('Description')->columnSpan(2),
-                            TextEntry::make('quantity')->state(fn (OrderLine $record) => "{$record->pack_qty} × {$record->pack_label_snapshot} ({$record->base_qty} units)"),
-                            TextEntry::make('unit_price_net_e4')->label('Unit net')->formatStateUsing(fn (int $state) => MoneyFormatter::e4($state)),
-                            TextEntry::make('tax_rate_bp')->label('VAT rate')->formatStateUsing(fn (int $state) => InvoiceDocumentBuilder::percent($state)),
-                            TextEntry::make('line_net_minor')->label('Net')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state)),
-                            TextEntry::make('line_tax_minor')->label('VAT')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state)),
-                        ])
-                        ->columns(8),
-                ]),
+                Group::make()
+                    ->columnSpan(['lg' => 1])
+                    ->schema([
+                        Section::make('Status')
+                            ->schema([
+                                TextEntry::make('status')->badge()
+                                    ->formatStateUsing(fn (string $state) => self::STATUSES[$state] ?? $state)
+                                    ->color(fn (string $state): string => self::statusColor($state)),
+                                TextEntry::make('issued_at')->label('Issued')->dateTime(),
+                                TextEntry::make('payment_terms')->label('Payment terms')->placeholder('Paid at order'),
+                                TextEntry::make('due_at')->label('Due')->date()->placeholder('—'),
+                            ]),
 
-            Section::make('Totals')
-                ->schema([
-                    self::moneyEntry('subtotal_net_minor', 'Goods net'),
-                    self::moneyEntry('discount_net_minor', 'Discount (included)'),
-                    self::moneyEntry('shipping_net_minor', 'Carriage net'),
-                    self::moneyEntry('tax_minor', 'VAT'),
-                    self::moneyEntry('total_gross_minor', 'Total'),
-                    self::moneyEntry('paid_minor', 'Paid'),
-                ])
-                ->columns(6),
-        ]);
+                        Section::make('Totals')
+                            ->schema([
+                                self::moneyEntry('subtotal_net_minor', 'Goods net'),
+                                self::moneyEntry('discount_net_minor', 'Discount (included)'),
+                                self::moneyEntry('shipping_net_minor', 'Carriage net'),
+                                self::moneyEntry('tax_minor', 'VAT'),
+                                self::moneyEntry('total_gross_minor', 'Total')->size(TextEntry\TextEntrySize::Large)->weight('semibold'),
+                                self::moneyEntry('paid_minor', 'Paid'),
+                                TextEntry::make('outstanding')->label('Still to pay')
+                                    ->state(fn (Invoice $record): ?string => MoneyFormatter::minor($record->total_gross_minor - $record->paid_minor))
+                                    ->color(fn (Invoice $record): ?string => $record->total_gross_minor > $record->paid_minor ? 'danger' : null),
+                            ])
+                            ->columns(2),
+                    ]),
+            ]);
     }
 
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['company:id,name', 'order:id,order_number,user_id', 'order.user:id,first_name,last_name,email', 'archivedPdf']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['company:id,name', 'order:id,order_number,user_id,guest_email', 'order.user:id,first_name,last_name,email', 'archivedPdf']))
             ->columns([
-                TextColumn::make('invoice_number')->label('Number')->searchable()->sortable(),
-                TextColumn::make('kind')
-                    ->state(fn (Invoice $record) => $record->isReceipt() ? 'Receipt' : 'Invoice')
-                    ->badge()
-                    ->color(fn (string $state) => $state === 'Receipt' ? 'gray' : 'info'),
-                TextColumn::make('customer')->state(fn (Invoice $record) => self::customerName($record)),
-                TextColumn::make('order.order_number')->label('Order')->searchable(),
-                TextColumn::make('issued_at')->label('Issued')->date()->sortable(),
-                TextColumn::make('due_at')->label('Due')->date()->placeholder('—')->sortable(),
-                TextColumn::make('total_gross_minor')->label('Total')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state))->alignEnd(),
-                TextColumn::make('paid_minor')->label('Paid')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state))->alignEnd()->toggleable(),
+                TextColumn::make('invoice_number')->label('Number')->fontFamily('mono')->weight('medium')
+                    ->description(fn (Invoice $record): string => $record->isReceipt() ? 'Receipt' : 'Invoice')
+                    ->searchable()->sortable(),
+                TextColumn::make('customer')->state(fn (Invoice $record) => self::customerName($record))
+                    ->description(fn (Invoice $record): ?string => $record->order?->order_number),
+                TextColumn::make('issued_at')->label('Issued')->date()->sortable()
+                    ->description(fn (Invoice $record): ?string => $record->due_at === null ? null : 'Due '.$record->due_at->format('j M Y')),
+                TextColumn::make('total_gross_minor')->label('Total')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state))->alignEnd()->sortable(),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (string $state) => self::STATUSES[$state] ?? $state)
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid' => 'success',
-                        'part_paid' => 'warning',
-                        'overdue' => 'danger',
-                        'credited', 'void' => 'gray',
-                        default => 'info',
-                    }),
+                    ->color(fn (string $state): string => self::statusColor($state)),
+                TextColumn::make('paid_minor')->label('Paid')->formatStateUsing(fn (int $state) => MoneyFormatter::minor($state))->alignEnd()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('order.order_number')->label('Order')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('due_at')->label('Due')->date()->placeholder('—')->sortable()->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
-                ViewAction::make(),
+                ViewAction::make()->iconButton()->tooltip('View'),
                 Action::make('downloadPdf')
                     ->label('PDF')
+                    ->iconButton()
+                    ->tooltip('Download PDF')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->visible(fn (Invoice $record) => $record->archivedPdf !== null)
                     ->authorize('view')
                     ->action(fn (Invoice $record) => self::downloadPdf($record)),
             ])
             ->filters([
-                SelectFilter::make('status')->options(self::STATUSES),
                 TernaryFilter::make('receipt')
                     ->label('Kind')
                     ->trueLabel('Receipts')
@@ -144,7 +155,18 @@ class InvoiceResource extends Resource
                         false: fn (Builder $query) => $query->whereNotNull('company_id'),
                     ),
             ])
-            ->defaultSort('issued_at', 'desc');
+            ->striped()
+            ->defaultSort('issued_at', 'desc')
+            ->emptyStateIcon('heroicon-o-document-text')
+            ->emptyStateHeading('No invoices here')
+            ->emptyStateDescription('Invoices and receipts are issued automatically when orders are paid or dispatched.');
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            InvoiceResource\RelationManagers\LinesRelationManager::class,
+        ];
     }
 
     /**

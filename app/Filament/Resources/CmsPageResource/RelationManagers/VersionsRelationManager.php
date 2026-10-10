@@ -23,6 +23,8 @@ class VersionsRelationManager extends RelationManager
 
     protected static ?string $title = 'Published versions';
 
+    protected static ?string $icon = 'heroicon-o-clock';
+
     public function isReadOnly(): bool
     {
         return true;
@@ -47,13 +49,21 @@ class VersionsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table->columns([
-            TextColumn::make('version_no')->label('Version'),
-            TextColumn::make('title'),
+            TextColumn::make('version_no')->label('Version')->weight('medium')->prefix('v'),
+            TextColumn::make('title')->wrap(),
             TextColumn::make('effective_from')->label('Takes effect')->dateTime(),
-            TextColumn::make('state')->label('Status')->badge()->state(fn (CmsPageVersion $record): string => $this->state($record)),
+            TextColumn::make('state')->label('Status')->badge()->state(fn (CmsPageVersion $record): string => $this->state($record))
+                ->color(fn (string $state): string => match ($state) {
+                    'In force' => 'success',
+                    'Scheduled' => 'info',
+                    default => 'gray',
+                }),
             TextColumn::make('publishedBy.email')->label('Published by'),
-            TextColumn::make('body_sha256')->label('SHA-256')->limit(12),
-        ])->actions([ViewAction::make()])->defaultSort('version_no', 'desc');
+            TextColumn::make('body_sha256')->label('SHA-256')->fontFamily('mono')->limit(12)->toggleable(isToggledHiddenByDefault: true),
+        ])->actions([ViewAction::make()->iconButton()->tooltip('View version')])->defaultSort('version_no', 'desc')
+            ->emptyStateIcon('heroicon-o-clock')
+            ->emptyStateHeading('Not published yet')
+            ->emptyStateDescription('Each time you publish, the version is kept here for good.');
     }
 
     private function state(CmsPageVersion $version): string

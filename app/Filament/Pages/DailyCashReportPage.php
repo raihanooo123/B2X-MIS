@@ -32,9 +32,9 @@ class DailyCashReportPage extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    protected static ?string $navigationIcon = 'heroicon-o-banknotes';
-
     protected static ?string $navigationGroup = 'Collections';
+
+    protected static ?int $navigationSort = 30;
 
     protected static ?string $navigationLabel = 'Daily cash report';
 

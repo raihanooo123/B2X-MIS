@@ -18,6 +18,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $default_currency
  * @property string $default_incoterm
  * @property string $status
+ * @property int|null $lead_time_days
+ * @property string|null $payment_terms
+ * @property string|null $contact_name
+ * @property string|null $contact_email
+ * @property string|null $contact_phone
+ * @property string|null $note
  */
 class Supplier extends Model
 {

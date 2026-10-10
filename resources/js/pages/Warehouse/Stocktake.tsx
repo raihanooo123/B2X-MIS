@@ -19,12 +19,11 @@
  * a key pressed with nothing focused lands in the scan bar, Enter moves
  * between fields, Esc closes a form. 48 px targets; codes in monospace.
  */
-import { Head } from '@inertiajs/react';
 import { Check, ClipboardCheck, Eye, EyeOff, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
+import { EmptyState, ErrorState, LoadingState } from '@/components/warehouse/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, formatTime, useScanFocus, type NoticeTone } from '@/components/warehouse/scan';
@@ -79,22 +78,9 @@ export default function Stocktake(props: StocktakeProps) {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Stocktake" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <ClipboardCheck className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Stocktake</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
-                {id === null ? <StartPanel {...props} onOpened={go} /> : <SessionPanel key={id} id={id} props={props} onLeave={() => go(null)} />}
-            </main>
-        </div>
+        <WarehouseShell title="Stocktake" icon={ClipboardCheck}>
+            {id === null ? <StartPanel {...props} onOpened={go} /> : <SessionPanel key={id} id={id} props={props} onLeave={() => go(null)} />}
+        </WarehouseShell>
     );
 }
 
@@ -115,7 +101,7 @@ function StartPanel({ in_progress: inProgress, locations, can_count: canCount, o
     return (
         <>
             {canCount && (
-                <form onSubmit={submit} className="space-y-4 rounded-xl border-2 border-slate-800 bg-white p-5" aria-labelledby="start-heading">
+                <form onSubmit={submit} className="space-y-4 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5" aria-labelledby="start-heading">
                     <h2 id="start-heading" className="text-xl font-semibold">
                         Start a count
                     </h2>
@@ -150,12 +136,12 @@ function StartPanel({ in_progress: inProgress, locations, can_count: canCount, o
                     In progress
                 </h2>
                 {inProgress.length === 0 ? (
-                    <p className="text-base text-slate-600">None.</p>
+                    <EmptyState icon={ClipboardCheck} title="No stocktake in progress">Start a count above. It stays here until it is posted or cancelled.</EmptyState>
                 ) : (
                     <ul className="grid gap-2 sm:grid-cols-2">
                         {inProgress.map((s) => (
                             <li key={s.id}>
-                                <Button type="button" variant="outline" className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base" onClick={() => onOpened(s.id)}>
+                                <Button type="button" variant="outline" className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50" onClick={() => onOpened(s.id)}>
                                     <span>
                                         <span className={cn('block font-semibold', MONO)}>{s.location_code}</span>
                                         <span className="block text-sm text-slate-600">
@@ -216,22 +202,21 @@ function SessionPanel({ id, props, onLeave }: { id: Ulid; props: StocktakeProps;
     };
 
     if (query.isPending) {
-        return <Notice tone="info">Loading stocktake…</Notice>;
+        return <LoadingState label="Loading stocktake…" />;
     }
     if (data === undefined) {
         return (
-            <>
-                <Notice tone="error">{describeError(query.error)}</Notice>
+            <ErrorState message={describeError(query.error)} onRetry={() => void query.refetch()}>
                 <Button type="button" variant="outline" className={TARGET} onClick={onLeave}>
                     Back
                 </Button>
-            </>
+            </ErrorState>
         );
     }
 
     return (
         <>
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white p-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                 <div>
                     <p className="text-sm uppercase tracking-wide text-slate-600">Stocktake · {data.location.name}</p>
                     <p className={cn('text-2xl font-bold', MONO)}>{data.location.code}</p>
@@ -437,7 +422,7 @@ function CountForm({
     const fieldError = (field: string) => errors.find((d) => d.field === field)?.message ?? null;
 
     return (
-        <section className="space-y-4 rounded-xl border-2 border-slate-800 bg-white p-5" aria-labelledby="count-heading" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+        <section className="space-y-4 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5" aria-labelledby="count-heading" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
             <h2 id="count-heading" className="text-2xl font-bold">
                 <span className={MONO}>{sku.sku_code}</span> <span className="font-normal text-slate-700">{sku.name}</span>
             </h2>
@@ -509,7 +494,7 @@ function CountForm({
                         <legend className="text-base font-semibold">Pack</legend>
                         <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Pack">
                             {packs.map((p) => (
-                                <label key={p.code} className={cn('flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-base', p.code === packCode ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white')}>
+                                <label key={p.code} className={cn('flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-base', p.code === packCode ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white')}>
                                     <input type="radio" name="count-pack" value={p.code} checked={p.code === packCode} onChange={() => setPackCode(p.code)} className="size-5" />
                                     {p.label} <span className="text-sm opacity-80">({p.base_units})</span>
                                 </label>
@@ -552,7 +537,7 @@ function CountForm({
 
 function CountedList({ data, counting, onRecount }: { data: StocktakeData; counting: boolean; onRecount: (line: StocktakeLineData) => void }) {
     return (
-        <section aria-labelledby="counted-heading" className="rounded-xl border border-slate-300 bg-white p-4">
+        <section aria-labelledby="counted-heading" className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
             <h2 id="counted-heading" className="text-xl font-semibold">
                 {data.status === 'posted' ? `Posted ${data.posted_at ? formatTime(data.posted_at) : ''}` : 'Counted'}
             </h2>
@@ -624,7 +609,7 @@ function ReviewPanel({ data, reasons, canCount }: { data: StocktakeData; reasons
     };
 
     return (
-        <form onSubmit={submit} className="space-y-4 rounded-xl border-2 border-slate-800 bg-white p-5" aria-labelledby="review-heading">
+        <form onSubmit={submit} className="space-y-4 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5" aria-labelledby="review-heading">
             <h2 id="review-heading" className="text-2xl font-bold">
                 Review
             </h2>

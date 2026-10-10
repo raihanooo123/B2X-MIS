@@ -9,6 +9,8 @@ use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Group;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -33,9 +35,9 @@ class StorefrontSettingsPage extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    protected static ?string $navigationIcon = 'heroicon-o-building-storefront';
-
     protected static ?string $navigationGroup = 'Settings';
+
+    protected static ?int $navigationSort = 20;
 
     protected static ?string $navigationLabel = 'Storefront';
 
@@ -62,43 +64,59 @@ class StorefrontSettingsPage extends Page implements HasForms
     {
         return $form
             ->statePath('data')
+            ->columns(['default' => 1, 'lg' => 3])
             ->schema([
-                Section::make('Brand')
-                    ->description('Shown in the storefront header, page titles and emails.')
-                    ->columns(2)
+                Group::make()
+                    ->columnSpan(['lg' => 2])
                     ->schema([
-                        TextInput::make('name')->label('Business name')->required()->maxLength(80),
-                        TextInput::make('tagline')->maxLength(160)->helperText('One line under the name on the home page.'),
-                        FileUpload::make('logo_path')
-                            ->label('Logo')
-                            ->image()
-                            ->disk(Branding::LOGO_DISK)
-                            ->directory('branding')
-                            ->visibility('public')
-                            // No SVG: served from this origin, it could carry script.
-                            ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp'])
-                            ->maxSize(1024)
-                            ->helperText('PNG, JPG or WebP, up to 1 MB. Shown about 36 px high. Leave empty to show the name instead.'),
-                        ColorPicker::make('primary_colour')
-                            ->label('Brand colour')
-                            ->regex('/^#[0-9a-fA-F]{6}$/')
-                            ->helperText('Buttons and links. It must be dark enough for white text (contrast 4.5:1).'),
+                        Section::make('Brand')
+                            ->icon('heroicon-o-sparkles')
+                            ->description('Shown in the storefront header, page titles, emails and this admin panel.')
+                            ->columns(2)
+                            ->schema([
+                                TextInput::make('name')->label('Business name')->required()->maxLength(80),
+                                TextInput::make('tagline')->maxLength(160)->helperText('One line under the name on the home page.'),
+                                FileUpload::make('logo_path')
+                                    ->label('Logo')
+                                    ->image()
+                                    ->disk(Branding::LOGO_DISK)
+                                    ->directory('branding')
+                                    ->visibility('public')
+                                    // No SVG: served from this origin, it could carry script.
+                                    ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp'])
+                                    ->maxSize(1024)
+                                    ->helperText('PNG, JPG or WebP, up to 1 MB. Shown about 36 px high. Leave empty to show the name instead.'),
+                                ColorPicker::make('primary_colour')
+                                    ->label('Brand colour')
+                                    ->regex('/^#[0-9a-fA-F]{6}$/')
+                                    ->helperText('Buttons and links. It must be dark enough for white text (contrast 4.5:1).'),
+                            ]),
+                        Section::make('Customer contact')
+                            ->icon('heroicon-o-phone')
+                            ->description('Shown in the header and footer. Leave empty to hide.')
+                            ->columns(2)
+                            ->schema([
+                                TextInput::make('support_email')->label('Email')->email()->maxLength(254),
+                                TextInput::make('support_phone')->label('Phone')->tel()->maxLength(20),
+                            ]),
                     ]),
-                Section::make('Customer contact')
-                    ->description('Shown in the header and footer. Leave empty to hide.')
-                    ->columns(2)
+                Group::make()
+                    ->columnSpan(['lg' => 1])
                     ->schema([
-                        TextInput::make('support_email')->label('Email')->email()->maxLength(254),
-                        TextInput::make('support_phone')->label('Phone')->tel()->maxLength(20),
-                    ]),
-                Section::make('Footer')
-                    ->schema([
-                        Toggle::make('show_powered_by')->label('Show "Powered by B2X MIS · by Raihan"'),
-                    ]),
-                Section::make('Search engines')
-                    ->description('05.11 §4.4. Keep this off until the legal pages and checkout have been reviewed. It only takes effect on the live (production) site.')
-                    ->schema([
-                        Toggle::make('indexing_enabled')->label('Allow search engines to index the storefront'),
+                        Section::make('Search engines')
+                            ->description('Keep this off until the legal pages and checkout have been reviewed. It only takes effect on the live site.')
+                            ->schema([
+                                Toggle::make('indexing_enabled')->label('Allow search engines to index the storefront'),
+                            ]),
+                        Section::make('Footer')
+                            ->schema([
+                                Toggle::make('show_powered_by')->label('Show "Powered by B2X MIS · by Raihan"'),
+                            ]),
+                        Section::make('Legal details')
+                            ->schema([
+                                Placeholder::make('legal')->hiddenLabel()
+                                    ->content('Your registered company name, address, company number and VAT number in the footer are the seller details printed on invoices. They are not edited here.'),
+                            ]),
                     ]),
             ]);
     }
@@ -106,7 +124,7 @@ class StorefrontSettingsPage extends Page implements HasForms
     /** @return list<Action> */
     protected function getFormActions(): array
     {
-        return [Action::make('save')->label('Save')->submit('save')];
+        return [Action::make('save')->label('Save settings')->icon('heroicon-m-check')->submit('save')];
     }
 
     public function save(): void

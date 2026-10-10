@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $layers_per_pallet
  * @property int $id
  * @property string|null $barcode
+ * @property bool $is_default_sell
  */
 class Pack extends Model
 {

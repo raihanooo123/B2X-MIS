@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * 05.13 §10 — password reset, and the "set your password" link for a new
@@ -84,7 +85,7 @@ class PasswordResetController extends Controller
         ]);
     }
 
-    public function reset(ResetPasswordRequest $request): RedirectResponse
+    public function reset(ResetPasswordRequest $request): SymfonyResponse
     {
         $email = (string) $request->validated('email');
         $password = (string) $request->validated('password');

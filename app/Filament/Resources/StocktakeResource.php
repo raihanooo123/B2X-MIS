@@ -2,11 +2,10 @@
 
 namespace App\Filament\Resources;
 
-use App\Domain\Warehouse\StocktakeReason;
 use App\Filament\Resources\StocktakeResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Stocktake;
-use App\Models\StocktakeLine;
-use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\Group;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
@@ -28,9 +27,9 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class StocktakeResource extends Resource
 {
-    protected static ?string $model = Stocktake::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
+    protected static ?string $model = Stocktake::class;
 
     protected static ?string $navigationGroup = 'Warehouse';
 
@@ -52,74 +51,109 @@ class StocktakeResource extends Resource
         return false;
     }
 
+    public static function statusColor(string $status): string
+    {
+        return match ($status) {
+            'posted' => 'success',
+            'review' => 'warning',
+            'cancelled' => 'gray',
+            default => 'info',
+        };
+    }
+
     public static function infolist(Infolist $infolist): Infolist
     {
-        return $infolist->schema([
-            Section::make('Stocktake')
-                ->schema([
-                    TextEntry::make('location.code')->label('Location'),
-                    TextEntry::make('status')->badge()->formatStateUsing(fn (string $state) => self::STATUSES[$state] ?? $state),
-                    TextEntry::make('is_blind')->label('Blind')->formatStateUsing(fn (bool $state) => $state ? 'Yes' : 'No'),
-                    TextEntry::make('startedBy.email')->label('Started by')->placeholder('—'),
-                    TextEntry::make('started_at')->label('Started')->dateTime(),
-                    TextEntry::make('posted_at')->label('Posted')->dateTime()->placeholder('—'),
-                    TextEntry::make('postedBy.email')->label('Posted by')->placeholder('—'),
-                ])
-                ->columns(4),
+        return $infolist
+            ->columns(['default' => 1, 'lg' => 3])
+            ->schema([
+                Group::make()
+                    ->columnSpan(['lg' => 2])
+                    ->schema([
+                        Section::make('Count')
+                            ->icon('heroicon-o-clipboard-document-check')
+                            ->schema([
+                                TextEntry::make('location.name')->label('Location')
+                                    ->size(TextEntry\TextEntrySize::Large)->weight('semibold'),
+                                TextEntry::make('is_blind')->label('Blind count')
+                                    ->formatStateUsing(fn (bool $state): string => $state ? 'Yes — counters did not see the expected quantity' : 'No'),
+                                TextEntry::make('lines_summary')->label('Lines counted')
+                                    ->state(fn (Stocktake $record): string => self::linesSummary($record)),
+                                TextEntry::make('public_id')->label('Reference')->fontFamily('mono')->copyable()->color('gray'),
+                            ])
+                            ->columns(2),
+                    ]),
 
-            Section::make('Lines')
-                ->schema([
-                    RepeatableEntry::make('lines')
-                        ->hiddenLabel()
-                        ->schema([
-                            TextEntry::make('sku.sku_code')->label('SKU'),
-                            TextEntry::make('batch.batch_code')->label('Batch')->placeholder('—'),
-                            TextEntry::make('counted_base_qty')->label('Counted'),
-                            TextEntry::make('counted_at')->label('Counted at')->dateTime(),
-                            TextEntry::make('expected_base_qty')->label('Expected at count')->placeholder('Not posted'),
-                            TextEntry::make('variance_base_qty')->label('Variance')->placeholder('—')
-                                ->formatStateUsing(fn (?int $state) => $state === null ? '—' : sprintf('%+d', $state))
-                                ->color(fn (?int $state) => $state === null || $state === 0 ? 'gray' : ($state > 0 ? 'success' : 'danger')),
-                            TextEntry::make('reason_code')->label('Reason')->placeholder('—')
-                                ->formatStateUsing(fn (?string $state) => $state === null ? '—' : (StocktakeReason::tryFrom($state)?->label() ?? $state)),
-                            TextEntry::make('serials')->label('Serials scanned')->placeholder('—')
-                                ->state(fn (StocktakeLine $record) => $record->serials->sortBy('serial_number')->pluck('serial_number')->implode(', ') ?: null),
-                        ])
-                        ->columns(8),
-                ]),
-        ]);
+                Group::make()
+                    ->columnSpan(['lg' => 1])
+                    ->schema([
+                        Section::make('Status')
+                            ->schema([
+                                TextEntry::make('status')->badge()
+                                    ->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state)
+                                    ->color(fn (string $state): string => self::statusColor($state)),
+                            ]),
+                        Section::make('Who and when')
+                            ->schema([
+                                TextEntry::make('startedBy.email')->label('Started by')->placeholder('—'),
+                                TextEntry::make('started_at')->label('Started')->dateTime(),
+                                TextEntry::make('postedBy.email')->label('Posted by')->placeholder('—'),
+                                TextEntry::make('posted_at')->label('Posted')->dateTime()->placeholder('Not posted'),
+                            ]),
+                    ]),
+            ]);
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['location:id,code'])
+                ->with(['location:id,code,name', 'startedBy:id,email'])
                 ->withCount(['lines', 'lines as variance_lines_count' => fn (Builder $q) => $q->where('variance_base_qty', '<>', 0)]))
             ->columns([
-                TextColumn::make('location.code')->label('Location')->sortable(),
+                TextColumn::make('location.code')->label('Location')->weight('medium')->sortable()
+                    ->description(fn (Stocktake $record): ?string => $record->location?->name),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (string $state) => self::STATUSES[$state] ?? $state)
-                    ->color(fn (string $state): string => match ($state) {
-                        'posted' => 'success',
-                        'review' => 'warning',
-                        'cancelled' => 'gray',
-                        default => 'info',
-                    }),
-                IconColumn::make('is_blind')->label('Blind')->boolean(),
+                    ->color(fn (string $state): string => self::statusColor($state)),
                 TextColumn::make('lines_count')->label('Lines')->alignEnd(),
-                TextColumn::make('variance_lines_count')->label('With variance')->alignEnd(),
-                TextColumn::make('started_at')->label('Started')->dateTime()->sortable(),
-                TextColumn::make('posted_at')->label('Posted')->dateTime()->placeholder('—')->sortable(),
+                TextColumn::make('variance_lines_count')->label('With variance')->alignEnd()
+                    ->color(fn (int $state): ?string => $state > 0 ? 'warning' : null)
+                    ->weight(fn (int $state): string => $state > 0 ? 'semibold' : 'normal'),
+                TextColumn::make('started_at')->label('Started')->dateTime()->sortable()
+                    ->description(fn (Stocktake $record): ?string => $record->startedBy?->email),
+                TextColumn::make('posted_at')->label('Posted')->dateTime()->placeholder('—')->sortable()
+                    ->toggleable(),
+                IconColumn::make('is_blind')->label('Blind')->boolean()->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
-                ViewAction::make(),
+                ViewAction::make()->iconButton()->tooltip('View'),
             ])
             ->filters([
-                SelectFilter::make('status')->options(self::STATUSES),
+                SelectFilter::make('location_id')->label('Location')->relationship('location', 'name'),
             ])
-            ->defaultSort('started_at', 'desc');
+            ->striped()
+            ->defaultSort('started_at', 'desc')
+            ->emptyStateIcon('heroicon-o-clipboard-document-check')
+            ->emptyStateHeading('No stocktakes yet')
+            ->emptyStateDescription('Counts are started and posted on the warehouse Stocktake screen.');
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            StocktakeResource\RelationManagers\LinesRelationManager::class,
+        ];
+    }
+
+    /** "12 lines, 3 with a variance". */
+    private static function linesSummary(Stocktake $record): string
+    {
+        $lines = $record->lines()->count();
+        $variance = $record->lines()->where('variance_base_qty', '<>', 0)->count();
+
+        return "{$lines} ".($lines === 1 ? 'line' : 'lines').", {$variance} with a variance";
     }
 
     public static function getPages(): array
