@@ -42,7 +42,7 @@ export const PadRow = memo(function PadRow({ row, rowNumber, price, priceLoading
     const r = usePadRow(row, price, mode);
 
     return (
-        <TableRow className={cn('text-[13px]', r.rejection && 'bg-red-50/60 hover:bg-red-50')}>
+        <TableRow data-sku-row={row.sku_id} className={cn('text-[13px]', r.rejection && 'bg-red-50/60 hover:bg-red-50')}>
             <TableCell className="w-10 py-1.5 pr-0 text-right tabular-nums text-muted-foreground">{rowNumber}</TableCell>
 
             <TableCell className="w-12 py-1.5">

@@ -72,6 +72,8 @@ class HandleInertiaRequests extends Middleware
             // 05.17: dashboard and orders for every member; documents for owners/approvers.
             'orders' => Gate::allows('viewTradeOrders', $company),
             'finance' => Gate::allows('viewFinancialDocuments', $company),
+            // 05.1 §14: paste/CSV, reorder and list editing — buying roles.
+            'order_tools' => Gate::allows('useOrderTools', $company),
             'approvals' => $approvals,
             'credit' => Gate::allows('viewCredit', $company),
             'users' => Gate::allows('manageMembers', $company),

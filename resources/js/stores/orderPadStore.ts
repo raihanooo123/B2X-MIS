@@ -21,6 +21,11 @@
  * `rejections` holds the reason bulk-add refused a line, shown on the
  * row until the buyer changes it.
  *
+ * `scanIntent` is the code of a scan in flight (05.1 §8.2): a camera scan,
+ * or Enter in the search box, as a handheld scanner sends. When the pad
+ * reloads with that search, the matched row is focused with its pack
+ * preselected; ordinary typing in the search box never moves focus.
+ *
  * Not the cart. Nothing here is persisted — pad state that must survive
  * is the server-side cart (05.1 §8.3), which "Add to cart" writes to.
  */
@@ -52,6 +57,8 @@ interface OrderPadState {
     /** null: the SKU could not be priced. */
     pricing: Record<string, LinePricing | null>;
     rejections: Record<string, string>;
+    scanIntent: string | null;
+    expectScan: (code: string | null) => void;
     setPack: (row: RowIdentity, pack: PadPack) => void;
     setQty: (row: RowIdentity, pack: PadPack, packQty: number | null) => void;
     rememberPricing: (bySku: Record<string, LinePricing | null>) => void;
@@ -87,6 +94,8 @@ export const useOrderPadStore = create<OrderPadState>((set) => ({
     drafts: {},
     pricing: {},
     rejections: {},
+    scanIntent: null,
+    expectScan: (code) => set({ scanIntent: code }),
     setPack: (row, pack) =>
         set((state) => ({
             drafts: { ...state.drafts, [row.sku_id]: draftFor(state, row, pack) },

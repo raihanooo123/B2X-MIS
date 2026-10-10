@@ -34,6 +34,7 @@ use App\Http\Controllers\Trade\DashboardPageController;
 use App\Http\Controllers\Trade\InvoicesPageController;
 use App\Http\Controllers\Trade\OrderPaymentPageController;
 use App\Http\Controllers\Trade\OrdersPageController;
+use App\Http\Controllers\Trade\OrderToolsPageController;
 use App\Http\Controllers\Trade\StatementsPageController;
 use App\Http\Controllers\Warehouse\CollectionsPageController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
@@ -233,6 +234,15 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/trade/statements', [StatementsPageController::class, 'index'])->name('trade.statements');
     Route::get('/trade/statements/{statement}', [StatementsPageController::class, 'show'])->whereUlid('statement')->name('trade.statements.show');
     Route::get('/trade/statements/{statement}/download', [StatementsPageController::class, 'download'])->whereUlid('statement')->middleware('throttle:30,1')->name('trade.statements.download');
+
+    // 05.1 §14.2 — order-pad tools: paste/CSV import, reconciliation, saved lists. Reads only;
+    // staging, confirmation and list edits are /api/v1.
+    Route::get('/trade/order-tools/import', [OrderToolsPageController::class, 'import'])->name('trade.order-tools.import');
+    Route::get('/trade/order-tools/template.csv', [OrderToolsPageController::class, 'template'])->name('trade.order-tools.template');
+    Route::get('/trade/order-tools/imports/{import}', [OrderToolsPageController::class, 'show'])->whereUlid('import')->name('trade.order-tools.imports.show');
+    Route::get('/trade/order-tools/imports/{import}/problems.csv', [OrderToolsPageController::class, 'rejections'])->whereUlid('import')->name('trade.order-tools.imports.problems');
+    Route::get('/trade/saved-lists', [OrderToolsPageController::class, 'lists'])->name('trade.saved-lists');
+    Route::get('/trade/saved-lists/{list}', [OrderToolsPageController::class, 'list'])->whereUlid('list')->name('trade.saved-lists.show');
 
     // 05.17 §4 — the applicant's own application: status, reply, withdraw.
     Route::get('/trade/application', [ApplicationPageController::class, 'show'])->name('trade.application');

@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Ordering\BulkEntry\BulkEntryImports;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -32,3 +33,9 @@ Schedule::command('credit:expire-approvals')->everyMinute()->withoutOverlapping(
 Schedule::command('credit:approval-reminders')->dailyAt('08:00')->timezone('Europe/London')->withoutOverlapping();
 Schedule::command('credit:suspend-overdue')->dailyAt('02:15')->timezone('Europe/London')->withoutOverlapping();
 Schedule::command('credit:reconcile')->hourly()->withoutOverlapping()->onOneServer();
+
+// 05.1 §14.1 — order imports: input and previews purged 24 hours after staging; receipts after 7 days.
+Artisan::command('order-imports:purge', function (BulkEntryImports $imports) {
+    $this->info($imports->purgeExpired().' imports purged.');
+})->purpose('Purge expired order-pad imports (05.1 §14.1)');
+Schedule::command('order-imports:purge')->hourly()->withoutOverlapping()->onOneServer();

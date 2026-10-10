@@ -10,18 +10,25 @@
  * Typed quantities live in the pad store and survive every change here.
  *
  * `/` focuses the search box from anywhere (05.1 §8.1).
+ *
+ * Barcodes (05.1 §8.2): the search also matches an exact SKU or case
+ * barcode. Enter searches at once and marks it a scan — what a handheld
+ * scanner sends after the code — and the Scan button reads one with the
+ * camera; either way the pad then focuses the matched row.
  */
 import { router } from '@inertiajs/react';
 import { Search, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { bindSearchShortcut, SEARCH_INPUT_ID } from '@/lib/keyboard/tabOrder';
 import { cn } from '@/lib/utils';
+import { useOrderPadStore } from '@/stores/orderPadStore';
 
 import type { PadFacets, PadFilters } from '../types';
+import { BarcodeScanButton } from './BarcodeScanner';
 
 const SEARCH_DEBOUNCE_MS = 300;
 /** Radix Select reserves the empty string, so "no filter" needs a sentinel. */
@@ -44,16 +51,19 @@ export function hasActiveFilters(filters: PadFilters): boolean {
 
 export function visitWithFilters(filters: PadFilters): void {
     router.get('/order-pad', filterQuery(filters), {
-        only: ['catalogue', 'filters'],
+        only: ['catalogue', 'filters', 'scan'],
         preserveState: true,
         preserveScroll: false,
         replace: true,
     });
 }
 
-export function PadToolbar({ filters, facets }: { filters: PadFilters; facets: PadFacets }) {
+/** `actions`: extra buttons at the end of the row (the trade shell's Paste or upload and Saved lists, 05.1 §14.2). */
+export function PadToolbar({ filters, facets, actions }: { filters: PadFilters; facets: PadFacets; actions?: ReactNode }) {
     const [search, setSearch] = useState(filters.q ?? '');
     const lastSent = useRef(filters.q ?? '');
+    const timer = useRef<number | undefined>(undefined);
+    const expectScan = useOrderPadStore((s) => s.expectScan);
 
     // A change that did not come from typing here (clear all, back button)
     // resets the box to what the server applied.
@@ -70,13 +80,29 @@ export function PadToolbar({ filters, facets }: { filters: PadFilters; facets: P
         if (term === (filters.q ?? '')) {
             return;
         }
-        const timer = window.setTimeout(() => {
+        timer.current = window.setTimeout(() => {
             lastSent.current = term;
             visitWithFilters({ ...filters, q: term === '' ? null : term });
         }, SEARCH_DEBOUNCE_MS);
 
-        return () => window.clearTimeout(timer);
+        return () => window.clearTimeout(timer.current);
     }, [search, filters]);
+
+    /**
+     * Search for a scanned code now and focus what it matches. A camera
+     * scan looks across the whole catalogue; Enter keeps the filters set.
+     */
+    const scan = (code: string, clearFilters: boolean) => {
+        const term = code.trim();
+        if (term === '') {
+            return;
+        }
+        window.clearTimeout(timer.current);
+        lastSent.current = term;
+        setSearch(term);
+        expectScan(term);
+        visitWithFilters(clearFilters ? { q: term, category: null, brand: null, in_stock: false } : { ...filters, q: term });
+    };
 
     useEffect(() => bindSearchShortcut(), []);
 
@@ -92,13 +118,16 @@ export function PadToolbar({ filters, facets }: { filters: PadFilters; facets: P
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     onKeyDown={(e) => {
-                        if (e.key === 'Escape' && search !== '') {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            scan(search, false);
+                        } else if (e.key === 'Escape' && search !== '') {
                             e.preventDefault();
                             setSearch('');
                         }
                     }}
-                    placeholder="Search by SKU code or product name"
-                    aria-label="Search products by SKU code or name"
+                    placeholder="Search by SKU code, name or barcode"
+                    aria-label="Search products by SKU code, name or barcode"
                     aria-keyshortcuts="/"
                     autoComplete="off"
                     maxLength={100}
@@ -109,6 +138,8 @@ export function PadToolbar({ filters, facets }: { filters: PadFilters; facets: P
                     /
                 </kbd>
             </div>
+
+            <BarcodeScanButton onCode={(code) => scan(code, true)} />
 
             <div className="grid grid-cols-2 gap-2 md:flex md:items-center">
                 <Select value={filters.category ?? ALL} onValueChange={(v) => set({ category: v === ALL ? null : v })}>
@@ -170,6 +201,7 @@ export function PadToolbar({ filters, facets }: { filters: PadFilters; facets: P
                         <X /> Clear filters
                     </Button>
                 )}
+            {actions && <div className="flex gap-2 md:ml-auto">{actions}</div>}
             </div>
         </div>
     );

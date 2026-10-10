@@ -9,7 +9,9 @@ use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Trade\ApprovalController;
 use App\Http\Controllers\Api\V1\Trade\CompanyUserController;
+use App\Http\Controllers\Api\V1\Trade\OrderImportController;
 use App\Http\Controllers\Api\V1\Trade\OrderPaymentController;
+use App\Http\Controllers\Api\V1\Trade\SavedListController;
 use App\Http\Controllers\Api\V1\Trade\StatementController;
 use App\Http\Controllers\Api\V1\Trade\TradeHistoryController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
@@ -57,6 +59,18 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/orders/{order}/pay-in-advance', [OrderPaymentController::class, 'payInAdvance'])->whereUlid('order')->middleware('throttle:10,1')->name('api.orders.pay-in-advance');
         Route::post('/orders/{order}/card-intent', [OrderPaymentController::class, 'cardIntent'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.card-intent');
         Route::post('/orders/{order}/pay', [OrderPaymentController::class, 'pay'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.pay');
+
+        // 05.1 §14.2 — bulk entry, saved lists and reorder. Previews never touch the basket;
+        // confirmation merges once, re-checked under the cart lock.
+        Route::post('/order-imports', [OrderImportController::class, 'store'])->middleware('throttle:20,1')->name('api.order-imports.store');
+        Route::get('/order-imports/{id}', [OrderImportController::class, 'show'])->whereUlid('id')->middleware('throttle:120,1')->name('api.order-imports.show');
+        Route::post('/order-imports/{id}/confirm', [OrderImportController::class, 'confirm'])->whereUlid('id')->middleware('throttle:30,1')->name('api.order-imports.confirm');
+        Route::get('/saved-lists', [SavedListController::class, 'index'])->middleware('throttle:120,1')->name('api.saved-lists');
+        Route::post('/saved-lists', [SavedListController::class, 'store'])->middleware('throttle:30,1')->name('api.saved-lists.store');
+        Route::patch('/saved-lists/{id}', [SavedListController::class, 'update'])->whereUlid('id')->middleware('throttle:60,1')->name('api.saved-lists.update');
+        Route::delete('/saved-lists/{id}', [SavedListController::class, 'destroy'])->whereUlid('id')->middleware('throttle:30,1')->name('api.saved-lists.destroy');
+        Route::post('/saved-lists/{id}/preview', [SavedListController::class, 'preview'])->whereUlid('id')->middleware('throttle:30,1')->name('api.saved-lists.preview');
+        Route::post('/orders/{id}/reorder-preview', [SavedListController::class, 'reorder'])->whereUlid('id')->middleware('throttle:30,1')->name('api.orders.reorder-preview');
 
         // 05.17 §4 — trade self-service reads, statements and PDF preparation.
         // GETs never queue; POSTs queue at most one render per document.

@@ -4,6 +4,7 @@ namespace App\Domain\Catalogue;
 
 use App\Domain\Inventory\StockAvailabilityPredicate;
 use App\Models\Pack;
+use App\Models\Sku;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Crypt;
@@ -131,6 +132,32 @@ final class OrderPadCatalogue
     }
 
     /**
+     * 05.1 §8.2: what a scanned code identifies — `skus.barcode_ean` first,
+     * then `packs.barcode`, exact match only. A case barcode also names the
+     * pack to preselect, when that pack is sellable; otherwise the row keeps
+     * its default pack. Null when the code is no barcode. Whether the SKU is
+     * orderable is the page query's business: the pad acts on a match only
+     * when its row is on screen.
+     *
+     * @return array{code: string, sku_id: string, pack_code: string|null}|null
+     */
+    public function barcodeMatch(string $code): ?array
+    {
+        $sku = Sku::query()->where('barcode_ean', $code)->value('public_id');
+        if (is_string($sku)) {
+            return ['code' => $code, 'sku_id' => $sku, 'pack_code' => null];
+        }
+
+        $pack = Pack::query()->where('barcode', $code)->first(['sku_id', 'code', 'is_sellable']);
+        $owner = $pack === null ? null : Sku::query()->whereKey($pack->sku_id)->value('public_id');
+        if ($pack === null || ! is_string($owner)) {
+            return null;
+        }
+
+        return ['code' => $code, 'sku_id' => $owner, 'pack_code' => $pack->is_sellable ? $pack->code : null];
+    }
+
+    /**
      * Options for the category and brand filters: active categories in
      * tree order (`path` is zero-padded, so lexicographic order is tree
      * order — CategoryPath) with their depth for indenting, and active
@@ -168,7 +195,10 @@ final class OrderPadCatalogue
                 $q->whereRaw("p.search_vector @@ websearch_to_tsquery('english', ?)", [$term])
                     ->orWhere('p.name', 'ilike', $contains)
                     ->orWhereRaw('p.name % ?', [$term])
-                    ->orWhere('s.sku_code', 'ilike', $contains);
+                    ->orWhere('s.sku_code', 'ilike', $contains)
+                    // A scanned barcode, exactly (05.1 §8.2): skus_barcode_uq, packs_barcode_uq.
+                    ->orWhere('s.barcode_ean', $term)
+                    ->orWhereIn('s.id', fn (Builder $p) => $p->select('pk.sku_id')->from('packs as pk')->where('pk.barcode', $term));
             });
         }
 

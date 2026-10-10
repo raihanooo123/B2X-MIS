@@ -4,8 +4,9 @@
  * the order's immutable snapshot — nothing is re-priced. Invoices and
  * credit notes are linked for owners and approvers only.
  */
-import { Link } from '@inertiajs/react';
-import { CheckCircle2, CreditCard, Package, Truck } from 'lucide-react';
+import { Link, router } from '@inertiajs/react';
+import { CheckCircle2, CreditCard, Loader2, Package, RotateCcw, Truck } from 'lucide-react';
+import { useState } from 'react';
 
 import { DataTable, type Column } from '@/components/trade/DataTable';
 import { Money } from '@/components/trade/Money';
@@ -14,6 +15,8 @@ import { StatusBadge } from '@/components/trade/StatusBadge';
 import { TradeShell } from '@/components/trade/TradeShell';
 import { useDisplayTimezone } from '@/components/trade/useDisplayTimezone';
 import { Button } from '@/components/ui/button';
+import { ApiError } from '@/lib/api/client';
+import { reorderPreview } from '@/lib/api/orderTools';
 import { formatUkDate, formatUkDateTime } from '@/lib/dateTime';
 import { formatBasisPoints } from '@/lib/money';
 import { orderTone, type OrderRow } from '@/lib/trade/selfService';
@@ -80,6 +83,21 @@ function Row({ label, value, strong = false }: { label: string; value: React.Rea
 
 export default function OrderShow({ order }: { order: OrderDetail }) {
     const tz = useDisplayTimezone();
+    // 05.1 §14.1: buying roles reorder — into the same check-before-adding preview, never a new order.
+    const canReorder = order.placed_at !== null && ['owner', 'buyer', 'approver'].includes(order.viewer_role ?? '');
+    const [reordering, setReordering] = useState(false);
+    const [reorderError, setReorderError] = useState<string | null>(null);
+    const reorder = async () => {
+        setReordering(true);
+        setReorderError(null);
+        try {
+            const result = await reorderPreview(order.id);
+            router.visit(result.data.url ?? `/trade/order-tools/imports/${result.data.id}`);
+        } catch (e) {
+            setReorderError(e instanceof ApiError ? e.message : 'The connection failed. Try again.');
+            setReordering(false);
+        }
+    };
 
     const columns: Column<Line>[] = [
         {
@@ -139,9 +157,16 @@ export default function OrderShow({ order }: { order: OrderDetail }) {
                                 <CreditCard aria-hidden /> Pay for this order
                             </Link>
                         </Button>
+                    ) : canReorder ? (
+                        <Button className="h-11" disabled={reordering} onClick={reorder}>
+                            {reordering ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />} Reorder
+                        </Button>
                     ) : undefined
                 }
+                secondaryActions={order.status === 'pending_payment' && canReorder ? [{ label: 'Reorder', onSelect: reorder }] : []}
             />
+
+            {reorderError && <p role="alert" className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">{reorderError}</p>}
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="flex min-w-0 flex-col gap-6">

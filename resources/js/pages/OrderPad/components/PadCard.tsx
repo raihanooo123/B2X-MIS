@@ -20,7 +20,7 @@ export const PadCard = memo(function PadCard({ row, rowNumber, price, priceLoadi
     const r = usePadRow(row, price, mode);
 
     return (
-        <li className={cn('rounded-lg border bg-card p-3 text-[13px] shadow-sm', r.rejection && 'border-red-300 bg-red-50/60')}>
+        <li data-sku-row={row.sku_id} className={cn('rounded-lg border bg-card p-3 text-[13px] shadow-sm', r.rejection && 'border-red-300 bg-red-50/60')}>
             <div className="flex gap-3">
                 <Thumbnail url={row.thumbnail_url} alt={row.product_name} className="size-14" />
                 <div className="min-w-0 flex-1">
