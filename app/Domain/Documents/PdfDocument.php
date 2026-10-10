@@ -4,9 +4,10 @@ namespace App\Domain\Documents;
 
 /**
  * A document to render: a template name and the data it prints. The
- * renderer owns the layout, so no page markup lives in Laravel (CLAUDE.md:
- * no Blade views). The data must be complete: every figure the document
- * prints is supplied, already formatted, next to its integer (06 §3).
+ * template is a Blade print view in resources/views/documents/ (CLAUDE.md
+ * permits Blade for printable documents) and receives this explicit array,
+ * never a model. The data is complete: every figure printed is supplied,
+ * already formatted, next to its integer (06 §3).
  */
 interface PdfDocument
 {

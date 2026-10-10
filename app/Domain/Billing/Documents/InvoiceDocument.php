@@ -6,8 +6,8 @@ use App\Domain\Documents\PdfDocument;
 
 /**
  * An issued invoice or receipt, as the renderer prints it. Built by
- * InvoiceDocumentBuilder; the payload shape is the contract with the PDF
- * worker's `invoice` template (docs/12-pdf-worker.md).
+ * InvoiceDocumentBuilder; the payload shape is the contract with the
+ * `invoice` print template (resources/views/documents/invoice.blade.php).
  */
 final readonly class InvoiceDocument implements PdfDocument
 {

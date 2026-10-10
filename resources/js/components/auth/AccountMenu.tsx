@@ -5,7 +5,7 @@
  * An unconfirmed email is flagged here, since checkout will need it.
  */
 import { Link, usePage } from '@inertiajs/react';
-import { Building2, LayoutDashboard, LogOut, MailWarning, ShieldCheck, ShoppingCart, Users } from 'lucide-react';
+import { Building2, FileText, LayoutDashboard, LogOut, MailWarning, ShieldCheck, ShoppingCart, Users } from 'lucide-react';
 
 import type { SharedProps } from '@/types/shared';
 
@@ -50,6 +50,11 @@ export function AccountMenu({ showCart = true }: { showCart?: boolean }) {
                 </Link>
             )}
             {auth.public_customer && <Link href="/account/orders" className={linkClass}>My orders</Link>}
+            {auth.has_trade_application && (
+                <Link href="/trade/application" className={linkClass}>
+                    <FileText className="size-4" aria-hidden /> Trade application
+                </Link>
+            )}
             {auth.can_manage_team && (
                 <Link href="/account/team" className={linkClass}>
                     <Users className="size-4" aria-hidden /> Team

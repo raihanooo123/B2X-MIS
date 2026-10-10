@@ -8,6 +8,7 @@ use App\Domain\Storefront\Branding;
 use App\Domain\Storefront\PublicCustomer;
 use App\Http\Support\ActingCompany;
 use App\Http\Support\PriceDisplay;
+use App\Models\B2bApplication;
 use App\Models\CollectionBooking;
 use App\Models\Company;
 use App\Models\GoodsReceipt;
@@ -68,6 +69,9 @@ class HandleInertiaRequests extends Middleware
         $approvals = Gate::allows('viewApprovals', $company);
 
         return [
+            // 05.17: dashboard and orders for every member; documents for owners/approvers.
+            'orders' => Gate::allows('viewTradeOrders', $company),
+            'finance' => Gate::allows('viewFinancialDocuments', $company),
             'approvals' => $approvals,
             'credit' => Gate::allows('viewCredit', $company),
             'users' => Gate::allows('manageMembers', $company),
@@ -105,6 +109,9 @@ class HandleInertiaRequests extends Middleware
             'can_manage_team' => $company !== null && ! $user->isStaff() && Gate::allows('manageMembers', $company),
             // 05.16 §2: the trade shell's policy-gated links (05.2 §18.3), and the pending count.
             'trade_navigation' => $company === null ? null : $this->tradeNavigation($company),
+            // 05.17 §2: an applicant (no company yet) gets a link to their application status.
+            'has_trade_application' => $company === null && ! $user->isStaff()
+                && B2bApplication::query()->where('applicant_user_id', $user->id)->exists(),
             'staff_navigation' => [
                 'admin' => Gate::allows('accessAdminPanel', User::class),
                 'goods_in' => Gate::allows('viewAny', GoodsReceipt::class),

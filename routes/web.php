@@ -25,10 +25,16 @@ use App\Http\Controllers\Storefront\LegalPageController;
 use App\Http\Controllers\Storefront\PriceDisplayController;
 use App\Http\Controllers\Storefront\ProductController;
 use App\Http\Controllers\Storefront\SeoController;
+use App\Http\Controllers\Trade\ApplicationPageController;
 use App\Http\Controllers\Trade\ApprovalsPageController;
 use App\Http\Controllers\Trade\CompanyUsersPageController;
+use App\Http\Controllers\Trade\CreditNotesPageController;
 use App\Http\Controllers\Trade\CreditPageController;
+use App\Http\Controllers\Trade\DashboardPageController;
+use App\Http\Controllers\Trade\InvoicesPageController;
 use App\Http\Controllers\Trade\OrderPaymentPageController;
+use App\Http\Controllers\Trade\OrdersPageController;
+use App\Http\Controllers\Trade\StatementsPageController;
 use App\Http\Controllers\Warehouse\CollectionsPageController;
 use App\Http\Controllers\Warehouse\DispatchPageController;
 use App\Http\Controllers\Warehouse\GoodsInPageController;
@@ -212,6 +218,26 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/trade/account/balance', [CreditPageController::class, 'balance'])->name('trade.account.balance');
     Route::get('/trade/account/users', CompanyUsersPageController::class)->name('trade.account.users');
     Route::get('/trade/orders/{order}/pay', OrderPaymentPageController::class)->whereUlid('order')->name('trade.orders.pay');
+
+    // 05.17 §4 — trade self-service. Pages are reads; PDF downloads re-check
+    // the source policy and never queue a render (POST /api/v1/document-renders).
+    Route::get('/trade', DashboardPageController::class)->name('trade.dashboard');
+    Route::get('/trade/orders', [OrdersPageController::class, 'index'])->name('trade.orders');
+    Route::get('/trade/orders/{order}', [OrdersPageController::class, 'show'])->whereUlid('order')->name('trade.orders.show');
+    Route::get('/trade/invoices', [InvoicesPageController::class, 'index'])->name('trade.invoices');
+    Route::get('/trade/invoices/{invoice}', [InvoicesPageController::class, 'show'])->whereUlid('invoice')->name('trade.invoices.show');
+    Route::get('/trade/invoices/{invoice}/download', [InvoicesPageController::class, 'download'])->whereUlid('invoice')->middleware('throttle:30,1')->name('trade.invoices.download');
+    Route::get('/trade/credit-notes', [CreditNotesPageController::class, 'index'])->name('trade.credit-notes');
+    Route::get('/trade/credit-notes/{creditNote}', [CreditNotesPageController::class, 'show'])->whereUlid('creditNote')->name('trade.credit-notes.show');
+    Route::get('/trade/credit-notes/{creditNote}/download', [CreditNotesPageController::class, 'download'])->whereUlid('creditNote')->middleware('throttle:30,1')->name('trade.credit-notes.download');
+    Route::get('/trade/statements', [StatementsPageController::class, 'index'])->name('trade.statements');
+    Route::get('/trade/statements/{statement}', [StatementsPageController::class, 'show'])->whereUlid('statement')->name('trade.statements.show');
+    Route::get('/trade/statements/{statement}/download', [StatementsPageController::class, 'download'])->whereUlid('statement')->middleware('throttle:30,1')->name('trade.statements.download');
+
+    // 05.17 §4 — the applicant's own application: status, reply, withdraw.
+    Route::get('/trade/application', [ApplicationPageController::class, 'show'])->name('trade.application');
+    Route::post('/trade/application/reply', [ApplicationPageController::class, 'reply'])->middleware('throttle:10,1')->name('trade.application.reply');
+    Route::post('/trade/application/withdraw', [ApplicationPageController::class, 'withdraw'])->middleware('throttle:10,1')->name('trade.application.withdraw');
 
     Route::get('/choose-company', [CompanyChoiceController::class, 'show'])->name('company.choose');
     Route::post('/choose-company', [CompanyChoiceController::class, 'store'])->name('company.choose.store');

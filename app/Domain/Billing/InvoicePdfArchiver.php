@@ -3,63 +3,79 @@
 namespace App\Domain\Billing;
 
 use App\Domain\Billing\Documents\InvoiceDocumentBuilder;
+use App\Domain\Documents\DocumentRenders;
 use App\Domain\Documents\PdfRenderer;
 use App\Models\Attachment;
 use App\Models\Invoice;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
- * Renders an issued invoice or receipt and archives the PDF as an
- * attachment (02 §21.1). The archive is the document as issued and is
- * written once: a repeat run finds it and does nothing. That is what makes
- * deriving line detail from `order_lines` safe (02 §14.5.2).
+ * An issued invoice or receipt's archived PDF (02 §21.1, 05.17 §3).
  *
- * `path` is a storage key under `invoices/`, never a public URL; the file
- * is served through the application (07 §6.3).
+ * The payload is captured once, at issue (capture(), from InvoiceService's
+ * after-commit hook), and every PDF is printed from it — so a reprint
+ * matches the original exactly, whatever has changed since. An invoice
+ * with no captured payload was issued before archiving existed: it is a
+ * backfill blocker, never rebuilt from today's company or seller details
+ * (05.17 §3). The archive is written once; a repeat run returns it.
+ *
+ * `path` is a storage key, never a public URL; the file is served through
+ * the application (07 §6.3).
  */
 final class InvoicePdfArchiver
 {
-    public function __construct(
-        private readonly PdfRenderer $renderer,
-        private readonly InvoiceDocumentBuilder $builder = new InvoiceDocumentBuilder,
-    ) {}
+    private readonly DocumentRenders $renders;
 
-    public function archive(int $invoiceId): ?Attachment
+    public function __construct(
+        PdfRenderer $renderer,
+        private readonly InvoiceDocumentBuilder $builder = new InvoiceDocumentBuilder,
+    ) {
+        $this->renders = new DocumentRenders($renderer);
+    }
+
+    /**
+     * Fix the invoice's printable payload now. Never throws: a document
+     * that cannot be built (seller details missing, totals that do not add
+     * up) is logged, and the invoice stays issued without a payload.
+     */
+    public static function capture(int $invoiceId): void
+    {
+        try {
+            app(self::class)->captureNow($invoiceId);
+        } catch (Throwable $e) {
+            Log::error('Invoice document payload not captured.', ['invoice_id' => $invoiceId, 'error' => $e::class]);
+        }
+    }
+
+    public function captureNow(int $invoiceId): void
     {
         $invoice = Invoice::query()->find($invoiceId);
         if ($invoice === null) {
-            return null;
+            return;
         }
 
-        $existing = $invoice->archivedPdf()->first();
+        $this->renders->capture('invoice', $invoice->id, $invoice->company_id, $this->builder->build($invoice));
+    }
+
+    public function archive(int $invoiceId): ?Attachment
+    {
+        $existing = $this->renders->readyAttachment('invoice', $invoiceId);
         if ($existing !== null) {
             return $existing;
         }
 
-        $pdf = $this->renderer->render($this->builder->build($invoice));
-        if ($pdf === null) {
-            Log::warning('Invoice PDF not archived: no PDF renderer is configured (docs/12-pdf-worker.md).', [
+        $render = $this->renders->latest('invoice', $invoiceId);
+        if ($render === null) {
+            Log::warning('Invoice PDF not archived: no payload was captured at issue (05.17 §3 backfill blocker).', [
                 'invoice_id' => $invoiceId,
             ]);
 
             return null;
         }
 
-        $disk = (string) config('filesystems.default');
-        $path = "invoices/{$invoice->public_id}.pdf";
-        Storage::disk($disk)->put($path, $pdf);
+        $this->renders->render($render->id);
 
-        return Attachment::query()->create([
-            'attachable_type' => 'invoice',
-            'attachable_id' => $invoice->id,
-            'disk' => $disk,
-            'path' => $path,
-            'original_name' => "{$invoice->invoice_number}.pdf",
-            'mime_type' => 'application/pdf',
-            'size_bytes' => strlen($pdf),
-            'is_customer_visible' => true,
-            'uploaded_by_user_id' => null,
-        ]);
+        return $this->renders->readyAttachment('invoice', $invoiceId);
     }
 }

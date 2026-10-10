@@ -6,8 +6,6 @@ use App\Domain\Billing\Exceptions\SellerVatNumberMissingException;
 use App\Domain\Billing\InvoicePdfArchiver;
 use App\Domain\Billing\InvoiceService;
 use App\Domain\Billing\PaymentAllocationService;
-use App\Domain\Documents\PdfDocument;
-use App\Domain\Documents\PdfRenderer;
 use App\Models\Attachment;
 use App\Models\Company;
 use App\Models\CreditHold;
@@ -22,6 +20,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\MinimalPdf;
 
 uses(RefreshDatabase::class);
 
@@ -275,18 +274,8 @@ it('formats VAT rates from basis points without floats', function () {
 });
 
 it('archives the rendered PDF once, as a customer-visible invoice attachment', function () {
-    Storage::fake(config('filesystems.default'));
-    $renderer = new class implements PdfRenderer
-    {
-        public int $calls = 0;
-
-        public function render(PdfDocument $document): ?string
-        {
-            $this->calls++;
-
-            return '%PDF-1.7 '.$document->template();
-        }
-    };
+    Storage::fake(config('documents.disk'));
+    $renderer = new MinimalPdf;
     $invoice = (new InvoiceService)->issueForOrder(invoiceableOrder()->id);
 
     $archiver = new InvoicePdfArchiver($renderer);
@@ -300,7 +289,7 @@ it('archives the rendered PDF once, as a customer-visible invoice attachment', f
         ->and($attachment->is_customer_visible)->toBeTrue()
         ->and($attachment->original_name)->toBe('INV-000001.pdf')
         ->and($invoice->fresh()->archivedPdf?->id)->toBe($attachment->id);
-    Storage::disk(config('filesystems.default'))->assertExists($attachment->path);
+    Storage::disk(config('documents.disk'))->assertExists($attachment->path);
 });
 
 it('archives nothing while no PDF renderer is configured', function () {

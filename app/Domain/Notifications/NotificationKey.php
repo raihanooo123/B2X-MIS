@@ -46,6 +46,8 @@ enum NotificationKey: string
     case ApplicationRejected = 'application.rejected';
     case ApplicationReapplyBlocked = 'application.reapply_blocked';
     case ApplicationAlreadyOpen = 'application.already_open';
+    /** 05.17 §2: the applicant answered an information request — to the reviewer. */
+    case ApplicationReplyReceived = 'application.reply_received';
     case EmailVerification = 'auth.email_verification';
     case ExistingAccount = 'auth.existing_account';
     case PasswordReset = 'auth.password_reset';

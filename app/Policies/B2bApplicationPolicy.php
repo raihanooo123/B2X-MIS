@@ -47,6 +47,28 @@ final class B2bApplicationPolicy
         return false;
     }
 
+    /**
+     * 05.17 §2: the applicant's own status page — only the user the
+     * application belongs to, never by email match or guessed id.
+     */
+    public function viewOwn(User $user, B2bApplication $application): bool
+    {
+        return $user->status === 'active' && ! $user->isStaff()
+            && $application->applicant_user_id !== null && $application->applicant_user_id === $user->id;
+    }
+
+    /** Answer an information request: only while one is open. */
+    public function replyOwn(User $user, B2bApplication $application): bool
+    {
+        return $this->viewOwn($user, $application) && $application->status === 'info_requested';
+    }
+
+    /** Withdraw: only an open application (submitted, in review or awaiting information). */
+    public function withdrawOwn(User $user, B2bApplication $application): bool
+    {
+        return $this->viewOwn($user, $application) && in_array($application->status, B2bApplication::OPEN_STATUSES, true);
+    }
+
     public function startReview(User $user, B2bApplication $application): bool
     {
         return $this->reviews($user, $application, 'submitted');

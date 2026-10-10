@@ -4,11 +4,14 @@ use App\Http\Controllers\Api\V1\CartController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\CollectionSlotController;
 use App\Http\Controllers\Api\V1\Credit\CreditControlController;
+use App\Http\Controllers\Api\V1\DocumentRenderController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\StockController;
 use App\Http\Controllers\Api\V1\Trade\ApprovalController;
 use App\Http\Controllers\Api\V1\Trade\CompanyUserController;
 use App\Http\Controllers\Api\V1\Trade\OrderPaymentController;
+use App\Http\Controllers\Api\V1\Trade\StatementController;
+use App\Http\Controllers\Api\V1\Trade\TradeHistoryController;
 use App\Http\Controllers\Api\V1\Warehouse\GoodsReceiptController;
 use App\Http\Controllers\Api\V1\Warehouse\ReturnController;
 use App\Http\Controllers\Api\V1\Warehouse\ShipmentController;
@@ -54,6 +57,16 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/orders/{order}/pay-in-advance', [OrderPaymentController::class, 'payInAdvance'])->whereUlid('order')->middleware('throttle:10,1')->name('api.orders.pay-in-advance');
         Route::post('/orders/{order}/card-intent', [OrderPaymentController::class, 'cardIntent'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.card-intent');
         Route::post('/orders/{order}/pay', [OrderPaymentController::class, 'pay'])->whereUlid('order')->middleware('throttle:20,1')->name('api.orders.pay');
+
+        // 05.17 §4 — trade self-service reads, statements and PDF preparation.
+        // GETs never queue; POSTs queue at most one render per document.
+        Route::get('/trade/orders', [TradeHistoryController::class, 'orders'])->middleware('throttle:120,1')->name('api.trade.orders');
+        Route::get('/trade/orders/{id}', [TradeHistoryController::class, 'order'])->whereUlid('id')->middleware('throttle:120,1')->name('api.trade.orders.show');
+        Route::get('/trade/invoices', [TradeHistoryController::class, 'invoices'])->middleware('throttle:120,1')->name('api.trade.invoices');
+        Route::post('/trade/statements', [StatementController::class, 'store'])->middleware('throttle:10,1')->name('api.trade.statements.store');
+        Route::post('/document-renders', [DocumentRenderController::class, 'store'])->middleware('throttle:30,1')->name('api.document-renders.store');
+        Route::get('/document-renders/{id}', [DocumentRenderController::class, 'show'])->whereUlid('id')->middleware('throttle:120,1')->name('api.document-renders.show');
+        Route::post('/document-renders/{id}/retry', [DocumentRenderController::class, 'retry'])->whereUlid('id')->middleware('throttle:10,1')->name('api.document-renders.retry');
 
         // Accounts/admin (CompanyPolicy::manageCredit, OrderApprovalRequestPolicy).
         Route::patch('/companies/{company}/credit', [CreditControlController::class, 'update'])->whereUlid('company')->middleware('throttle:30,1')->name('api.companies.credit.update');

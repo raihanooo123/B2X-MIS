@@ -80,6 +80,15 @@ enum AuditAction: string
     /** 02 §25.4: a reviewer re-ran the verification checks. */
     case ApplicationVerificationRequested = 'application.verification_requested';
 
+    /*
+     * 05.17 §2: the applicant answered an information request (back to
+     * in_review) or withdrew an open application. The reply text is the
+     * entry's reason, so it sits beside the reviewers' own history.
+     */
+    case ApplicationApplicantReplied = 'application.applicant_replied';
+
+    case ApplicationWithdrawn = 'application.withdrawn';
+
     /** 05.2 §18: approval decisions, unpaid-order expiry, credit terms/suspension and balance payouts. */
     case CreditOperation = 'credit.operation';
 
@@ -146,6 +155,7 @@ enum AuditAction: string
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
+            self::ApplicationApplicantReplied, self::ApplicationWithdrawn,
             self::OrderClaimed,
             self::PaymentCashRecorded, self::PaymentCashVoided,
             self::PayAtCollectionSuspended, self::PayAtCollectionReinstated => 'permission',
@@ -170,6 +180,7 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::ApplicationVerificationRequested => [],
+            self::ApplicationApplicantReplied, self::ApplicationWithdrawn => ['status'],
             self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished, self::PagePublished => [],
@@ -209,6 +220,8 @@ enum AuditAction: string
             self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor',
                 'verification_warnings', 'verification_acknowledged'],
             self::ApplicationVerificationRequested => ['checks'],
+            self::ApplicationApplicantReplied => ['status', 'attachment_ids'],
+            self::ApplicationWithdrawn => ['status'],
             self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],

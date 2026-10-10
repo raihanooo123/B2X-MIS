@@ -6,14 +6,15 @@
  * a 1440 px content limit; and the toast live region.
  *
  * Navigation is policy-gated by the server (`auth.trade_navigation`):
- * Approvals, Credit, Balance and Users appear only for those allowed.
- * Dashboard, Orders, Quotes and Returns join as their modules ship
- * (ROADMAP), so the menu never links to a page that does not exist.
+ * Dashboard and Orders for every member; Invoices, Credit notes and
+ * Statements (05.17), Approvals, Credit, Balance and Users only for those
+ * allowed. Quotes and Returns join as their modules ship (ROADMAP), so
+ * the menu never links to a page that does not exist.
  *
  * White-label, as the storefront: the brand colour overrides `--primary`.
  */
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { Building2, ChevronDown, CircleHelp, ClipboardCheck, Landmark, LogOut, Menu, Search, ShieldCheck, ShoppingCart, User, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { Building2, ChevronDown, CircleHelp, ClipboardCheck, FileMinus, FileText, LayoutDashboard, Landmark, LogOut, Menu, Package, ScrollText, Search, ShieldCheck, ShoppingCart, User, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { useState, type CSSProperties, type ReactNode } from 'react';
 
 import { Toaster } from '@/components/trade/Toaster';
@@ -37,7 +38,14 @@ interface NavGroup {
 }
 
 function navigation(nav: NonNullable<NonNullable<SharedProps['auth']>['trade_navigation']> | null): NavGroup[] {
-    const ordering: NavItem[] = [{ href: '/order-pad', label: 'Order pad', icon: ShoppingCart }];
+    const ordering: NavItem[] = [];
+    if (nav?.orders) {
+        ordering.push({ href: '/trade', label: 'Dashboard', icon: LayoutDashboard });
+    }
+    ordering.push({ href: '/order-pad', label: 'Order pad', icon: ShoppingCart });
+    if (nav?.orders) {
+        ordering.push({ href: '/trade/orders', label: 'Orders', icon: Package });
+    }
     if (nav?.approvals) {
         ordering.push({
             href: '/trade/approvals',
@@ -46,6 +54,14 @@ function navigation(nav: NonNullable<NonNullable<SharedProps['auth']>['trade_nav
             badge: nav.pending_approvals > 0 ? { count: nav.pending_approvals, label: `${nav.pending_approvals} waiting` } : undefined,
         });
     }
+
+    const documents: NavItem[] = nav?.finance
+        ? [
+              { href: '/trade/invoices', label: 'Invoices', icon: FileText },
+              { href: '/trade/credit-notes', label: 'Credit notes', icon: FileMinus },
+              { href: '/trade/statements', label: 'Statements', icon: ScrollText },
+          ]
+        : [];
 
     const account: NavItem[] = [];
     if (nav?.credit) {
@@ -58,6 +74,7 @@ function navigation(nav: NonNullable<NonNullable<SharedProps['auth']>['trade_nav
 
     return [
         { label: null, items: ordering },
+        ...(documents.length > 0 ? [{ label: 'Documents', items: documents }] : []),
         { label: 'Account', items: account },
     ];
 }
@@ -70,7 +87,7 @@ function SidebarNav({ groups, path, onNavigate }: { groups: NavGroup[]; path: st
                     {group.label && <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</p>}
                     <ul className="flex flex-col gap-1">
                         {group.items.map((item) => {
-                            const active = path === item.href || path.startsWith(`${item.href}/`);
+                            const active = path === item.href || (item.href !== '/trade' && path.startsWith(`${item.href}/`));
 
                             return (
                                 <li key={item.href}>
