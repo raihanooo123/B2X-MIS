@@ -132,6 +132,11 @@ class CompanyResource extends Resource
 
     public static function getPages(): array
     {
-        return ['index' => Pages\ListCompanies::route('/'), 'view' => Pages\ViewCompany::route('/{record}')];
+        return [
+            'index' => Pages\ListCompanies::route('/'),
+            'view' => Pages\ViewCompany::route('/{record}'),
+            // 05.2 §18.3: /admin/companies/{id}/credit, accounts/admin (CompanyCredit::canAccess).
+            'credit' => Pages\CompanyCredit::route('/{record}/credit'),
+        ];
     }
 }

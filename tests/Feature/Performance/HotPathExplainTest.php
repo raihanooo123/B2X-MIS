@@ -158,6 +158,29 @@ function hotPathAssertHeapFetchesZero(array $plan, string $indexName): void
 }
 
 /**
+ * Empty every table the fixtures touch. CASCADE reaches the append-only
+ * B2B history tables (02 §31.8) through their foreign keys to companies
+ * and invoices, and their TRUNCATE triggers refuse it. Test-only: the
+ * triggers are off for this one transaction and back on before it commits.
+ */
+function hotPathTruncateFixtures(): void
+{
+    DB::transaction(function (): void {
+        foreach (['account_credit_events', 'credit_note_allocations'] as $table) {
+            DB::statement("ALTER TABLE {$table} DISABLE TRIGGER USER");
+        }
+        DB::statement('TRUNCATE TABLE
+            stock_allocations, stock_movements, order_lines, orders, batches, sku_costs,
+            stock_levels, locations, price_list_items, price_lists, packs, skus, products,
+            category_closure, categories, companies, tax_classes
+            RESTART IDENTITY CASCADE');
+        foreach (['account_credit_events', 'credit_note_allocations'] as $table) {
+            DB::statement("ALTER TABLE {$table} ENABLE TRIGGER USER");
+        }
+    });
+}
+
+/**
  * @param  array<string, mixed>  $plan
  */
 function hotPathRelationsTouched(array $plan): array
@@ -189,11 +212,7 @@ beforeEach(function () {
     // subsequent VACUUM — even several explicit VACUUM ANALYZE passes in
     // a row left Heap Fetches non-zero. TRUNCATE forces entirely fresh
     // pages, which VACUUM ANALYZE then reliably marks all-visible.
-    DB::statement('TRUNCATE TABLE
-        stock_allocations, stock_movements, order_lines, orders, batches, sku_costs,
-        stock_levels, locations, price_list_items, price_lists, packs, skus, products,
-        category_closure, categories, companies, tax_classes
-        RESTART IDENTITY CASCADE');
+    hotPathTruncateFixtures();
 
     $now = now();
     $start = Carbon::create(2026, 1, 1);
@@ -794,11 +813,7 @@ it('Q22: resolves fuzzy company name matches via companies_name_trgm_idx without
 // cleanup — must run last (Pest preserves in-file declaration order)
 // -----------------------------------------------------------------
 it('cleans up the performance fixtures it seeded', function () {
-    DB::statement('TRUNCATE TABLE
-        stock_allocations, stock_movements, order_lines, orders, batches, sku_costs,
-        stock_levels, locations, price_list_items, price_lists, packs, skus, products,
-        category_closure, categories, companies, tax_classes
-        RESTART IDENTITY CASCADE');
+    hotPathTruncateFixtures();
 
     $GLOBALS['__hot_path_seeded'] = false;
 

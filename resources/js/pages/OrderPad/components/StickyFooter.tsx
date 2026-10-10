@@ -70,14 +70,15 @@ function percentOf(value: number, target: number): number {
     return Math.min(100, Math.max(0, mulDivHalfUp(Math.max(0, value), 100, target)));
 }
 
-export function StickyFooter({ context, mode }: { context: TotalsContext; mode: DisplayMode }) {
+/** `withSidebar`: inside the trade shell, the footer starts after its 240 px sidebar (from 1280 px). */
+export function StickyFooter({ context, mode, withSidebar = false }: { context: TotalsContext; mode: DisplayMode; withSidebar?: boolean }) {
     const { totals, unpricedCount } = useBasketTotals(context);
     const { spendBreak, spendProgress, delivery } = totals;
     const hasSpendBreaks = context.spend_breaks.length > 0;
     const cart = useAddToCart();
 
     return (
-        <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 shadow-[0_-1px_3px_rgba(0,0,0,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <footer className={cn('fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 shadow-[0_-1px_3px_rgba(0,0,0,0.04)] backdrop-blur supports-[backdrop-filter]:bg-background/85', withSidebar && 'xl:left-60')}>
             {cart.outcome !== null && (
                 <div className="mx-auto max-w-[1400px] px-4 pt-2.5">
                     <AddToCartResult outcome={cart.outcome} pending={cart.pending} onDismiss={cart.dismiss} onAddAcceptable={cart.addAcceptable} />

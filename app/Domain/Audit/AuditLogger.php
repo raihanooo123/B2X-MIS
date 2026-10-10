@@ -48,6 +48,8 @@ final class AuditLogger
             AuditAction::ApplicationReviewStarted, AuditAction::ApplicationInfoRequested, AuditAction::ApplicationReviewResumed,
             AuditAction::ApplicationRejected, AuditAction::ApplicationApproved,
             AuditAction::ApplicationVerificationRequested => $this->validateApplicationEvent($entry),
+            AuditAction::ApplicationApplicantReplied, AuditAction::ApplicationWithdrawn => $this->validateApplicantEvent($entry),
+            AuditAction::CreditOperation => $this->validateCreditOperation($entry),
             AuditAction::CreditLimitChanged => $this->validateCreditLimitChange($entry),
             AuditAction::TermsVersionPublished => $this->validateTermsVersionPublished($entry),
             AuditAction::PagePublished => $this->validatePagePublished($entry),
@@ -128,6 +130,17 @@ final class AuditLogger
             ip: $context->ip,
             userAgent: $context->userAgent,
         ));
+    }
+
+    /** 05.2 §18: a credit decision names its subject, a status either side and a reason. */
+    private function validateCreditOperation(AuditEntry $entry): void
+    {
+        if ($entry->companyId === null || $entry->subjectId === null
+            || ! in_array($entry->subjectType, ['company', 'order', 'order_approval_request', 'account_credit_payout'], true)
+            || ! is_string($entry->before['status'] ?? null) || ! is_string($entry->after['status'] ?? null)
+            || $entry->reason === null || trim($entry->reason) === '' || mb_strlen($entry->reason) > 500) {
+            throw new InvalidArgumentException('Invalid credit operation audit entry.');
+        }
     }
 
     /** @return array{identifier_fingerprint: string, key_version: string} */
@@ -232,6 +245,34 @@ final class AuditLogger
             || $entry->reason !== null || $entry->actingForCompanyId !== null
             || ($entry->action !== AuditAction::ApplicationApproved && $entry->companyId !== null)) {
             throw new InvalidArgumentException('Invalid application audit entry.');
+        }
+    }
+
+    /**
+     * 05.17 §2: the applicant's own transitions. A reply moves
+     * info_requested → in_review and carries the reply text as the reason
+     * and the evidence attachment ids (comma-separated, '' for none); a withdrawal closes an open
+     * application and carries no text.
+     */
+    private function validateApplicantEvent(AuditEntry $entry): void
+    {
+        $from = $entry->before['status'] ?? null;
+        $after = $entry->after;
+        $ids = $after['attachment_ids'] ?? null;
+
+        $valid = count($entry->before) === 1 && match ($entry->action) {
+            AuditAction::ApplicationApplicantReplied => $from === 'info_requested' && ($after['status'] ?? null) === 'in_review' && count($after) === 2
+                && is_string($ids) && preg_match('/^(\d+(,\d+)*)?$/', $ids) === 1
+                && is_string($entry->reason) && trim($entry->reason) !== '' && mb_strlen($entry->reason) <= 2000,
+            AuditAction::ApplicationWithdrawn => in_array($from, ['submitted', 'in_review', 'info_requested'], true)
+                && $after === ['status' => 'withdrawn'] && $entry->reason === null,
+            default => throw new InvalidArgumentException('Unsupported applicant audit action.'),
+        };
+
+        if (! $valid || $entry->actorType !== 'user' || $entry->actorUserId === null
+            || $entry->subjectType !== 'b2b_application' || $entry->subjectId === null
+            || $entry->actingForCompanyId !== null || $entry->companyId !== null) {
+            throw new InvalidArgumentException('Invalid applicant audit entry.');
         }
     }
 

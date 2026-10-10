@@ -9,6 +9,7 @@ use App\Domain\Pricing\OrderLineRequest;
 use App\Domain\Pricing\OrderPricingPipeline;
 use App\Models\Cart;
 use App\Models\Company;
+use App\Models\CompanyUser;
 use App\Models\Location;
 use App\Models\NumberSequence;
 use App\Models\Pack;
@@ -18,6 +19,7 @@ use App\Models\Sku;
 use App\Models\StockLevel;
 use App\Models\TaxClass;
 use App\Models\TaxRate;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -35,7 +37,10 @@ it('bulk-resolve and checkout produce identical gross totals for the same basket
     NumberSequence::factory()->forSeries('order_number', 'SO-')->create();
     $location = Location::factory()->default()->create();
 
-    $company = Company::factory()->create(['credit_limit_minor' => 10000000]);
+    $company = Company::factory()->create(['credit_limit_minor' => 10000000, 'payment_terms' => 'net30']);
+    // 05.2 §18.1: an active buying member places a trade order.
+    $buyer = User::factory()->create();
+    CompanyUser::factory()->create(['company_id' => $company->id, 'user_id' => $buyer->id, 'role' => 'buyer']);
     $taxClass = TaxClass::factory()->create();
     TaxRate::factory()->for($taxClass)->create(['country_code' => 'GB', 'rate_bp' => 2000]);
     $base = PriceList::factory()->create(['scope' => 'base']);
@@ -87,7 +92,7 @@ it('bulk-resolve and checkout produce identical gross totals for the same basket
     $order = (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: $buyer->id,
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,

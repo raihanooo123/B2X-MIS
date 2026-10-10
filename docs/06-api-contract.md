@@ -642,3 +642,46 @@ Batch and serial detail are **not** exposed to customer-facing callers. Which ba
 | 3 | OAuth scopes granularity for Phase 4 integrations | No — Phase 4 |
 | 4 | Do customer integrations need a sandbox environment? | No — Phase 4, but likely yes |
 | 5 | Webhook payload versioning independent of the API version | **Worth deciding before Phase 4** — receivers upgrade on their own schedule |
+
+---
+
+## 18. B2B completion route contracts — signed off 2026-10-05
+
+The following module sections propose the missing routes/screens and were approved
+on 2026-10-05 together with 02 §31 SQL and 05.16 UX. They are not a declaration that the
+API already implements them. Once signed off, merge each into the endpoint catalogue
+above; retain this index to make the dependency reviewable.
+
+| Module | Proposed route/policy contract |
+|---|---|
+| Credit/approvals | [05.2 §18.3](05.2-b2b-accounts-credit.md#183-screens-and-routes) |
+| Self-service/PDFs | [05.17 §4](05.17-trade-self-service.md#4-screens-and-proposed-06-routes) |
+| Bulk pad/saved lists/reorder | [05.1 §14.2](05.1-order-pad.md#142-screens-and-proposed-routes) |
+| Quotes/RFQ | [05.3 §17.2](05.3-quotes-rfq.md#172-screens-and-routes) |
+| Trade returns | [05.4 §15.4](05.4-rma-returns.md#154-screens-and-routes) |
+| Containers/cost | [05.7 §17.2](05.7-purchasing-containers.md#172-screens-and-routes) |
+| Reps/dropship | [05.8 §16.3](05.8-dropship-rep-tools.md#163-screens-and-routes) |
+
+All exposed identifiers remain public ULIDs; actor identity comes from session, active
+company from verified membership. No numeric FK is returned to a buyer. Route payloads
+carry integer suffixes and immutable preview/version/hash contracts; supplied company
+or cost fields are rejected. 06 errors, pagination and rate limits still apply.
+Financial/approval/stock mutations require Idempotency-Key and source-level unique
+constraints, not merely browser disabled buttons. Replayed key with different canonical
+payload returns 409; terminal duplicate source returns original result. API GETs never
+accept, place, withdraw, settle, finalise or enqueue a document.
+
+Normal list DTO: data, next_cursor, has_more; 50 rows default/100 max, signed opaque
+cursor bound to user/company/filters/sort. Detail DTO uses documented source public
+reference, status, permitted actions and relevant snapshots; permitted_actions is UI
+help only, never substitutes for server policy. Staging confirmation includes import
+version + selected rows/groups + cart version (pad) or aggregate preview hash (dropship).
+Quote acceptance includes version + selected line ULIDs + accepted preview hash;
+container finalisation includes input hash + source event key; approval decisions
+include expected pending status and request public_id. Balance/RMA settlement source
+keys derive from the persistent domain action, not an arbitrary random retry key.
+Private PDF/CSV binary downloads are browser routes with source policy and no-store,
+not violations of the JSON-only API convention. A cookie/session route needs CSRF even
+if a public quote token is also present. Rate-limit quote tokens and uploads; retain
+existing checkout/payment limits. Background workers recheck the captured company/
+actor policy for actions, and render/download never broaden source visibility.

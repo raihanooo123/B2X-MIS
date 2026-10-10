@@ -352,12 +352,15 @@ final class InvoiceService
     }
 
     /**
-     * After commit: captured payments applied, the PDF queued, the
-     * customer told, InvoiceIssued raised.
+     * After commit: the document payload captured, captured payments
+     * applied, the PDF queued, the customer told, InvoiceIssued raised.
      */
     private function afterIssue(int $invoiceId, int $orderId): void
     {
         DB::afterCommit(function () use ($invoiceId, $orderId) {
+            // 05.17 §3: the printable payload is fixed now, at issue, before
+            // any later payment, company or branding change can reach it.
+            InvoicePdfArchiver::capture($invoiceId);
             $this->paymentAllocationService->allocateInvoice($invoiceId);
             ArchiveInvoicePdf::dispatch($invoiceId);
             // 05.12 §12.2: sent at issue; the PDF is attached once archived.

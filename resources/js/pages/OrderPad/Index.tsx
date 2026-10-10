@@ -22,21 +22,27 @@
  * the tab order. While a new page or filter loads, the current rows stay
  * in place, dimmed, so focus is never stolen by an async update.
  *
+ * A trade user acting for a company sees the pad inside the 05.16 trade
+ * shell (sidebar with Cart, company switch), table first with no page
+ * header; a guest or public customer keeps the standalone layout.
+ *
  * Not yet: paste/CSV bulk entry, saved lists, barcode scanning.
  */
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ChevronRight, PackageSearch, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { TradeShell } from '@/components/trade/TradeShell';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBulkResolve, useStockAvailability, type BulkResolveEntry, type StockAvailabilityEntry } from '@/lib/api/orderPad';
 import { pricingFromEntry, type LinePricing } from '@/lib/pricing/localRecompute';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/useMediaQuery';
 import { vatLabel } from '@/lib/cart/display';
 import { cn } from '@/lib/utils';
 import { useOrderPadStore } from '@/stores/orderPadStore';
+import type { SharedProps } from '@/types/shared';
 
 import { PadCard } from './components/PadCard';
 import { PadRow } from './components/PadRow';
@@ -49,6 +55,8 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
     const skuIds = useMemo(() => rows.map((r) => r.sku_id), [rows]);
     const navigating = useInertiaNavigating();
     const desktop = useMediaQuery(DESKTOP_QUERY);
+    // Acting for a trade company: the pad lives inside the trade shell.
+    const trade = usePage<SharedProps>().props.auth?.trade_navigation != null;
 
     const prices = useBulkResolve(skuIds);
     const stock = useStockAvailability(skuIds);
@@ -77,23 +85,9 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
         stockLoading: stock.isPending || stock.isPlaceholderData,
     });
 
-    return (
+    const rowsLabel = rows.length > 0 ? `Rows ${start_row.toLocaleString('en-GB')}–${lastRow.toLocaleString('en-GB')}` : null;
+    const pad = (
         <>
-            <Head title="Order pad" />
-
-            <div className="mx-auto max-w-[1400px] px-4 pb-56 pt-4 md:pb-36">
-                <header className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-2xl border bg-background px-5 py-4 shadow-sm">
-                    <div className="flex items-baseline gap-4">
-                        <h1 className="text-2xl font-semibold tracking-tight">Order pad</h1>
-                        {rows.length > 0 && (
-                            <p className="text-xs tabular-nums text-muted-foreground">
-                                Rows {start_row.toLocaleString('en-GB')}–{lastRow.toLocaleString('en-GB')}
-                            </p>
-                        )}
-                    </div>
-                    <AccountMenu />
-                </header>
-
                 <PadToolbar filters={filters} facets={facets} />
                 <p className="mb-2 hidden text-[11px] text-muted-foreground md:block">
                     <Kbd>Tab</Kbd> next item · <Kbd>↑</Kbd>
@@ -124,8 +118,9 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
                     <EmptyState onLaterPage={start_row > 1} filters={filters} facets={facets} />
                 ) : desktop ? (
                     <div className={cn('rounded-md border transition-opacity', navigating && 'opacity-60')} aria-busy={navigating}>
-                        <Table>
-                            <TableHeader className="sticky top-0 z-10 bg-background">
+                        {/* A plain <table>, not <Table>: its overflow wrapper would trap the sticky header. */}
+                        <table className="w-full caption-bottom text-sm">
+                            <TableHeader className={cn('sticky z-10 bg-background', trade ? 'top-16' : 'top-0')}>
                                 <TableRow className="text-xs hover:bg-transparent">
                                     <TableHead className="h-8 w-10 pr-0 text-right">#</TableHead>
                                     <TableHead className="h-8 w-12">
@@ -146,7 +141,7 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
                                     <PadRow key={row.sku_id} row={row} rowNumber={start_row + i} {...rowData(row.sku_id)} />
                                 ))}
                             </TableBody>
-                        </Table>
+                        </table>
                     </div>
                 ) : (
                     <ul className={cn('space-y-2 transition-opacity', navigating && 'opacity-60')} aria-busy={navigating} aria-label="Products">
@@ -172,6 +167,36 @@ export default function OrderPadIndex({ catalogue, filters, facets, page_size, t
                         </Button>
                     )}
                 </nav>
+        </>
+    );
+
+    if (trade) {
+        return (
+            <TradeShell title="Order pad">
+                <div className="pb-56 md:pb-36">
+                    {/* Straight to the table: the sidebar already says where you are. */}
+                    <h1 className="sr-only">Order pad</h1>
+                    {pad}
+                </div>
+                <StickyFooter context={totals_context} mode={display_mode} withSidebar />
+            </TradeShell>
+        );
+    }
+
+    return (
+        <>
+            <Head title="Order pad" />
+
+            <div className="mx-auto max-w-[1400px] px-4 pb-56 pt-4 md:pb-36">
+                <header className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-2xl border bg-background px-5 py-4 shadow-sm">
+                    <div className="flex items-baseline gap-4">
+                        <h1 className="text-2xl font-semibold tracking-tight">Order pad</h1>
+                        {rowsLabel && <p className="text-xs tabular-nums text-muted-foreground">{rowsLabel}</p>}
+                    </div>
+                    <AccountMenu />
+                </header>
+
+                {pad}
             </div>
 
             <StickyFooter context={totals_context} mode={display_mode} />

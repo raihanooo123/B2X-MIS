@@ -97,12 +97,12 @@ use RuntimeException;
  *   4. Side effects — none synchronous. OrderPlaced is dispatched via
  *      DB::afterCommit() only (CLAUDE.md invariant 6 / 04 §4.4).
  *
- * Deliberately NOT built here (see the class's own exceptions and the
- * session report for the full list): serial-tracked SKU checkout,
- * the awaiting_approval fallback for an on-account order that exceeds
- * credit (05.2 §8.1 row 3 — this throws InsufficientCreditException and
- * commits nothing instead), and actual payment capture (04 §4.4's "authorised before, captured
- * after" — payment_method is trusted as already authorised upstream).
+ * A trade order that needs approval (05.2 §18.1, TradeCheckout) is placed
+ * at `awaiting_approval` and confirmed later by TradeApprovals.
+ *
+ * Deliberately NOT built here: serial-tracked SKU checkout, and actual
+ * payment capture (04 §4.4's "authorised before, captured after" — the
+ * caller captures after commit).
  */
 final class CheckoutService
 {
@@ -283,6 +283,18 @@ final class CheckoutService
                     ]);
                 }
 
+                // 05.2 §18.1: an unfunded credit-shortfall order books no place
+                // yet. The chosen slot is kept on a booking that holds no
+                // capacity (`cancelled`), booked when the order is funded.
+                if ($lockedSlot === null && $request->fulfilmentType === 'collection') {
+                    CollectionBooking::query()->create([
+                        'collection_slot_id' => $request->collectionSlotId,
+                        'order_id' => $order->id,
+                        'company_id' => $request->companyId,
+                        'status' => 'cancelled',
+                    ]);
+                }
+
                 // 07 §6.4: the authorised card payment exists with its order
                 // or not at all. No gateway call here (04 §4.4) — capture
                 // is the caller's, after commit.
@@ -305,21 +317,26 @@ final class CheckoutService
 
                 // Step 3 — taken last, per 02 §11.3.
                 $orderNumber = $this->numberSequenceService->next('order_number');
+                // A trade order waiting for approval (TradeCheckout) is placed
+                // but not confirmed: no OrderPlaced, confirmation or invoice yet.
                 $now = now();
+                $confirmed = $order->status === 'draft';
                 $order->update([
                     'order_number' => $orderNumber,
-                    'status' => 'confirmed',
+                    'status' => $confirmed ? 'confirmed' : $order->status,
                     'placed_at' => $now,
-                    'confirmed_at' => $now,
+                    'confirmed_at' => $confirmed ? $now : null,
                 ]);
 
                 $cart->lines()->delete();
 
-                DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
-                $this->notifications->orderConfirmed($order->id);
-                // 05.5 §7.3: a trade BACS/prepay order is invoiced at placement,
-                // after commit, so a failure to invoice never loses the order.
-                $this->invoiceService->whenPlaced($order->id);
+                if ($confirmed) {
+                    DB::afterCommit(fn () => event(new OrderPlaced($order->id)));
+                    $this->notifications->orderConfirmed($order->id);
+                    // 05.5 §7.3: a trade BACS/prepay order is invoiced at placement,
+                    // after commit, so a failure to invoice never loses the order.
+                    $this->invoiceService->whenPlaced($order->id);
+                }
 
                 return $order->load('lines');
             }),

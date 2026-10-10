@@ -262,7 +262,7 @@ it('issues a credit note on the receipt, with no company, and never an account b
         ->and($rma->credit_note_id)->toBe($credit->id)
         // The money goes back the way it came: a refund row on the card payment, no company to hold a balance.
         ->and(Payment::query()->where('type', 'refund')->whereNull('company_id')->count())->toBe(1)
-        ->and(DB::getSchemaBuilder()->hasTable('account_credit_movements'))->toBeFalse();
+        ->and(DB::table('account_credit_movements')->count())->toBe(0);
 });
 
 it('leaves a BACS refund for accounts to pay and record', function () {

@@ -9,6 +9,7 @@ use App\Filament\Support\MoneyFormatter;
 use App\Models\Invoice;
 use App\Models\OrderAddress;
 use App\Models\OrderLine;
+use App\Support\DisplayTime;
 use LogicException;
 
 /**
@@ -129,6 +130,11 @@ final class InvoiceDocumentBuilder
             'kind' => $receipt ? 'receipt' : 'vat_invoice',
             'title' => $receipt ? 'Receipt' : 'VAT invoice',
             'number' => $invoice->invoice_number,
+            'public_id' => $invoice->public_id,
+            // Machine instant in UTC; the printed date is the UK calendar day.
+            'issued_at' => $invoice->issued_at->toIso8601ZuluString(),
+            'issued_on_display' => DisplayTime::format($invoice->issued_at, DisplayTime::DATE),
+            'due_on_display' => $receipt || $invoice->due_at === null ? null : DisplayTime::format($invoice->due_at, DisplayTime::DATE),
             'issued_on' => $invoice->issued_at->toDateString(),
             // Every document is issued at the moment of supply it records
             // (placement or payment for prepaid orders, dispatch on account).
@@ -146,6 +152,12 @@ final class InvoiceDocumentBuilder
                 'company_number' => $seller->companyNumber,
             ],
             'customer' => $this->customer($invoice),
+            'delivery_address_lines' => $this->deliveryLines($invoice),
+            'footer' => array_values(array_filter([
+                $seller->legalName === null ? null : $seller->legalName.($seller->companyNumber === null ? '' : ' · Company number '.$seller->companyNumber),
+                $seller->vatNumber === null ? null : 'VAT registration '.$seller->vatNumber,
+                $receipt || $invoice->payment_terms === null ? null : 'Payment terms: '.self::TERMS_LABELS[$invoice->payment_terms].'. Please quote '.$invoice->invoice_number.' with your payment.',
+            ])),
             'lines' => $lines,
             'carriage' => $carriage,
             'vat_summary' => $vatSummary,
@@ -201,6 +213,31 @@ final class InvoiceDocumentBuilder
             'contact_name' => $address?->contact_name,
             'address_lines' => $addressLines,
         ];
+    }
+
+    /**
+     * The delivery address as it was snapshotted on the order (02 §14.2),
+     * never the company's current address.
+     *
+     * @return list<string>
+     */
+    private function deliveryLines(Invoice $invoice): array
+    {
+        $address = $invoice->order?->addresses->firstWhere('address_type', 'delivery');
+        if (! $address instanceof OrderAddress) {
+            return [];
+        }
+
+        return array_values(array_filter([
+            $address->contact_name,
+            $address->company_name,
+            $address->line1,
+            $address->line2,
+            $address->city,
+            $address->county,
+            $address->postcode,
+            $address->country_code === 'GB' ? null : $address->country_code,
+        ], fn (?string $part) => $part !== null && trim($part) !== ''));
     }
 
     /**

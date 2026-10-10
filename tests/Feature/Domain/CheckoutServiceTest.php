@@ -1,6 +1,5 @@
 <?php
 
-use App\Domain\Inventory\Exceptions\InsufficientCreditException;
 use App\Domain\Inventory\Exceptions\InsufficientStockException;
 use App\Domain\Ordering\CartService;
 use App\Domain\Ordering\CheckoutRequest;
@@ -10,10 +9,12 @@ use App\Domain\Pricing\OrderLineRequest;
 use App\Domain\Pricing\OrderPricingPipeline;
 use App\Models\Cart;
 use App\Models\Company;
+use App\Models\CompanyUser;
 use App\Models\CreditHold;
 use App\Models\Location;
 use App\Models\NumberSequence;
 use App\Models\Order;
+use App\Models\OrderApprovalRequest;
 use App\Models\Pack;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
@@ -76,6 +77,18 @@ function checkoutSku(int $unitPriceE4 = 10000, int $onHand = 100, int $packBaseU
     return ['sku' => $sku, 'pack' => $pack];
 }
 
+/**
+ * 05.2 §18.1: a trade order is placed by an active buying member of the
+ * company, re-checked under the company lock. Returns their user id.
+ */
+function checkoutTradeMember(Company $company, string $role = 'buyer'): int
+{
+    $user = User::factory()->create();
+    CompanyUser::factory()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role' => $role]);
+
+    return $user->id;
+}
+
 function cartWithLine(Pack $pack, int $packQty, ?int $companyId = null, ?int $userId = null): Cart
 {
     $cart = Cart::factory()->create(['company_id' => $companyId, 'user_id' => $userId]);
@@ -86,7 +99,7 @@ function cartWithLine(Pack $pack, int $packQty, ?int $companyId = null, ?int $us
 
 it('checks out an on-account company order: order+lines snapshot, stock allocated, credit held', function () {
     $company = Company::factory()->create(['credit_limit_minor' => 1000000, 'payment_terms' => 'net30']);
-    $user = User::factory()->create();
+    $user = User::query()->findOrFail(checkoutTradeMember($company));
     ['sku' => $sku, 'pack' => $pack] = checkoutSku(unitPriceE4: 10000, onHand: 50);
     $cart = cartWithLine($pack, 10, $company->id, $user->id); // base_qty 10 x £1.00 = 1000 minor
 
@@ -176,7 +189,7 @@ it('rejects on_account checkout with no company', function () {
 });
 
 it('checkout/preview totals equal checkout totals exactly', function () {
-    $company = Company::factory()->create(['credit_limit_minor' => 1000000]);
+    $company = Company::factory()->create(['credit_limit_minor' => 1000000, 'payment_terms' => 'net30']);
     $base = null;
     ['sku' => $skuA, 'pack' => $packA] = checkoutSku(unitPriceE4: 12345, onHand: 100, sharedBase: $base);
     ['sku' => $skuB, 'pack' => $packB] = checkoutSku(unitPriceE4: 67890, onHand: 100, sharedBase: $base);
@@ -199,7 +212,7 @@ it('checkout/preview totals equal checkout totals exactly', function () {
     $order = (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: checkoutTradeMember($company),
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
@@ -211,14 +224,14 @@ it('checkout/preview totals equal checkout totals exactly', function () {
 });
 
 it('rejects a stale expected total with PriceChangedException and commits nothing (06 §9.3)', function () {
-    $company = Company::factory()->create(['credit_limit_minor' => 1000000]);
+    $company = Company::factory()->create(['credit_limit_minor' => 1000000, 'payment_terms' => 'net30']);
     ['sku' => $sku, 'pack' => $pack] = checkoutSku(unitPriceE4: 10000, onHand: 50);
     $cart = cartWithLine($pack, 10, $company->id);
 
     expect(fn () => (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: checkoutTradeMember($company),
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: 1, // stale — real total is £10.00 net
@@ -229,8 +242,8 @@ it('rejects a stale expected total with PriceChangedException and commits nothin
         ->and($cart->fresh()->lines()->count())->toBe(1); // untouched
 });
 
-it('throws InsufficientCreditException and commits nothing', function () {
-    $company = Company::factory()->create(['credit_limit_minor' => 100]); // £0.01
+it('holds an on-account order above available credit for accounts, reserving nothing (05.2 §18.1)', function () {
+    $company = Company::factory()->create(['credit_limit_minor' => 100, 'payment_terms' => 'net30']); // £1.00
     ['sku' => $sku, 'pack' => $pack] = checkoutSku(unitPriceE4: 10000, onHand: 50);
     $cart = cartWithLine($pack, 10, $company->id); // £10.00, way over the limit
 
@@ -241,22 +254,26 @@ it('throws InsufficientCreditException and commits nothing', function () {
         deliveryCountryCode: 'GB',
     );
 
-    expect(fn () => (new CheckoutService)->checkout(new CheckoutRequest(
+    $order = (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: checkoutTradeMember($company),
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
-    )))->toThrow(InsufficientCreditException::class);
+    ));
 
-    expect(Order::query()->count())->toBe(0)
+    expect($order->status)->toBe('awaiting_approval')
+        ->and($order->confirmed_at)->toBeNull()
+        ->and(OrderApprovalRequest::query()->where('order_id', $order->id)->pluck('approval_kind')->all())->toBe(['credit_exception'])
         ->and(StockAllocation::query()->count())->toBe(0)
+        ->and(CreditHold::query()->count())->toBe(0)
+        ->and($company->fresh()->credit_held_minor)->toBe(0)
         ->and(StockLevel::identity($sku->id, test()->location->id, null)->first()->allocated_base_qty)->toBe(0);
 });
 
 it('throws InsufficientStockException and commits nothing', function () {
-    $company = Company::factory()->create(['credit_limit_minor' => 1000000]);
+    $company = Company::factory()->create(['credit_limit_minor' => 1000000, 'payment_terms' => 'net30']);
     ['sku' => $sku, 'pack' => $pack] = checkoutSku(unitPriceE4: 10000, onHand: 5); // only 5 available
     $cart = cartWithLine($pack, 10, $company->id); // wants 10
 
@@ -270,7 +287,7 @@ it('throws InsufficientStockException and commits nothing', function () {
     expect(fn () => (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: checkoutTradeMember($company),
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,
@@ -282,7 +299,8 @@ it('throws InsufficientStockException and commits nothing', function () {
 });
 
 it('locks companies before stock_levels, matching the 02 §11.1 / 05.2 §8.2 global order', function () {
-    $company = Company::factory()->create(['credit_limit_minor' => 1000000]);
+    $company = Company::factory()->create(['credit_limit_minor' => 1000000, 'payment_terms' => 'net30']);
+    $buyerId = checkoutTradeMember($company);
     ['sku' => $sku, 'pack' => $pack] = checkoutSku(unitPriceE4: 10000, onHand: 50);
     $cart = cartWithLine($pack, 10, $company->id);
 
@@ -297,7 +315,7 @@ it('locks companies before stock_levels, matching the 02 §11.1 / 05.2 §8.2 glo
     (new CheckoutService)->checkout(new CheckoutRequest(
         cartId: $cart->id,
         companyId: $company->id,
-        userId: null,
+        userId: $buyerId,
         paymentMethod: 'on_account',
         deliveryCountryCode: 'GB',
         expectedTotalGrossMinor: $preview->totalGrossMinor,

@@ -126,7 +126,15 @@ class CheckoutController extends Controller
         // amount through Stripe Elements. Verify that authorisation before
         // anything else; release it if the order is not placed; capture it
         // only after the order has committed.
-        $card = $method === PaymentMethod::Card ? $this->authorisedCard($request, $user, $cart) : null;
+        // 05.2 §18.1: a trade buyer's order that needs approval is placed
+        // without a card and paid once approved; TradeCheckout refuses a
+        // trade card order placed without one that does not need approval.
+        if ($method === PaymentMethod::Card && $request->paymentIntentId() === null && $companyId === null) {
+            throw new ApiException(422, 'validation_failed', 'The request is invalid.', [[
+                'field' => 'payment_intent_id', 'code' => 'invalid', 'message' => 'Authorise the card payment first.',
+            ]]);
+        }
+        $card = $method === PaymentMethod::Card && $request->paymentIntentId() !== null ? $this->authorisedCard($request, $user, $cart) : null;
 
         try {
             $order = $this->commitOrder($request, $user, $cart, $companyId, $method, $address, $card, $companyId === null ? $saleTerms : null);
@@ -149,6 +157,8 @@ class CheckoutController extends Controller
             'order_number' => $order->order_number,
             'total_gross_minor' => $order->total_gross_minor,
             'payment_status' => $order->payment_status,
+            // 05.2 §18.1: `awaiting_approval` until another approver or accounts decides.
+            'status' => $order->status,
             // 05.15 §6.2: a guest has no account to sign in with.
             'confirmation_url' => $user === null ? GuestOrderLink::url($order) : route('orders.confirmation', $order->public_id),
         ]], 201);

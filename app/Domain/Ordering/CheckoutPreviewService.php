@@ -10,6 +10,7 @@ use App\Domain\Collection\CollectionSlots;
 use App\Domain\Collection\PayAtCollectionEligibility;
 use App\Domain\Collection\PayAtCollectionOffer;
 use App\Domain\Collection\SlotUnavailable;
+use App\Domain\Credit\CreditGate;
 use App\Domain\Delivery\ConsignmentWeigher;
 use App\Domain\Delivery\DeliveryDestination;
 use App\Domain\Delivery\DeliveryQuote;
@@ -136,7 +137,7 @@ final class CheckoutPreviewService
         }
 
         // Listed after the cart's own blockers, whatever the path out.
-        $identityBlockers = $checkIdentity ? $this->identityBlockers($user, $companyId) : [];
+        $identityBlockers = $checkIdentity ? $this->identityBlockers($user, $companyId, $paymentMethod) : [];
 
         if ($cartLines === []) {
             $blockers[] = new CheckoutBlocker(null, 'cart_empty', 'The cart is empty.');
@@ -272,7 +273,37 @@ final class CheckoutPreviewService
             returnCostEstimateGrossMinor: $palletReturn && $delivery !== null ? $this->returnCosts->estimateGrossMinor($delivery, $deliveryCountryCode, $at) : null,
             collectionSlot: $slot,
             payAtCollection: $payAtCollection,
+            approvalReasons: $checkIdentity ? $this->approvalReasons($user, $companyId, $paymentMethod, $pricing->totalGrossMinor) : [],
         );
+    }
+
+    /**
+     * 05.2 §18.1, read without locks: TradeCheckout decides again under
+     * the company lock. The buyer is told before paying.
+     *
+     * @return list<'buyer_limit'|'credit_shortfall'>
+     */
+    private function approvalReasons(?User $user, ?int $companyId, ?string $paymentMethod, int $totalGrossMinor): array
+    {
+        if ($user === null || $companyId === null) {
+            return [];
+        }
+        $member = CompanyUser::query()->where('company_id', $companyId)->where('user_id', $user->id)->first();
+        $company = Company::query()->find($companyId);
+        if ($member === null || $company === null || $member->role === 'viewer') {
+            return [];
+        }
+
+        $gate = new CreditGate;
+        $reasons = [];
+        if ($gate->needsBuyerApproval($member, $totalGrossMinor)) {
+            $reasons[] = 'buyer_limit';
+        }
+        if ($paymentMethod === PaymentMethod::OnAccount->value && $totalGrossMinor > $gate->available($company)) {
+            $reasons[] = 'credit_shortfall';
+        }
+
+        return $reasons;
     }
 
     /**
@@ -299,7 +330,7 @@ final class CheckoutPreviewService
      *
      * @return list<CheckoutBlocker>
      */
-    private function identityBlockers(?User $user, ?int $companyId): array
+    private function identityBlockers(?User $user, ?int $companyId, ?string $paymentMethod = null): array
     {
         // 05.15 §6.1: a guest checks out without an account, on the same
         // terms of sale as a signed-in public customer.
@@ -309,10 +340,15 @@ final class CheckoutPreviewService
 
         if ($companyId !== null) {
             $role = CompanyUser::query()->where('company_id', $companyId)->where('user_id', $user->id)->value('role');
+            if ($role === 'viewer') {
+                return [new CheckoutBlocker(null, 'not_permitted_to_order', 'Your account can view prices and orders but not place them. Ask your account owner.')];
+            }
 
-            return $role === 'viewer'
-                ? [new CheckoutBlocker(null, 'not_permitted_to_order', 'Your account can view prices and orders but not place them. Ask your account owner.')]
-                : [];
+            // 05.2 §18.1: suspension, prepay terms and overdue debt, named before payment.
+            $company = Company::query()->find($companyId);
+            $refusal = $company === null ? null : (new CreditGate)->companyRefusal($company, $paymentMethod ?? PaymentMethod::Card->value);
+
+            return $refusal === null ? [] : [new CheckoutBlocker($paymentMethod === PaymentMethod::OnAccount->value ? 'payment_method' : null, $refusal->reason, $refusal->getMessage())];
         }
 
         $applicationOpen = B2bApplication::query()

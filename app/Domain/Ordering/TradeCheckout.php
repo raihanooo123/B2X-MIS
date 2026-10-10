@@ -2,6 +2,10 @@
 
 namespace App\Domain\Ordering;
 
+use App\Domain\Credit\ApprovalKind;
+use App\Domain\Credit\CreditGate;
+use App\Domain\Credit\CreditRefused;
+use App\Domain\Credit\TradeApprovals;
 use App\Domain\Inventory\AllocationService;
 use App\Domain\Notifications\Notifications;
 use App\Models\Company;
@@ -9,39 +13,45 @@ use App\Models\CreditHold;
 use App\Models\Order;
 
 /**
- * Trade (company) checkout. A company customer isn't automatically
- * on-account — 05.2 §8.1 row 2: paying by card takes no credit hold at
- * all, exactly like ConsumerCheckout. The credit gate and hold apply
- * only when `paymentMethod === 'on_account'`; `creditCompanyId()`
- * captures that sub-branch so `reserve()` reads as one sequence rather
- * than a nested condition.
+ * Trade (company) checkout, 05.2 §8 and §18.1.
  *
- * Deliberately NOT built here (unchanged from before this split; see
- * the session report): the awaiting_approval fallback for an on-account
- * order that exceeds credit (05.2 §8.1 row 3 — this still throws
- * InsufficientCreditException and commits nothing), suspended-company
- * and overdue-invoice blocking, and the §10 multi-user approval flow.
- * `validate()` is the seam those belong in once built.
+ * Under the `companies` lock the live gates run again (CreditGate): an
+ * active buying member, a company allowed to trade, and for on account
+ * credit terms with no overdue debt. Then:
+ *
+ *   - gross above the buyer's limit, or a buyer who always needs
+ *     approval → `awaiting_approval` with a buyer_limit request. Funded:
+ *     stock, collection place and on-account credit are held. A card
+ *     order is not authorised now; the buyer pays after approval
+ *     (ApprovedOrderPayment), so no 48-hour card hold exists.
+ *   - on account above available credit → `awaiting_approval` with a
+ *     credit_exception request for accounts. Unfunded: no stock, slot or
+ *     credit is reserved until it is approved (TradeApprovals::fund) or
+ *     the buyer pays in advance.
+ *   - otherwise exactly as before: stock, then the credit hold for on
+ *     account (02 §11.1 step 6). A company paying by card takes no hold
+ *     (05.2 §8.1 row 2).
  */
 final class TradeCheckout implements CheckoutStrategy
 {
+    public function __construct(private readonly CreditGate $gate = new CreditGate) {}
+
     public function validate(CheckoutRequest $request): void
     {
-        // Nothing to reject yet — a company may check out on_account or
-        // by card. Suspended-company / overdue-invoice blocking (05.2
-        // §8.1 rows 4-5) belongs here once built.
+        // Unlocked first look, so a refused buyer opens no transaction; reserve() decides.
+        $this->gate->assertCanOrder(Company::query()->findOrFail($request->companyId), $request->userId, $request->paymentMethod);
     }
 
     public function tierId(CheckoutRequest $request): ?int
     {
-        $tierId = Company::query()->whereKey($request->companyId)->value('price_tier_id');
+        $tierId = Company::query()->where('id', $request->companyId)->value('price_tier_id');
 
         return $tierId === null ? null : (int) $tierId;
     }
 
     public function paymentStatus(CheckoutRequest $request): string
     {
-        return $this->creditCompanyId($request) !== null ? 'on_account' : 'unpaid';
+        return $request->paymentMethod === PaymentMethod::OnAccount->value ? 'on_account' : 'unpaid';
     }
 
     public function reserve(
@@ -52,15 +62,34 @@ final class TradeCheckout implements CheckoutStrategy
         array $allocationLines,
         ?callable $beforeStock = null,
     ): void {
-        $creditCompanyId = $this->creditCompanyId($request);
+        // 02 §11.1 step 1: companies first, always — every trade path takes it.
+        $company = Company::query()->where('id', $request->companyId)->lockForUpdate()->firstOrFail();
+        $member = $this->gate->assertCanOrder($company, $request->userId, $request->paymentMethod);
 
-        // 02 §11.1: companies locked before stock_levels. allocateWithinTransaction()
-        // does both, in that order, when a credit gate applies; with no
-        // stock lines at all (every SKU untracked) the credit gate still
-        // has to run on its own — see AllocationService::lockAndCheckCredit()'s
-        // own docblock for why.
-        if ($creditCompanyId !== null) {
-            $allocationService->lockAndCheckCredit($creditCompanyId, $totalGrossMinor);
+        $onAccount = $request->paymentMethod === PaymentMethod::OnAccount->value;
+        $buyerApproval = $this->gate->needsBuyerApproval($member, $totalGrossMinor);
+        $creditShortfall = $onAccount && $totalGrossMinor > $this->gate->available($company);
+
+        if ($request->paymentMethod === PaymentMethod::Card->value) {
+            if ($buyerApproval && $request->cardAuthorisation !== null) {
+                throw new CreditRefused('approval_required', 'This order needs approval before payment. Place it without paying; you pay once it is approved.', 409);
+            }
+            if (! $buyerApproval && $request->cardAuthorisation === null) {
+                throw new CreditRefused('card_authorisation_required', 'Authorise the card payment to place this order.', 409);
+            }
+        }
+
+        if ($buyerApproval || $creditShortfall) {
+            $order->forceFill(['status' => 'awaiting_approval'])->save();
+            $approvals = new TradeApprovals;
+            if ($buyerApproval) {
+                $approvals->request($order, ApprovalKind::BuyerLimit);
+            }
+            if ($creditShortfall) {
+                $approvals->request($order, ApprovalKind::CreditException);
+
+                return; // §18.1: nothing reserved for an unfunded request.
+            }
         }
 
         if ($beforeStock !== null) {
@@ -71,34 +100,19 @@ final class TradeCheckout implements CheckoutStrategy
             $allocationService->allocateWithinTransaction(null, 0, $allocationLines);
         }
 
-        // 02 §11.1 step 6: credit_holds is inserted AFTER stock is
-        // verified/written, not alongside the step-1 credit lock. The
-        // company row is still held from the lock above, so this needs
-        // no further lock.
-        if ($creditCompanyId !== null) {
-            $credit = Company::query()->whereKey($creditCompanyId)->firstOrFail(['id', 'credit_limit_minor', 'credit_used_minor', 'credit_held_minor']);
-            $usageBefore = $credit->credit_used_minor + $credit->credit_held_minor;
-
-            CreditHold::create([
-                'company_id' => $creditCompanyId,
+        if ($onAccount) {
+            $usageBefore = $company->credit_used_minor + $company->credit_held_minor;
+            CreditHold::query()->create([
+                'company_id' => $company->id,
                 'order_id' => $order->id,
                 'amount_minor' => $totalGrossMinor,
                 'status' => 'held',
                 'held_at' => now(),
             ]);
-            Company::whereKey($creditCompanyId)->increment('credit_held_minor', $totalGrossMinor);
+            Company::query()->where('id', $company->id)->increment('credit_held_minor', $totalGrossMinor);
 
             // 05.12 §5.1.2: warn the owners if this hold took usage past 80%.
-            (new Notifications)->creditUsageChanged($creditCompanyId, $credit->credit_limit_minor, $usageBefore, $usageBefore + $totalGrossMinor, "order:{$order->id}");
+            (new Notifications)->creditUsageChanged($company->id, $company->credit_limit_minor, $usageBefore, $usageBefore + $totalGrossMinor, "order:{$order->id}");
         }
-    }
-
-    /**
-     * On account only when the buyer chose it — a company paying by
-     * card takes no credit hold (05.2 §8.1 row 2).
-     */
-    private function creditCompanyId(CheckoutRequest $request): ?int
-    {
-        return $request->paymentMethod === 'on_account' ? $request->companyId : null;
     }
 }

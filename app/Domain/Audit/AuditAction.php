@@ -4,6 +4,9 @@ namespace App\Domain\Audit;
 
 enum AuditAction: string
 {
+    /** The fields a `credit.operation` entry may carry before and after (05.2 §18). */
+    public const CREDIT_OPERATION_FIELDS = ['status', 'approval_kind', 'payment_terms', 'credit_limit_minor', 'amount_minor'];
+
     case CompanyInvited = 'permission.company_invited';
 
     case CompanyInvitationRevoked = 'permission.company_invitation_revoked';
@@ -77,6 +80,18 @@ enum AuditAction: string
     /** 02 §25.4: a reviewer re-ran the verification checks. */
     case ApplicationVerificationRequested = 'application.verification_requested';
 
+    /*
+     * 05.17 §2: the applicant answered an information request (back to
+     * in_review) or withdrew an open application. The reply text is the
+     * entry's reason, so it sits beside the reviewers' own history.
+     */
+    case ApplicationApplicantReplied = 'application.applicant_replied';
+
+    case ApplicationWithdrawn = 'application.withdrawn';
+
+    /** 05.2 §18: approval decisions, unpaid-order expiry, credit terms/suspension and balance payouts. */
+    case CreditOperation = 'credit.operation';
+
     case CreditLimitChanged = 'credit_limit.changed';
 
     /** 02 §25.1: 07 §6.5 "configuration changes". */
@@ -140,12 +155,13 @@ enum AuditAction: string
             self::StaffRoleGranted, self::StaffRoleRevoked,
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved, self::ApplicationVerificationRequested,
+            self::ApplicationApplicantReplied, self::ApplicationWithdrawn,
             self::OrderClaimed,
             self::PaymentCashRecorded, self::PaymentCashVoided,
             self::PayAtCollectionSuspended, self::PayAtCollectionReinstated => 'permission',
             self::RmaProofRejected, self::RmaAdvanceReplacement => 'rma_disposition',
             self::OrderCancelBelowBreak => 'price_override',
-            self::CreditLimitChanged => 'credit_limit',
+            self::CreditLimitChanged, self::CreditOperation => 'credit_limit',
             self::TermsVersionPublished, self::StorefrontSettingsChanged, self::PagePublished => 'configuration',
         };
     }
@@ -164,6 +180,8 @@ enum AuditAction: string
             self::ApplicationReviewStarted, self::ApplicationInfoRequested, self::ApplicationReviewResumed,
             self::ApplicationRejected, self::ApplicationApproved => ['status'],
             self::ApplicationVerificationRequested => [],
+            self::ApplicationApplicantReplied, self::ApplicationWithdrawn => ['status'],
+            self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::TermsVersionPublished, self::PagePublished => [],
             self::OrderClaimed => ['user_id'],
@@ -202,6 +220,9 @@ enum AuditAction: string
             self::ApplicationApproved => ['status', 'company_id', 'owner_user_id', 'price_tier_id', 'payment_terms', 'credit_limit_minor',
                 'verification_warnings', 'verification_acknowledged'],
             self::ApplicationVerificationRequested => ['checks'],
+            self::ApplicationApplicantReplied => ['status', 'attachment_ids'],
+            self::ApplicationWithdrawn => ['status'],
+            self::CreditOperation => self::CREDIT_OPERATION_FIELDS,
             self::CreditLimitChanged => ['credit_limit_minor'],
             self::OrderClaimed => ['user_id'],
             self::RmaProofRejected => ['goods_sent_at'],

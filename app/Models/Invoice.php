@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
  * @property int $shipping_net_minor
  * @property int $tax_minor
  * @property int $total_gross_minor
+ * @property int $credited_minor
  * @property int $paid_minor
  * @property string|null $payment_terms
  * @property Carbon|null $due_at
@@ -61,6 +62,7 @@ class Invoice extends Model
         'tax_minor',
         'total_gross_minor',
         'paid_minor',
+        'credited_minor',
         'payment_terms',
         'due_at',
         'issued_at',
@@ -76,6 +78,7 @@ class Invoice extends Model
             'tax_minor' => 'integer',
             'total_gross_minor' => 'integer',
             'paid_minor' => 'integer',
+            'credited_minor' => 'integer',
             'due_at' => 'datetime',
             'issued_at' => 'datetime',
         ];

@@ -48,6 +48,14 @@ final readonly class CheckoutPreview
         /** 05.6 §7A: the collection slot chosen, when it is still available. */
         public ?CollectionSlot $collectionSlot = null,
         public ?PayAtCollectionOffer $payAtCollection = null,
+        /**
+         * 05.2 §18.1: why this trade order would wait for a decision —
+         * `buyer_limit` (another owner/approver) and/or `credit_shortfall`
+         * (accounts; nothing reserved meanwhile). Empty: placed straight away.
+         *
+         * @var list<'buyer_limit'|'credit_shortfall'>
+         */
+        public array $approvalReasons = [],
     ) {}
 
     public function amountDueMinor(): int
