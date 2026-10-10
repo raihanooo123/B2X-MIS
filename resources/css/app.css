@@ -107,3 +107,26 @@
         background: hsl(var(--primary) / 0.15);
     }
 }
+
+/*
+ * Staff screens outside Filament (warehouse, collections counter): the
+ * admin panel's palette — blue primary on a slate canvas — so they read
+ * as the same product. Scoped to .staff-theme; the storefront keeps the
+ * business's own brand colour.
+ */
+@layer components {
+    .staff-theme {
+        --primary: 221.2 83.2% 53.3%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 221.2 83.2% 53.3%;
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 86%;
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 40%;
+        --radius: 0.625rem;
+    }
+
+    .staff-theme :is(a, button, input, select, textarea, summary):focus-visible {
+        @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-white;
+    }
+}

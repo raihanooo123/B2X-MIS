@@ -13,12 +13,12 @@
  * queue; the tracking field takes a scanned courier label. 48 px targets,
  * keyboard-complete — Enter moves between fields, Ctrl+Enter dispatches.
  */
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 import { Check, Truck } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
+import { EmptyState, ErrorState, LoadingState } from '@/components/warehouse/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, formatTime, packsText, useScanFocus } from '@/components/warehouse/scan';
@@ -63,26 +63,13 @@ export default function Dispatch(props: DispatchProps) {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Dispatch" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <Truck className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Dispatch</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
-                {shipmentId === null ? (
-                    <QueuePanel queue={props.queue} onChoose={go} />
-                ) : (
-                    <ShipmentPanel key={shipmentId} shipmentId={shipmentId} initial={props.shipment} onLeave={() => go(null)} />
-                )}
-            </main>
-        </div>
+        <WarehouseShell title="Dispatch" icon={Truck}>
+            {shipmentId === null ? (
+                <QueuePanel queue={props.queue} onChoose={go} />
+            ) : (
+                <ShipmentPanel key={shipmentId} shipmentId={shipmentId} initial={props.shipment} onLeave={() => go(null)} />
+            )}
+        </WarehouseShell>
     );
 }
 
@@ -109,12 +96,12 @@ function QueuePanel({ queue, onChoose }: { queue: QueueEntry[]; onChoose: (id: U
                     Picked, ready to go
                 </h2>
                 {queue.length === 0 ? (
-                    <p className="text-base text-slate-600">Nothing waiting.</p>
+                    <EmptyState icon={Truck} title="Nothing ready to dispatch">Shipments appear here once they are fully picked.</EmptyState>
                 ) : (
                     <ul className="grid gap-2 sm:grid-cols-2">
                         {queue.map((q) => (
                             <li key={q.id}>
-                                <Button type="button" variant="outline" className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base" onClick={() => onChoose(q.id)}>
+                                <Button type="button" variant="outline" className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50" onClick={() => onChoose(q.id)}>
                                     <span>
                                         <span className={cn('block font-semibold', MONO)}>{q.order_number}</span>
                                         <span className="block text-sm text-slate-600">
@@ -138,16 +125,15 @@ function ShipmentPanel({ shipmentId, initial, onLeave }: { shipmentId: Ulid; ini
     const data = query.data;
 
     if (query.isPending) {
-        return <Notice tone="info">Loading shipment…</Notice>;
+        return <LoadingState label="Loading shipment…" />;
     }
     if (data === undefined) {
         return (
-            <>
-                <Notice tone="error">{describeError(query.error)}</Notice>
+            <ErrorState message={describeError(query.error)} onRetry={() => void query.refetch()}>
                 <Button type="button" variant="outline" className={TARGET} onClick={onLeave}>
                     Back to the queue
                 </Button>
-            </>
+            </ErrorState>
         );
     }
 
@@ -159,7 +145,7 @@ function ShipmentPanel({ shipmentId, initial, onLeave }: { shipmentId: Ulid; ini
 
     return (
         <>
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white p-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                 <div>
                     <p className="text-sm uppercase tracking-wide text-slate-600">
                         {data.shipment.fulfilment_type} · {data.shipment.location_code}
@@ -180,7 +166,7 @@ function ShipmentPanel({ shipmentId, initial, onLeave }: { shipmentId: Ulid; ini
                 </div>
             </section>
 
-            <section aria-labelledby="contents-heading" className="rounded-xl border border-slate-300 bg-white p-4">
+            <section aria-labelledby="contents-heading" className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                 <h2 id="contents-heading" className="text-xl font-semibold">
                     {dispatched ? 'Shipped' : 'On this shipment'}
                 </h2>
@@ -213,7 +199,7 @@ function ShipmentPanel({ shipmentId, initial, onLeave }: { shipmentId: Ulid; ini
             </section>
 
             {remaining.length > 0 && (
-                <section aria-labelledby="remaining-heading" className="rounded-xl border-2 border-amber-500 bg-amber-50 p-4">
+                <section aria-labelledby="remaining-heading" className="rounded-xl bg-amber-50 ring-2 ring-amber-400 p-4">
                     <h2 id="remaining-heading" className="text-xl font-semibold">
                         Still owed after this shipment
                     </h2>
@@ -333,7 +319,7 @@ function DispatchForm({ shipmentId, data }: { shipmentId: Ulid; data: PickListDa
                 submit();
             }}
             onKeyDown={onKeyDown}
-            className="space-y-4 rounded-xl border-2 border-slate-800 bg-white p-5"
+            className="space-y-4 rounded-xl bg-white shadow-md ring-2 ring-blue-500 p-5"
             aria-labelledby="dispatch-heading"
             noValidate
         >

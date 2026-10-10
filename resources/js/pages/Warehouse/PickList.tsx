@@ -19,12 +19,12 @@
  *     The server records it, writes the adjustment, and re-plans the line;
  *     the screen reports what was re-planned and what is backordered.
  */
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 import { Check, ClipboardList, Package, Replace, TriangleAlert, Truck } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
+import { EmptyState, ErrorState, LoadingState } from '@/components/warehouse/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, formatTime, packsText, useScanFocus, type NoticeTone } from '@/components/warehouse/scan';
@@ -76,26 +76,13 @@ export default function PickList(props: PickListProps) {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Picking" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <ClipboardList className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Picking</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
-                {shipmentId === null ? (
-                    <StartPanel queue={props.queue} onOpened={go} />
-                ) : (
-                    <ShipmentPanel key={shipmentId} shipmentId={shipmentId} initial={props.pick_list} reasons={props.short_pick_reasons} onLeave={() => go(null)} />
-                )}
-            </main>
-        </div>
+        <WarehouseShell title="Picking" icon={ClipboardList}>
+            {shipmentId === null ? (
+                <StartPanel queue={props.queue} onOpened={go} />
+            ) : (
+                <ShipmentPanel key={shipmentId} shipmentId={shipmentId} initial={props.pick_list} reasons={props.short_pick_reasons} onLeave={() => go(null)} />
+            )}
+        </WarehouseShell>
     );
 }
 
@@ -124,7 +111,7 @@ function StartPanel({ queue, onOpened }: { queue: QueueEntry[]; onOpened: (id: U
                     Ready to pick
                 </h2>
                 {queue.length === 0 ? (
-                    <p className="text-base text-slate-600">Nothing waiting.</p>
+                    <EmptyState icon={ClipboardList} title="Nothing to pick">Orders appear here once they are paid and ready. Scan an order number to open one directly.</EmptyState>
                 ) : (
                     <ul className="grid gap-2 sm:grid-cols-2">
                         {queue.map((q) => (
@@ -132,7 +119,7 @@ function StartPanel({ queue, onOpened }: { queue: QueueEntry[]; onOpened: (id: U
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base"
+                                    className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50"
                                     disabled={open.isPending}
                                     onClick={() => (q.open_shipment_id ? onOpened(q.open_shipment_id) : start(q.order_number, q.location_code))}
                                 >
@@ -207,16 +194,15 @@ function ShipmentPanel({ shipmentId, initial, reasons, onLeave }: { shipmentId: 
     };
 
     if (query.isPending) {
-        return <Notice tone="info">Loading pick list…</Notice>;
+        return <LoadingState label="Loading pick list…" />;
     }
     if (data === undefined) {
         return (
-            <>
-                <Notice tone="error">{describeError(query.error)}</Notice>
+            <ErrorState message={describeError(query.error)} onRetry={() => void query.refetch()}>
                 <Button type="button" variant="outline" className={TARGET} onClick={onLeave}>
                     Back to the queue
                 </Button>
-            </>
+            </ErrorState>
         );
     }
 
@@ -224,7 +210,7 @@ function ShipmentPanel({ shipmentId, initial, reasons, onLeave }: { shipmentId: 
 
     return (
         <>
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white p-4">
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
                 <div>
                     <p className="text-sm uppercase tracking-wide text-slate-600">
                         {data.shipment.fulfilment_type} · {data.shipment.location_code}
@@ -251,7 +237,7 @@ function ShipmentPanel({ shipmentId, initial, reasons, onLeave }: { shipmentId: 
             {data.shipment.status === 'dispatched' ? (
                 <Notice tone="ok">This shipment was dispatched {data.shipment.dispatched_at ? formatTime(data.shipment.dispatched_at) : ''}.</Notice>
             ) : data.complete ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-emerald-600 bg-emerald-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-emerald-50 ring-2 ring-emerald-500 p-4">
                     <p className="flex items-center gap-2 text-lg font-semibold text-emerald-900">
                         <Check className="size-6" aria-hidden /> Everything is picked.
                     </p>
@@ -318,7 +304,7 @@ function PickLineCard({
     const ref = { line_no: line.line_no, batch_code: line.batch_code };
 
     return (
-        <article className={cn('rounded-xl border-2 bg-white p-4', done ? 'border-emerald-600' : 'border-slate-300')} aria-label={`Line ${line.line_no}, ${line.sku_code}`}>
+        <article className={cn('rounded-xl bg-white p-4 shadow-sm', done ? 'ring-2 ring-emerald-500' : 'ring-1 ring-slate-200')} aria-label={`Line ${line.line_no}, ${line.sku_code}`}>
             <div className="flex flex-wrap items-start gap-4">
                 <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
                     {line.thumbnail_url ? <img src={line.thumbnail_url} alt="" className="size-full object-cover" /> : <Package className="size-8 text-slate-400" aria-hidden />}
@@ -465,7 +451,7 @@ function ShortPickForm({
     };
 
     return (
-        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="mt-4 space-y-3 rounded-lg border-2 border-amber-500 bg-amber-50 p-4" aria-label={`Short pick, line ${line.line_no}`}>
+        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="mt-4 space-y-3 rounded-lg bg-amber-50 ring-2 ring-amber-400 p-4" aria-label={`Short pick, line ${line.line_no}`}>
             <p className="text-base font-semibold">How many did you pick? The rest is written off and re-planned.</p>
             <div className="flex flex-wrap items-end gap-3">
                 {!eachPack && (
@@ -546,7 +532,7 @@ function SubstituteForm({ shipmentId, line, onCancel, onDone }: { shipmentId: Ul
     };
 
     return (
-        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="mt-4 space-y-3 rounded-lg border-2 border-slate-800 bg-slate-50 p-4" aria-label={`Substitute batch, line ${line.line_no}`}>
+        <form onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && onCancel()} className="mt-4 space-y-3 rounded-lg bg-blue-50/40 ring-2 ring-blue-500 p-4" aria-label={`Substitute batch, line ${line.line_no}`}>
             <p className="text-base font-semibold">
                 Take a different batch than <span className={MONO}>{line.batch_code}</span>. This is recorded — the delivery note and recall trace follow it.
             </p>

@@ -6,7 +6,7 @@
  * interaction, identifiers in a monospaced face (0/O and 1/I confusion
  * breaks a recall trace).
  */
-import { CornerDownLeft, ScanLine } from 'lucide-react';
+import { CheckCircle2, CornerDownLeft, Info, ScanLine, XCircle } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -58,9 +58,9 @@ export function ScanBar({ id, inputRef, label, busy, onScan }: { id: string; inp
     };
 
     return (
-        <form onSubmit={submit} className="rounded-2xl border border-border bg-background p-4 shadow-sm">
-            <label htmlFor={id} className="mb-2 flex items-center gap-2 text-base font-semibold">
-                <ScanLine className="size-5" aria-hidden /> {label}
+        <form onSubmit={submit} className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <label htmlFor={id} className="mb-3 flex items-center gap-2 text-base font-semibold">
+                <ScanLine className="size-5 text-blue-600" aria-hidden /> {label}
             </label>
             <div className="flex gap-3">
                 <Input
@@ -71,7 +71,7 @@ export function ScanBar({ id, inputRef, label, busy, onScan }: { id: string; inp
                     autoComplete="off"
                     autoCapitalize="characters"
                     spellCheck={false}
-                    className={cn('h-14 flex-1 text-xl', MONO)}
+                    className={cn('h-14 flex-1 bg-slate-50 text-xl', MONO)}
                     aria-describedby={`${id}-hint`}
                     autoFocus
                 />
@@ -79,7 +79,7 @@ export function ScanBar({ id, inputRef, label, busy, onScan }: { id: string; inp
                     <CornerDownLeft aria-hidden /> Go
                 </Button>
             </div>
-            <p id={`${id}-hint`} className="mt-2 text-sm text-slate-600">
+            <p id={`${id}-hint`} className="mt-2 text-sm text-slate-500">
                 Scan, or type and press Enter. Start typing anywhere — it lands here.
             </p>
         </form>
@@ -89,17 +89,23 @@ export function ScanBar({ id, inputRef, label, busy, onScan }: { id: string; inp
 export type NoticeTone = 'error' | 'ok' | 'info';
 
 export function Notice({ tone, children }: { tone: NoticeTone; children: ReactNode }) {
+    const Icon = tone === 'error' ? XCircle : tone === 'ok' ? CheckCircle2 : Info;
+
     return (
         <div
             role={tone === 'error' ? 'alert' : 'status'}
             className={cn(
-                'rounded-lg border-2 p-4 text-base',
-                tone === 'error' && 'border-red-600 bg-red-50 text-red-900',
-                tone === 'ok' && 'border-emerald-600 bg-emerald-50 text-emerald-900',
-                tone === 'info' && 'border-slate-400 bg-white text-slate-800',
+                'flex items-start gap-3 rounded-xl p-4 text-base ring-1',
+                tone === 'error' && 'bg-red-50 text-red-900 ring-red-200',
+                tone === 'ok' && 'bg-emerald-50 text-emerald-900 ring-emerald-200',
+                tone === 'info' && 'bg-white text-slate-700 shadow-sm ring-slate-200',
             )}
         >
-            {children}
+            <Icon
+                className={cn('mt-0.5 size-5 shrink-0', tone === 'error' && 'text-red-600', tone === 'ok' && 'text-emerald-600', tone === 'info' && 'text-blue-600')}
+                aria-hidden
+            />
+            <div className="min-w-0 flex-1">{children}</div>
         </div>
     );
 }
