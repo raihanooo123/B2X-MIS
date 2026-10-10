@@ -19,13 +19,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: b2x_testing
+          POSTGRES_DB: btx-test-db
           POSTGRES_USER: b2x
           POSTGRES_PASSWORD: test-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U b2x -d b2x_testing"
+          --health-cmd "pg_isready -U b2x -d btx-test-db"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -35,7 +35,7 @@ jobs:
       DB_CONNECTION: pgsql
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
-      DB_DATABASE: b2x_testing
+      DB_DATABASE: btx-test-db
       DB_USERNAME: b2x
       DB_PASSWORD: test-password
       CACHE_STORE: array

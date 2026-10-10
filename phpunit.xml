@@ -35,7 +35,7 @@
         <env name="CACHE_STORE" value="array"/>
         <!-- <env name="DB_CONNECTION" value="sqlite"/> -->
         <!-- <env name="DB_DATABASE" value=":memory:"/> -->
-        <env name="DB_DATABASE" value="b2x_testing"/>
+        <env name="DB_DATABASE" value="btx-test-db"/>
         <env name="MAIL_MAILER" value="array"/>
         <!-- 05.17 §5: no Chromium in the suite; renderer tests bind their own. -->
         <env name="PDF_RENDERER" value="null"/>
