@@ -25,6 +25,8 @@ class ViewStaffUser extends ViewRecord
         return [
             Action::make('resendSetupLink')
                 ->label('Resend setup link')
+                ->icon('heroicon-m-paper-airplane')
+                ->color('gray')
                 ->requiresConfirmation()
                 ->visible(fn (): bool => Gate::allows('resendStaffOnboarding', $this->staff()))
                 ->action(function (): void {
@@ -42,6 +44,8 @@ class ViewStaffUser extends ViewRecord
                 }),
             Action::make('grantRole')
                 ->label('Grant role')
+                ->icon('heroicon-m-plus-circle')
+                ->color('gray')
                 ->visible(fn (): bool => Gate::allows('manageStaffRoles', $this->staff()))
                 ->form([
                     Select::make('role')->label('Role')->required()
@@ -50,6 +54,7 @@ class ViewStaffUser extends ViewRecord
                 ->action(fn (array $data) => $this->changeRole('grant', $data)),
             Action::make('revokeRole')
                 ->label('Revoke role')
+                ->icon('heroicon-m-minus-circle')
                 ->color('danger')
                 ->visible(fn (): bool => Gate::allows('manageStaffRoles', $this->staff()))
                 ->modalDescription('A staff member keeps at least one role, and the last active administrator keeps the admin role.')
@@ -60,6 +65,7 @@ class ViewStaffUser extends ViewRecord
                 ->action(fn (array $data) => $this->changeRole('revoke', $data)),
             Action::make('suspend')
                 ->label('Suspend')
+                ->icon('heroicon-m-no-symbol')
                 ->color('danger')
                 ->requiresConfirmation()
                 ->modalDescription('Sign-in is blocked and every open session ends at once. The account keeps its roles.')
@@ -67,11 +73,13 @@ class ViewStaffUser extends ViewRecord
                 ->action(fn () => $this->changeStatus('suspend')),
             Action::make('reinstate')
                 ->label('Reinstate')
+                ->icon('heroicon-m-arrow-uturn-left')
                 ->requiresConfirmation()
                 ->visible(fn (): bool => Gate::allows('reinstateStaff', $this->staff()))
                 ->action(fn () => $this->changeStatus('reinstate')),
             Action::make('resetTwoFactor')
                 ->label('Reset 2FA')
+                ->icon('heroicon-m-key')
                 ->color('danger')
                 ->requiresConfirmation()
                 ->modalDescription('Their authenticator key and recovery codes stop working and every open session ends. They must set up 2FA again on their next sign-in. Confirm who is asking before you do this.')
