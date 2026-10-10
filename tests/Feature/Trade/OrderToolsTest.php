@@ -207,6 +207,9 @@ it('adds nothing from an expired import, and purges its input', function () {
     $import = otlStage('AAA-1 2');
 
     Carbon::setTestNow(now()->addHours(25));
+    // 25 hours outlives the 12-hour idle session (07 §6.1): sign in again.
+    $this->flushSession();
+    $this->actingAs($buyer);
     $this->postJson("/api/v1/order-imports/{$import['id']}/confirm", ['version' => $import['version'], 'rows' => [1], 'cart_version' => app(BulkEntryImports::class)->cartVersion($cart)])
         ->assertStatus(409)->assertJsonPath('error.code', 'import_expired');
 
@@ -300,7 +303,7 @@ it('reorders what was ordered minus what was cancelled, flagging what is no long
     $gone = otlSku('OLD-1');
     [$company, $buyer] = otlBuyer();
     $order = Order::factory()->create(['company_id' => $company->id, 'placed_at' => now()->subDay()]);
-    OrderLine::factory()->create(['order_id' => $order->id, 'line_no' => 1, 'sku_id' => $kept->id, 'pack_id' => $kept->packs()->value('id'), 'pack_qty' => 5, 'pack_base_units' => 1, 'base_qty' => 5, 'cancelled_base_qty' => 2, 'returned_base_qty' => 1]);
+    OrderLine::factory()->create(['order_id' => $order->id, 'line_no' => 1, 'sku_id' => $kept->id, 'pack_id' => $kept->packs()->value('id'), 'pack_qty' => 5, 'pack_base_units' => 1, 'base_qty' => 5, 'cancelled_base_qty' => 2, 'dispatched_base_qty' => 3, 'returned_base_qty' => 1]);
     OrderLine::factory()->create(['order_id' => $order->id, 'line_no' => 2, 'sku_id' => $gone->id, 'pack_id' => $gone->packs()->value('id'), 'pack_qty' => 1, 'pack_base_units' => 1, 'base_qty' => 1]);
     DB::table('skus')->where('id', $gone->id)->update(['status' => 'discontinued']);
 
