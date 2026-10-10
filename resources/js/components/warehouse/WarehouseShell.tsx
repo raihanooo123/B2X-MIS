@@ -41,7 +41,7 @@ export function WarehouseShell({
                         <span className="truncate">{brand.name}</span>
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-slate-500">Warehouse</span>
                     </a>
-                    <AccountMenu />
+                    <AccountMenu showCart={false} />
                 </div>
             </header>
             <WarehouseNavigation width={width} />
