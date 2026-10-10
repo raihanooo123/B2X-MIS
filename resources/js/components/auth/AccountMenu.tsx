@@ -9,7 +9,8 @@ import { Building2, LayoutDashboard, LogOut, MailWarning, ShieldCheck, ShoppingC
 
 import type { SharedProps } from '@/types/shared';
 
-export function AccountMenu() {
+/** `showCart={false}` on staff screens (warehouse, cancellations), where nobody shops. */
+export function AccountMenu({ showCart = true }: { showCart?: boolean }) {
     const { auth } = usePage<SharedProps>().props;
     const linkClass = 'inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-muted-foreground hover:text-foreground md:min-h-8';
 
@@ -43,9 +44,11 @@ export function AccountMenu() {
                     )}
                 </span>
             )}
-            <Link href="/cart" className={linkClass}>
-                <ShoppingCart className="size-4" aria-hidden /> Cart
-            </Link>
+            {showCart && (
+                <Link href="/cart" className={linkClass}>
+                    <ShoppingCart className="size-4" aria-hidden /> Cart
+                </Link>
+            )}
             {auth.public_customer && <Link href="/account/orders" className={linkClass}>My orders</Link>}
             {auth.can_manage_team && (
                 <Link href="/account/team" className={linkClass}>

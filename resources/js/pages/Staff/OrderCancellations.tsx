@@ -81,7 +81,7 @@ export default function OrderCancellations({ order, store_url: storeUrl, search 
             <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
                 <header className="flex items-center justify-between gap-4">
                     <h1 className="text-xl font-semibold">Order cancellations</h1>
-                    <AccountMenu />
+                    <AccountMenu showCart={false} />
                 </header>
 
                 <form onSubmit={find} className="flex gap-2">

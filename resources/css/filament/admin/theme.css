@@ -85,9 +85,14 @@
     @apply hidden;
 }
 
-/* Tabs and search share the toolbar; on narrower screens the search wraps below. */
-.fi-ta-header-toolbar:has(.b2x-toolbar-tabs) {
-    @apply flex-wrap gap-y-3;
+/* Tabs and the search/filter controls share one row; on narrow screens the
+ * tabs shrink and scroll sideways rather than pushing the controls down. */
+.fi-ta-header-toolbar .b2x-toolbar-tabs {
+    flex: 0 1 auto;
+}
+
+.fi-ta-header-toolbar:has(.b2x-toolbar-tabs) .fi-ta-search-field {
+    @apply min-w-48;
 }
 
 .fi-ta-header-toolbar .b2x-toolbar-tabs {

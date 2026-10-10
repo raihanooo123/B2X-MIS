@@ -13,15 +13,15 @@
  * A wrongly keyed cash payment is voided, before handover, by accounts.
  * Warehouse conditions: 48 px targets, identifiers in a monospaced face.
  */
-import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { Banknote, PackageCheck, Search, Store } from 'lucide-react';
+import { Link, router, useForm, usePage } from '@inertiajs/react';
+import { ArrowLeft, Banknote, PackageCheck, Search, Store } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, TARGET, formatTime } from '@/components/warehouse/scan';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
+import { EmptyState } from '@/components/warehouse/states';
 import { formatMinor } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import type { SharedProps } from '@/types/shared';
@@ -77,51 +77,42 @@ export default function Collections({ search, bookings, order, can }: Collection
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Collections" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <Store className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Collections</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
-                {flash.status && <Notice tone="ok">{flash.status}</Notice>}
+        <WarehouseShell title="Collections" icon={Store}>
+            {flash.status && <Notice tone="ok">{flash.status}</Notice>}
 
-                <form onSubmit={find} className="flex gap-2" role="search">
-                    <label htmlFor="collections-search" className="sr-only">
-                        Order number, name, email or phone
-                    </label>
-                    <Input id="collections-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Order number, name, email or phone" className={cn(FIELD, 'bg-white')} autoFocus />
-                    <Button type="submit" className={TARGET}>
-                        <Search aria-hidden /> Find
-                    </Button>
-                </form>
+            <form onSubmit={find} className="flex gap-2" role="search">
+                <label htmlFor="collections-search" className="sr-only">
+                    Order number, name, email or phone
+                </label>
+                <Input id="collections-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Order number, name, email or phone" className={cn(FIELD, 'bg-white shadow-sm')} autoFocus />
+                <Button type="submit" className={TARGET}>
+                    <Search aria-hidden /> Find
+                </Button>
+            </form>
 
-                {order !== null ? <OrderPanel order={order} can={can} /> : <BookingList bookings={bookings} searching={search !== ''} />}
-            </main>
-        </div>
+            {order !== null ? <OrderPanel order={order} can={can} /> : <BookingList bookings={bookings} searching={search !== ''} />}
+        </WarehouseShell>
     );
 }
 
 function BookingList({ bookings, searching }: { bookings: BookingRow[]; searching: boolean }) {
     if (bookings.length === 0) {
-        return <Notice tone="info">{searching ? 'No collection matches that search.' : 'No collections are due today.'}</Notice>;
+        return (
+            <EmptyState icon={searching ? Search : Store} title={searching ? 'No collection matches that search' : 'No collections due today'}>
+                {searching ? 'Check the order number, or search by name, email or phone.' : 'Bookings for today and any overdue ones appear here.'}
+            </EmptyState>
+        );
     }
 
     return (
         <section className="space-y-2" aria-label={searching ? 'Matching collections' : "Today's and overdue collections"}>
-            <h2 className="text-base font-semibold text-slate-600">{searching ? 'Matching collections' : "Today's and overdue collections"}</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{searching ? 'Matching collections' : "Today's and overdue collections"}</h2>
             <ul className="space-y-2">
                 {bookings.map((b) => (
                     <li key={b.order_id ?? b.order_number}>
                         <Link
                             href={`/warehouse/collections?order=${b.order_id}`}
-                            className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 hover:border-slate-500"
+                            className="flex min-h-12 flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 px-4 py-3 hover:border-slate-500"
                         >
                             <span className="min-w-0">
                                 <span className={cn(MONO, 'font-semibold')}>{b.order_number}</span>
@@ -155,11 +146,11 @@ function OrderPanel({ order, can }: { order: OrderDetail; can: CollectionsProps[
 
     return (
         <div className="space-y-6">
-            <Link href="/warehouse/collections" className="inline-flex min-h-12 items-center text-base underline">
-                ← All collections
+            <Link href="/warehouse/collections" className="inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-base font-medium text-slate-600 hover:bg-white hover:text-slate-900">
+                <ArrowLeft className="size-5" aria-hidden /> All collections
             </Link>
 
-            <section className="space-y-3 rounded-xl border border-slate-300 bg-white p-5">
+            <section className="space-y-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-5">
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                     <h2 className={cn(MONO, 'text-2xl font-bold')}>{order.order_number}</h2>
                     <span className="text-base text-slate-600">{booking?.slot}</span>
@@ -174,7 +165,7 @@ function OrderPanel({ order, can }: { order: OrderDetail; can: CollectionsProps[
                 </dl>
             </section>
 
-            <section className="space-y-2 rounded-xl border border-slate-300 bg-white p-5" aria-label="Lines">
+            <section className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-5" aria-label="Lines">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-lg font-semibold">Goods</h3>
                     {order.shipment && live && (
@@ -218,7 +209,7 @@ function CashPanel({ order, can, live }: { order: OrderDetail; can: CollectionsP
     };
 
     return (
-        <section className="space-y-4 rounded-xl border-2 border-slate-400 bg-white p-5" aria-label="Cash">
+        <section className="space-y-4 rounded-xl bg-white shadow-sm ring-2 ring-blue-200 p-5" aria-label="Cash">
             <h3 className="flex items-center gap-2 text-lg font-semibold">
                 <Banknote className="size-5" aria-hidden /> Cash
             </h3>
@@ -312,7 +303,7 @@ function HandoverPanel({ order, paid, fullyPicked }: { order: OrderDetail; paid:
     const ready = paid && fullyPicked;
 
     return (
-        <section className="space-y-3 rounded-xl border border-slate-300 bg-white p-5" aria-label="Handover">
+        <section className="space-y-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-5" aria-label="Handover">
             <h3 className="flex items-center gap-2 text-lg font-semibold">
                 <PackageCheck className="size-5" aria-hidden /> Hand over
             </h3>

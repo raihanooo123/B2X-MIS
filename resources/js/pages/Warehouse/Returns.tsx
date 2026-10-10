@@ -10,12 +10,11 @@
  *
  * Booking in sends an Idempotency-Key (06 §6): a retried tap books once.
  */
-import { Head, router } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
 import { PackageOpen } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
 
-import { AccountMenu } from '@/components/auth/AccountMenu';
-import { WarehouseNavigation } from '@/components/warehouse/WarehouseNavigation';
+import { WarehouseShell } from '@/components/warehouse/WarehouseShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FIELD, MONO, Notice, ScanBar, TARGET, describeError, useScanFocus } from '@/components/warehouse/scan';
@@ -134,31 +133,18 @@ function open(rmaNumber: string | null) {
 
 export default function Returns({ selected, expected, to_review: toReview, to_settle: toSettle, can_record_cancellation: canRecordCancellation }: ReturnsProps) {
     return (
-        <div className="min-h-screen bg-slate-100 pb-24 text-lg text-slate-900 antialiased">
-            <Head title="Returns" />
-            <header className="border-b border-slate-300 bg-white">
-                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                        <PackageOpen className="size-7 text-slate-700" aria-hidden />
-                        <h1 className="text-2xl font-bold">Returns</h1>
-                    </div>
-                    <AccountMenu />
-                </div>
-            </header>
-            <WarehouseNavigation />
-            <main className="mx-auto max-w-5xl space-y-6 px-4 pt-6">
-                {selected === null ? (
-                    <>
-                        <ExpectedPanel expected={expected} />
-                        <ShortList title="Problem reports to review" items={toReview.map((r) => ({ rma: r.rma_number, note: r.reason.replace('_', ' ') }))} />
-                        <ShortList title="To inspect or settle" items={toSettle.map((r) => ({ rma: r.rma_number, note: `${r.status}${r.refund_due_on ? ` · refund by ${ukDate(r.refund_due_on)}` : ''}` }))} />
-                        {canRecordCancellation && <RecordCancellation />}
-                    </>
-                ) : (
-                    <ReturnPanel key={selected.id} rma={selected} />
-                )}
-            </main>
-        </div>
+        <WarehouseShell title="Returns" icon={PackageOpen}>
+            {selected === null ? (
+                <>
+                    <ExpectedPanel expected={expected} />
+                    <ShortList title="Problem reports to review" items={toReview.map((r) => ({ rma: r.rma_number, note: r.reason.replace('_', ' ') }))} />
+                    <ShortList title="To inspect or settle" items={toSettle.map((r) => ({ rma: r.rma_number, note: `${r.status}${r.refund_due_on ? ` · refund by ${ukDate(r.refund_due_on)}` : ''}` }))} />
+                    {canRecordCancellation && <RecordCancellation />}
+                </>
+            ) : (
+                <ReturnPanel key={selected.id} rma={selected} />
+            )}
+        </WarehouseShell>
     );
 }
 
@@ -179,7 +165,7 @@ function ExpectedPanel({ expected }: { expected: ExpectedReturn[] }) {
                     <ul className="grid gap-2 sm:grid-cols-2">
                         {expected.map((r) => (
                             <li key={r.rma_number}>
-                                <Button type="button" variant="outline" className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base" onClick={() => open(r.rma_number)}>
+                                <Button type="button" variant="outline" className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50" onClick={() => open(r.rma_number)}>
                                     <span>
                                         <span className={cn('block font-semibold', MONO)}>{r.rma_number}</span>
                                         <span className="block text-sm text-slate-600">
@@ -208,7 +194,7 @@ function ReturnPanel({ rma }: { rma: ReturnData }) {
                     Back to returns
                 </Button>
             </div>
-            <dl className="grid gap-x-6 gap-y-1 rounded-md border border-slate-300 bg-white p-4 text-base sm:grid-cols-2">
+            <dl className="grid gap-x-6 gap-y-1 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4 text-base sm:grid-cols-2">
                 <Fact label="Status" value={rma.status.replace('_', ' ')} />
                 <Fact label="Order" value={rma.order_number ?? '—'} />
                 <Fact label="Customer" value={rma.customer ?? '—'} />
@@ -288,7 +274,7 @@ function ReceiveForm({ rma }: { rma: ReturnData }) {
         <form onSubmit={submit} className="space-y-3" noValidate>
             <h3 className="text-xl font-semibold">Book the parcel in</h3>
             {rma.lines.map((l) => (
-                <div key={l.line_no} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-300 bg-white p-3">
+                <div key={l.line_no} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-3">
                     <label htmlFor={`receive-${l.line_no}`} className="min-w-0">
                         <span className="block font-semibold">{l.name}</span>
                         <span className={cn('block text-sm text-slate-600', MONO)}>
@@ -320,7 +306,7 @@ function ReceivedLines({ rma }: { rma: ReturnData }) {
             <h3 className="text-xl font-semibold">Lines</h3>
             <ul className="space-y-1 text-base">
                 {rma.lines.map((l) => (
-                    <li key={l.line_no} className="flex justify-between gap-3 rounded-md border border-slate-300 bg-white p-3">
+                    <li key={l.line_no} className="flex justify-between gap-3 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-3">
                         <span>
                             {l.name} <span className={cn('text-sm text-slate-600', MONO)}>{l.sku_code}</span>
                         </span>
@@ -376,7 +362,7 @@ function ShortList({ title, items }: { title: string; items: { rma: string; note
             <ul className="grid gap-2 sm:grid-cols-2">
                 {items.map((i) => (
                     <li key={i.rma}>
-                        <Button type="button" variant="outline" className="h-auto min-h-12 w-full justify-between bg-white px-4 py-3 text-left text-base" onClick={() => open(i.rma)}>
+                        <Button type="button" variant="outline" className="h-auto min-h-16 w-full justify-between rounded-xl border-slate-200 bg-white px-4 py-3 text-left text-base shadow-sm hover:border-blue-300 hover:bg-blue-50/50" onClick={() => open(i.rma)}>
                             <span>
                                 <span className={cn('block font-semibold', MONO)}>{i.rma}</span>
                                 <span className="block text-sm text-slate-600">{i.note}</span>
@@ -408,7 +394,7 @@ function ReviewPanel({ rma }: { rma: ReturnData }) {
     };
 
     return (
-        <section className="space-y-2 rounded-md border border-slate-300 bg-white p-4">
+        <section className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
             <h3 className="text-xl font-semibold">Review this report</h3>
             <p className="text-base text-slate-600">{rma.within_reject_period ? 'Reported within 30 days of delivery: if accepted, it is refunded in full.' : 'Reported more than 30 days after delivery: offer repair or replacement first.'}</p>
             {error && <Notice tone="error">{error}</Notice>}
@@ -472,7 +458,7 @@ function InspectForm({ rma }: { rma: ReturnData }) {
             {rma.lines.map((l) => {
                 const d = draft[l.line_no];
                 return (
-                    <fieldset key={l.line_no} className="space-y-2 rounded-md border border-slate-300 bg-white p-3">
+                    <fieldset key={l.line_no} className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-3">
                         <legend className="px-1 font-semibold">
                             {l.name} <span className={cn('text-sm text-slate-600', MONO)}>{l.sku_code}</span> · {l.received_base_qty} received
                             {!l.batch_recovered && ' · batch unknown'}
@@ -533,7 +519,7 @@ function ResolvePanel({ rma }: { rma: ReturnData }) {
     };
 
     return (
-        <section className="space-y-2 rounded-md border border-slate-300 bg-white p-4">
+        <section className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
             <h3 className="text-xl font-semibold">Settle</h3>
             {rma.status === 'awaiting_goods' && <p className="text-base text-slate-600">The customer gave proof of sending: the refund is owed whether or not the parcel arrives.</p>}
             {choose && (
@@ -585,7 +571,7 @@ function AdvanceReplacementPanel({ rma }: { rma: ReturnData }) {
     };
 
     return (
-        <section className="space-y-2 rounded-md border border-slate-300 bg-white p-4">
+        <section className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
             <h3 className="text-xl font-semibold">Send the replacement now</h3>
             <p className="text-base text-slate-600">The customer chose a replacement. Send it before the faulty goods come back; the return stays open until they arrive.</p>
             <label className="block">
@@ -640,7 +626,7 @@ function RefundSummary({ rma }: { rma: ReturnData }) {
     }
 
     return (
-        <dl className="grid gap-x-6 gap-y-1 rounded-md border border-slate-300 bg-white p-4 text-base sm:grid-cols-2">
+        <dl className="grid gap-x-6 gap-y-1 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4 text-base sm:grid-cols-2">
             <Fact label="Goods (net)" value={pounds(rma.refund.net_minor)} />
             <Fact label="Delivery (net)" value={pounds(rma.refund.delivery_net_minor)} />
             <Fact label="VAT" value={pounds(rma.refund.tax_minor + rma.refund.delivery_tax_minor)} />
@@ -714,7 +700,7 @@ function RecordCancellation() {
     };
 
     return (
-        <form onSubmit={submit} className="space-y-2 rounded-md border border-slate-300 bg-white p-4" noValidate>
+        <form onSubmit={submit} className="space-y-2 rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-4" noValidate>
             <h2 className="text-xl font-semibold">Record a cancellation made by email or phone</h2>
             <label className="block text-sm">
                 Order number

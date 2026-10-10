@@ -14,7 +14,9 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Get;
 use Filament\Notifications\Notification;
+use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -61,5 +63,30 @@ class ListPayAtCollectionSuspensions extends ListRecords
                     }
                 }),
         ];
+    }
+
+    public function getSubheading(): string
+    {
+        return 'Customers who must pay before they collect, after too many no-shows or by staff decision.';
+    }
+
+    /** Active suspensions first, as the list used to open on. */
+    public function getTabs(): array
+    {
+        $active = PayAtCollectionSuspension::query()->whereNull('lifted_at')->count();
+        $lifted = PayAtCollectionSuspension::query()->whereNotNull('lifted_at')->count();
+
+        return [
+            'active' => Tab::make('Active')->badge($active)->badgeColor('danger')
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->whereNull('lifted_at')),
+            'lifted' => Tab::make('Lifted')->badge($lifted)->badgeColor('success')
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->whereNotNull('lifted_at')),
+            'all' => Tab::make('All')->badge($active + $lifted),
+        ];
+    }
+
+    public function getDefaultActiveTab(): string|int|null
+    {
+        return 'active';
     }
 }
