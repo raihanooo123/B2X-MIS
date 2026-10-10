@@ -7,6 +7,7 @@ use App\Filament\Resources\CmsPageResource;
 use App\Models\CmsPage;
 use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
@@ -55,6 +56,7 @@ class EditCmsPage extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            ViewAction::make()->color('gray'),
             Action::make('publish')
                 ->label('Publish')
                 ->icon('heroicon-o-globe-alt')
