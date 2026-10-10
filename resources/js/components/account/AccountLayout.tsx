@@ -2,6 +2,10 @@
  * The frame for every "your account" page: the site bar, a side navigation
  * between the account sections (a row of tabs on small screens), the page
  * heading with optional actions, and the flashed status message.
+ *
+ * A trade user acting for a company sees these pages inside the 05.16
+ * trade shell instead: its sidebar already links Account and security and
+ * Users and limits, so there is no second menu here.
  */
 import { Head, Link, usePage } from '@inertiajs/react';
 import { ArrowLeft, ShieldCheck, Users, ShoppingBag, Receipt, MapPin, type LucideIcon } from 'lucide-react';
@@ -9,6 +13,8 @@ import type { ReactNode } from 'react';
 
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { PageHeader } from '@/components/trade/PageHeader';
+import { TradeShell } from '@/components/trade/TradeShell';
 import { cn } from '@/lib/utils';
 import type { SharedProps } from '@/types/shared';
 
@@ -32,6 +38,25 @@ interface NavItem {
 export function AccountLayout({ title, eyebrow, description, actions, status, children, shell }: AccountLayoutProps) {
     const { auth } = usePage<SharedProps>().props;
     const path = usePage().url.split('?')[0];
+
+    if (auth?.trade_navigation != null) {
+        return (
+            <TradeShell title={title}>
+                <PageHeader
+                    breadcrumbs={[{ label: 'Dashboard', href: '/trade' }, { label: title }]}
+                    title={title}
+                    description={description}
+                    primaryAction={actions}
+                />
+                {status && (
+                    <p role="status" className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
+                        {status}
+                    </p>
+                )}
+                <div className="flex max-w-4xl flex-col gap-6">{children}</div>
+            </TradeShell>
+        );
+    }
 
     const items: NavItem[] = [
         { href: '/account/orders', label: 'My orders', icon: ShoppingBag, show: auth?.public_customer ?? false },

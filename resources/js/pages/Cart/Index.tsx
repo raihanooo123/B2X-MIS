@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 
 import { StorefrontLayout, type ShellProps } from '@/components/storefront/StorefrontLayout';
+import { TradeShell } from '@/components/trade/TradeShell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,8 +60,7 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
     const blockersByLine = useMemo(() => lineBlockers(preview.data?.blockers ?? []), [preview.data]);
     const orderBlockers = (preview.data?.blockers ?? []).filter((b) => !IDENTITY_BLOCKERS.has(b.code) && lineIdsOf(b).length === 0 && b.code !== 'cart_empty');
 
-    return (
-        <StorefrontLayout title="Your basket" shell={shell}>
+    const content = (
             <div className="text-foreground">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 pt-6 sm:px-6">
                     <Link href={storefrontLinks.continueShopping(isTrade)} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground">
@@ -199,6 +199,14 @@ export default function CartIndex({ display_mode: mode, estimate_country: countr
                 )}
             </div>
             </div>
+    );
+
+    // 05.16: a trade user stays in the trade shell; public customers keep the storefront.
+    return isTrade ? (
+        <TradeShell title="Cart">{content}</TradeShell>
+    ) : (
+        <StorefrontLayout title="Your basket" shell={shell}>
+            {content}
         </StorefrontLayout>
     );
 }

@@ -38,6 +38,7 @@ import { AlertTriangle, ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { AccountMenu } from '@/components/auth/AccountMenu';
+import { TradeShell } from '@/components/trade/TradeShell';
 import { Checkbox, Field } from '@/components/auth/Field';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -352,10 +353,8 @@ function CheckoutForm(props: CheckoutProps) {
         }
     };
 
-    return (
-        <>
-            <Head title="Checkout" />
-            <div className="mx-auto max-w-7xl px-4 py-8">
+    const page = (
+            <div className={isTrade ? undefined : 'mx-auto max-w-7xl px-4 py-8'}>
                 <header className="mb-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b pb-5">
                     <div className="flex items-center gap-3">
                         <Link href="/cart" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:min-h-0">
@@ -363,7 +362,8 @@ function CheckoutForm(props: CheckoutProps) {
                         </Link>
                         <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
                     </div>
-                    <AccountMenu />
+                    {/* The trade shell already has the account menu. */}
+                    {!isTrade && <AccountMenu />}
                 </header>
 
                 <form onSubmit={submit} noValidate className="grid gap-6 lg:grid-cols-[1fr_380px] lg:items-start">
@@ -567,6 +567,15 @@ function CheckoutForm(props: CheckoutProps) {
                     </aside>
                 </form>
             </div>
+    );
+
+    // 05.16: a trade user stays in the trade shell; guests and public customers keep this page alone.
+    return isTrade ? (
+        <TradeShell title="Checkout">{page}</TradeShell>
+    ) : (
+        <>
+            <Head title="Checkout" />
+            {page}
         </>
     );
 }
