@@ -54,6 +54,17 @@ final class CompanyPolicy
     }
 
     /**
+     * 05.1 §14.1: paste/CSV import, reorder and editing shared saved lists —
+     * the buying roles (owner, buyer, approver). A viewer reads lists only.
+     */
+    public function useOrderTools(User $user, Company $company): bool
+    {
+        return $user->status === 'active' && ! $user->isStaff()
+            && CompanyUser::query()->where('company_id', $company->id)->where('user_id', $user->id)
+                ->whereIn('role', ['owner', 'buyer', 'approver'])->exists();
+    }
+
+    /**
      * 05.17 §2: invoices, credit notes, statements and their PDFs — the
      * same people as the credit pages (owners and approvers, and
      * accounts/admin). Buyers and viewers see order totals only.

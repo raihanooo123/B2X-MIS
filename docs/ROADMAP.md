@@ -382,17 +382,17 @@ recomputation and cart work; paste/CSV reconciliation, scanning, saved lists and
       remove lines, pack-change-as-line-update (not delete+re-add), last-write-wins on
       concurrent edits with a change notice.
   **Audit 2026-10-05:** Partly built — `app/Domain/Ordering/CartService.php`, `tests/Feature/Domain/CartServiceTest.php`: CRUD, pack updates/merge and guest merge exist. Last-write-wins is implicit; the concurrent-edit change notice is absent.
-- [ ] `app/Domain/Ordering/BulkEntryParser.php` — 05.1 §7.1's paste-SKU tolerant parser
+- [x] `app/Domain/Ordering/BulkEntryParser.php` — 05.1 §7.1's paste-SKU tolerant parser
       (comma/semicolon/tab/whitespace separators, case-insensitive lookup against
       case-sensitive `sku_code`), producing the reconciliation classification (matched /
       adjusted / not-found / inactive / duplicate) before anything touches the cart.
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
-- [ ] `app/Domain/Ordering/CsvBulkImportJob.php` — 05.1 §7.2, queued for files over 500 rows,
+  **Built 2026-10-28 (module 3, 05.1 §14):** `app/Domain/Ordering/BulkEntry/{EntryParser,Reconciler}.php` — paste and CSV share one parser and one reconciliation; suggestions are never applied without acceptance. Tests: `tests/Feature/Trade/OrderToolsTest.php`.
+- [x] `app/Domain/Ordering/CsvBulkImportJob.php` — 05.1 §7.2, queued for files over 500 rows,
       same reconciliation output as the paste parser, downloadable rejection report.
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
-- [ ] `app/Domain/Ordering/BarcodeResolver.php` — 05.1 §8.2: matches against
+  **Built 2026-10-28 (module 3):** `app/Domain/Ordering/BulkEntry/BulkEntryImports.php` + `app/Jobs/ProcessBulkEntryImport.php` (queued above 500 rows), `bulk_entry_imports` per 02 §31.3, formula-safe problems CSV, 24 h expiry and hourly `order-imports:purge`.
+- [x] `app/Domain/Ordering/BarcodeResolver.php` — 05.1 §8.2: matches against
       `skus.barcode_ean` then `packs.barcode`.
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
+  **Built 2026-10-10:** as `OrderPadCatalogue::barcodeMatch()` behind the pad's own search (no new route): exact `skus.barcode_ean`, then `packs.barcode`; the page's `scan` prop names the row and the pack. Tests: `tests/Feature/OrderPad/OrderPadBarcodeTest.php`.
 - [x] `app/Http/Requests/Api/BulkAddCartRequest.php`, `AddCartLineRequest.php`,
       `UpdateCartLineRequest.php`
   **Audit 2026-10-05:** Built — `app/Http/Requests/Api/V1/{BulkAddCart,AddCartLine,UpdateCartLine}Request.php`, exercised by `tests/Feature/Api/CartApiTest.php`.
@@ -426,24 +426,24 @@ recomputation and cart work; paste/CSV reconciliation, scanning, saved lists and
       price + break table, stock display (05.1 §4.3's exact-figures-not-banding rule), qty
       stepper, line total.
   **Audit 2026-10-05:** Built — `resources/js/pages/OrderPad/components/{PadRow,rowParts}.tsx`, `resources/js/lib/orderPad/display.ts`; `app/Http/Support/StockDisclosure.php` protects figures by audience.
-- [ ] `resources/js/pages/OrderPad/components/PasteSkusDialog.tsx`,
+- [x] `resources/js/pages/OrderPad/components/PasteSkusDialog.tsx`,
       `CsvUploadDialog.tsx` — reconciliation-screen UI per 05.1 §7.
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
+  **Built 2026-10-28 (module 3):** as full pages rather than dialogs (05.1 §14.2) — `resources/js/pages/Trade/OrderTools/{Import,Reconcile}.tsx`, reached from the order pad toolbar.
 - [x] `resources/js/pages/OrderPad/components/StickyFooter.tsx` — running total, free-delivery
       and spend-break progress (05.1 §5.3).
   **Audit 2026-10-05:** Built — `resources/js/pages/OrderPad/components/StickyFooter.tsx` consumes local totals and separate carriage/spend-break progress.
 - [x] `resources/js/lib/keyboard/tabOrder.ts` — 05.1 §8.1's keyboard contract (Tab/Shift+Tab
       skip non-inputs, ↑/↓ step by pack, Enter commits, `/` focuses search, no keyboard traps).
   **Audit 2026-10-05:** Built — `resources/js/lib/keyboard/tabOrder.ts`, `OrderPad/components/rowParts.tsx` implement native Tab, Enter advance, quantity stepping and search shortcut; no automated browser keyboard/a11y test is present.
-- [ ] `resources/js/pages/OrderPad/components/BarcodeScanner.tsx` — 05.1 §8.2 mobile camera
+- [x] `resources/js/pages/OrderPad/components/BarcodeScanner.tsx` — 05.1 §8.2 mobile camera
       scanning, device-camera-gated (feature-detect, no crash on desktop).
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
+  **Built 2026-10-10:** camera scanning with the browser's built-in `BarcodeDetector` (no library); hidden where unsupported (iPhone Safari), where a handheld scanner or a typed code + Enter does the same. The matched row is focused with the scanned pack preselected.
 - [ ] `app/Models/Cart.php`, `CartLine.php`, `SavedList.php`, `SavedListLine.php` +
       factories — blocked on `carts`/`cart_lines` (§0.2) and `saved_lists`/`saved_list_lines`
       (§0.3) migrations landing first.
   **Audit 2026-10-05:** Partly built — `app/Models/{Cart,CartLine}.php` and factories exist; `SavedList`/`SavedListLine`, their migrations and factories do not.
-- [ ] `app/Domain/Ordering/SavedListService.php`, `ReorderService.php` — 05.1 §7.3.
-  **Audit 2026-10-05:** Not started — the named pad convenience capability and tests are absent. Structured `/cart/bulk-add` and warehouse `ScanResolver.php` do not provide paste/CSV reconciliation, pad camera scanning or saved-list/reorder flows.
+- [x] `app/Domain/Ordering/SavedListService.php`, `ReorderService.php` — 05.1 §7.3.
+  **Built 2026-10-28 (module 3):** `app/Domain/Ordering/BulkEntry/SavedLists.php` (versioned lists, 409 when stale; reorder = ordered minus cancelled), pages `resources/js/pages/Trade/SavedLists/{Index,Show}.tsx`, Reorder on the trade order page.
 - [ ] `tests/Feature/OrderPadTest.php` — functional matrix from 05.1 §11 (pack selection,
       break crossing, MOQ/increment adjustment, paste separator styles, reorder flagging
       discontinued lines, barcode matching both `barcode_ean` and `packs.barcode`).
@@ -1790,8 +1790,8 @@ work; “open question” requires a decision; “missing spec” requires signe
 | Pricing (§2) | Partly built | Core resolution/rounding/spend breaks/tax built; production promotions, coupons, cache, cost-context guard, margins, PDFs and full test matrix missing. Open question: promotion category/brand eligibility; PDF export scope. |
 | Inventory hardening (§4) | Partly built | Allocate/deallocate and batch selection/splitting built; serial reservation, batch-cap warnings, events, reconciliation, expiry/reaping and parallel races missing. Open question: launch tracking SKUs. |
 | Order pad (§5) | Partly built | Pad/cart/local totals built; paste/CSV, scanner, saved lists/reorder, edit-conflict notice and query-budget tests missing. Dependencies: saved-list schema and credit ledger for applying balance. |
-| Accounts & onboarding (§6, §23) | Partly built | Registration/review/business checks/team controls built; applicant status/reply/signed-in application and parked account changes missing. Open questions: trade-user 2FA reset identity check (⚑9); existing-company/additional-site flow. Production compliance credentials/legal terms remain operational gates. |
-| Credit & buyer approvals (§6, §13) | Partly built | Hold/available-credit checks and invoice conversion built; suspended/overdue gates, approval routing/spend limits, management UI, reconciliation and coordinated reaper missing. Missing spec/schema: monthly company verification evidence. |
+| Accounts & onboarding (§6, §23) | Partly built | Registration/review/business checks/team controls built; applicant status/reply/withdraw built (05.17, module 2, 2026-10-10). Signed-in re-application and parked account changes missing. Open questions: trade-user 2FA reset identity check (⚑9); existing-company/additional-site flow. Production compliance credentials/legal terms remain operational gates. |
+| Credit & buyer approvals (§6, §13) | Built (module 1, 2026-10-06) | 05.2 §18: overdue/suspension gates, buyer approvals with 48-hour expiry, account-credit ledger, credit notes allocation, payouts, credit-control UI. Open decision: whether an unpaid pay-in-advance (bank transfer) invoice counts as overdue debt that blocks on-account ordering. Missing spec/schema: monthly company verification evidence. |
 | Quotes & RFQ (§7) | Not started | Dependencies: full credit/approvals, discount authority/margin policy and PDF renderer. Open question: multi-role default discount authority (02 §14). Core pricing is available; 05.3 still needs sign-off. |
 | Trade RMA / account balance (§8) | Partly built | Shared RMA/credit-note schema, receipt/inspection and consumer flows built; trade eligibility, fees, waiver/audit, settlement and append-only balance ledger missing. Dependency: ledger before refunds-as-credit/apply-balance; consumer resolution rejects trade; trade 05.4 needs sign-off. |
 | Warehouse (§9) | Partly built | Goods-in/pick/dispatch/stocktake built; packing, serial checkout reservation, event consumers, substitution audit and W1–W3 races missing. Packing storage/scan contract needs specification before adding schema. |
@@ -1810,7 +1810,7 @@ work; “open question” requires a decision; “missing spec” requires signe
 | Reporting (§24) | Not started | Missing spec: 05.14 metrics/aggregate schema/refresh; dependency: stable transactional modules. Collection daily cash report is already built separately. |
 | Public integrations / POS (§25) | Not started | Deliberately deferred API/outbound webhooks; POS scope requires product-owner decision. Inbound payment/mail webhooks and collection cash do not complete either module. |
 | Demo seed / reference import (§26) | Partly built | Demo seeder exists but lacks batch/serial/ledger fixtures. Missing spec: 08 source mapping/staging/rejection plan; dependency: reference data access and agreed URL mapping. |
-| Quality, compliance, payments & PDFs (§0, §16) | Partly built | Argon2id, staff 2FA and Stripe slice built; core PR CI exists (`.github/workflows/ci.yml`, `quality`); parallel/property/baseline/a11y/redaction/GDPR/PITR coverage remains incomplete. Real PDF renderer absent (`NullPdfRenderer` bound). Recorded Laravel upgrade requires approved stack amendment; live vulnerability/host checks were not performed. |
+| Quality, compliance, payments & PDFs (§0, §16) | Partly built | Argon2id, staff 2FA and Stripe slice built; core PR CI exists (`.github/workflows/ci.yml`, `quality`); parallel/property/baseline/a11y/redaction/GDPR/PITR coverage remains incomplete. Real PDF renderer built (05.17 module 2: Puppeteer via spatie/browsershot, archived document_renders); renderer p95 (07 P25) still to measure on production hardware. Recorded Laravel upgrade requires approved stack amendment; live vulnerability/host checks were not performed. |
 
 **Spec sign-off recorded 2026-10-05:** 05.16 (B2B UX standard), 05.17 (trade self-service,
 PDF renderer A — Puppeteer via `spatie/browsershot`), 02 §31 and the completion sections
@@ -1822,7 +1822,7 @@ completion sections are still governed by them.
 
 **Additional trade gaps not represented by a dedicated original checkbox:**
 
-- [ ] Buyer order approval (05.2 §10): owner/approver queue, thresholds, buyer order limits,
+- [x] Buyer order approval (05.2 §10) — built in module 1 (05.2 §18), 2026-10-06: owner/approver queue, thresholds, buyer order limits,
       stock/credit holds, approve/reject and 48-hour expiry. Evidence of absence:
       `app/Domain/Ordering/TradeCheckout.php` explicitly excludes this; `routes/api.php`
       has no approve/reject order endpoints. Membership settings exist, enforcement does not.
@@ -1832,7 +1832,7 @@ completion sections are still governed by them.
 - [ ] Recall/trace operator workflow (04 §8): the batch trace SQL/index is tested in
       `HotPathExplainTest.php` Q18, but there is no recall service, recall UI or customer
       notice flow. Depends on inventory events and batch/serial tracking decisions.
-- [ ] B2B order history/invoice account pages: `PublicAccountHistory.php` and Account
+- [x] B2B order history/invoice account pages — built in module 2 (05.17: /trade dashboard, orders, invoices, credit notes, statements), 2026-10-10: `PublicAccountHistory.php` and Account
       orders/receipts are public-only; trade has individual order views and staff invoice
       administration, not the complete buyer self-service history/statement suite.
 - [ ] Persistent accounting trail on trade card cancellation (05.10 §2 Q-X2):
@@ -1849,8 +1849,8 @@ completion sections are still governed by them.
 
 **UX retrofit (after module 3):**
 
-- [ ] UX retrofit (after module 3): move existing trade screens (order pad, account, team,
-      trade checkout, warehouse) onto the 05.16 shell and components; acceptance =
+- [ ] UX retrofit (after module 3): order pad, cart, trade checkout and account pages moved onto the
+      05.16 shell 2026-10-10; team page components and warehouse remain; acceptance =
       Playwright screenshots at 390/1440 + axe, zero serious issues.
 
 **Recommended remaining B2B build order:**

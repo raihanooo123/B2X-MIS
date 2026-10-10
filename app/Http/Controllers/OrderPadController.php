@@ -18,7 +18,8 @@ use Inertia\Response;
  *
  * `filters` echoes the normalised search/category/brand/in-stock state
  * back (OrderPadRequest); `facets` lists the category and brand options.
- * The page reloads only `catalogue` and `filters` when a filter changes.
+ * The page reloads only `catalogue`, `filters` and `scan` when a filter
+ * changes; `scan` says which SKU and pack a barcode search matched.
  *
  * `totals_context` is the per-order half of local recompute (spend
  * breaks, carriage-paid threshold — see OrderPadTotalsContext), resolved
@@ -45,6 +46,8 @@ class OrderPadController extends Controller
         return Inertia::render('OrderPad/Index', [
             'catalogue' => $this->catalogue->page($request->cursor(), $filters),
             'filters' => $filters->toArray(),
+            // 05.1 §8.2: the search is a scanned barcode → which row and pack.
+            'scan' => fn () => $filters->search === null ? null : $this->catalogue->barcodeMatch($filters->search),
             'page_size' => OrderPadCatalogue::PAGE_SIZE,
             'facets' => fn () => $this->catalogue->facets(),
             'totals_context' => fn () => $this->totalsContext->for($companyId),

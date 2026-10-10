@@ -14,7 +14,7 @@
  * White-label, as the storefront: the brand colour overrides `--primary`.
  */
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { Building2, ChevronDown, CircleHelp, ClipboardCheck, FileMinus, FileText, LayoutDashboard, Landmark, LogOut, Menu, Package, ScrollText, Search, ShieldCheck, ShoppingBag, ShoppingCart, User, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { Building2, ChevronDown, CircleHelp, ClipboardCheck, FileMinus, FileText, LayoutDashboard, Landmark, ListChecks, LogOut, Menu, Package, ScrollText, Search, ShieldCheck, ShoppingBag, ShoppingCart, User, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { useState, type CSSProperties, type ReactNode } from 'react';
 
 import { Toaster } from '@/components/trade/Toaster';
@@ -44,7 +44,7 @@ function navigation(nav: NonNullable<NonNullable<SharedProps['auth']>['trade_nav
     }
     ordering.push({ href: '/order-pad', label: 'Order pad', icon: ShoppingCart }, { href: '/cart', label: 'Cart', icon: ShoppingBag });
     if (nav?.orders) {
-        ordering.push({ href: '/trade/orders', label: 'Orders', icon: Package });
+        ordering.push({ href: '/trade/saved-lists', label: 'Saved lists', icon: ListChecks }, { href: '/trade/orders', label: 'Orders', icon: Package });
     }
     if (nav?.approvals) {
         ordering.push({

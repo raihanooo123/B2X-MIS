@@ -2,6 +2,8 @@
 
 use App\Domain\Credit\CreditRefused;
 use App\Domain\Identity\Exceptions\CompanyChoiceRequiredException;
+use App\Domain\Ordering\BulkEntry\EntryRejected;
+use App\Domain\Ordering\BulkEntry\ImportRefused;
 use App\Domain\Storefront\StorefrontShell;
 use App\Http\Exceptions\ApiException;
 use App\Http\Middleware\EnforceSessionPolicy;
@@ -71,6 +73,18 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->is('api/*')
                 ? ApiException::envelope($request, $e->httpStatus, $e->reason, $e->getMessage())
                 : null;
+        });
+
+        // 05.1 §14: bulk entry and saved lists — stale preview/basket/list 409, refused selection 422.
+        $exceptions->render(function (ImportRefused $e, Request $request) {
+            return $request->is('api/*')
+                ? ApiException::envelope($request, $e->httpStatus, $e->reason, $e->getMessage())
+                : back()->withErrors(['import' => $e->getMessage()]);
+        });
+        $exceptions->render(function (EntryRejected $e, Request $request) {
+            return $request->is('api/*')
+                ? ApiException::envelope($request, 422, $e->reason, $e->getMessage(), [['field' => 'input', 'code' => $e->reason, 'message' => $e->getMessage()]])
+                : back()->withErrors(['input' => $e->getMessage()]);
         });
 
         $exceptions->render(function (AuthenticationException $e, Request $request) {

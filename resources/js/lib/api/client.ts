@@ -86,6 +86,8 @@ export interface RequestOptions {
     signal?: AbortSignal;
     /** Extra request headers, e.g. `Idempotency-Key` (06 §6). */
     headers?: Record<string, string>;
+    /** A multipart body (file upload); the browser sets the content type. */
+    formData?: FormData;
 }
 
 /**
@@ -105,7 +107,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         headers['X-XSRF-TOKEN'] = token;
     }
 
-    if (options.body !== undefined) {
+    if (options.body !== undefined && options.formData === undefined) {
         headers['Content-Type'] = 'application/json';
     }
 
@@ -113,7 +115,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         method,
         headers,
         credentials: 'same-origin',
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.formData ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
         signal: options.signal,
     });
 

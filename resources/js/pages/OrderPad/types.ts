@@ -45,4 +45,12 @@ export interface OrderPadProps {
     totals_context: TotalsContext;
     /** Ex- or inc-VAT (PriceDisplay.php) — the same rule as cart and checkout. */
     display_mode: DisplayMode;
+    /** The search as a barcode (05.1 §8.2): its SKU and, for a case barcode, the pack. Null when it is none. */
+    scan?: ScanMatch | null;
+}
+
+export interface ScanMatch {
+    code: string;
+    sku_id: string;
+    pack_code: string | null;
 }
