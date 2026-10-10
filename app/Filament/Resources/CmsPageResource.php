@@ -7,6 +7,7 @@ use App\Domain\Cms\PageKey;
 use App\Domain\Cms\SafeMarkdown;
 use App\Filament\Resources\CmsPageResource\Pages;
 use App\Filament\Resources\CmsPageResource\RelationManagers\VersionsRelationManager;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\CmsPage;
 use Filament\Forms\Components\MarkdownEditor;
 use Filament\Forms\Components\Placeholder;
@@ -29,11 +30,13 @@ use Illuminate\Support\HtmlString;
  */
 class CmsPageResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = CmsPage::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-duplicate';
-
     protected static ?string $navigationGroup = 'Content';
+
+    protected static ?int $navigationSort = 10;
 
     protected static ?string $navigationLabel = 'Pages';
 

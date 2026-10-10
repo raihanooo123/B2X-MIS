@@ -3,8 +3,10 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerUserResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\B2bApplication;
 use App\Models\User;
+use Filament\Infolists\Components\Group;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
@@ -29,9 +31,9 @@ use Illuminate\Support\Facades\Gate;
  */
 class CustomerUserResource extends Resource
 {
-    protected static ?string $model = User::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-user-group';
+    protected static ?string $model = User::class;
 
     protected static ?string $navigationGroup = 'Customers';
 
@@ -84,45 +86,114 @@ class CustomerUserResource extends Resource
 
     public static function infolist(Infolist $infolist): Infolist
     {
-        return $infolist->schema([
-            Section::make('Customer account')->schema([
-                TextEntry::make('first_name')->label('First name'),
-                TextEntry::make('last_name')->label('Last name'),
-                TextEntry::make('email'),
-                TextEntry::make('status')->badge(),
-                TextEntry::make('email_verified_at')->label('Email verified')->dateTime()->placeholder('Not verified'),
-                TextEntry::make('last_login_at')->label('Last sign-in')->dateTime()->placeholder('Never'),
-                TextEntry::make('created_at')->label('Created')->dateTime(),
-            ])->columns(2),
-            Section::make('Company memberships')->schema([
-                TextEntry::make('memberships')->hiddenLabel()
-                    ->state(fn (User $record): array => self::memberships($record) ?: ['No company — '.lcfirst(self::customerKind($record))])
-                    ->listWithLineBreaks(),
-            ]),
-            Section::make('Trade applications')->schema([
-                RepeatableEntry::make('tradeApplications')->hiddenLabel()->schema([
-                    TextEntry::make('company_name')->label('Company')
-                        ->url(fn (B2bApplication $record): string => TradeApplicationResource::getUrl('view', ['record' => $record]))
-                        ->color('primary'),
-                    TextEntry::make('status')->badge()
-                        ->color(fn (string $state): string => TradeApplicationResource::statusColor($state)),
-                    TextEntry::make('submitted_at')->label('Submitted')->dateTime(),
-                ])->columns(3)->placeholder('No trade applications.'),
-            ]),
-        ]);
+        return $infolist
+            ->columns(['default' => 1, 'lg' => 3])
+            ->schema([
+                Group::make()
+                    ->columnSpan(['lg' => 2])
+                    ->schema([
+                        Section::make('Customer account')
+                            ->icon('heroicon-o-user')
+                            ->schema([
+                                TextEntry::make('full_name')->label('Name')
+                                    ->state(fn (User $record): string => trim("{$record->first_name} {$record->last_name}"))
+                                    ->size(TextEntry\TextEntrySize::Large)
+                                    ->weight('semibold')
+                                    ->columnSpanFull(),
+                                TextEntry::make('first_name')->label('First name'),
+                                TextEntry::make('last_name')->label('Last name'),
+                                TextEntry::make('email')->copyable()->columnSpanFull(),
+                            ])
+                            ->columns(2),
+
+                        Section::make('Company memberships')
+                            ->icon('heroicon-o-building-office')
+                            ->schema([
+                                TextEntry::make('memberships')->hiddenLabel()
+                                    ->state(fn (User $record): array => self::memberships($record) ?: ['No company — '.lcfirst(self::customerKind($record))])
+                                    ->listWithLineBreaks(),
+                            ]),
+
+                        Section::make('Trade applications')
+                            ->icon('heroicon-o-clipboard-document-check')
+                            ->schema([
+                                RepeatableEntry::make('tradeApplications')->hiddenLabel()->schema([
+                                    TextEntry::make('company_name')->label('Company')
+                                        ->url(fn (B2bApplication $record): string => TradeApplicationResource::getUrl('view', ['record' => $record]))
+                                        ->color('primary'),
+                                    TextEntry::make('status')->badge()
+                                        ->formatStateUsing(fn (string $state): string => TradeApplicationResource::statusOptions()[$state] ?? $state)
+                                        ->color(fn (string $state): string => TradeApplicationResource::statusColor($state)),
+                                    TextEntry::make('submitted_at')->label('Submitted')->dateTime(),
+                                ])->columns(3)->placeholder('No trade applications.'),
+                            ]),
+                    ]),
+
+                Group::make()
+                    ->columnSpan(['lg' => 1])
+                    ->schema([
+                        Section::make('Status')
+                            ->schema([
+                                TextEntry::make('status')->badge()
+                                    ->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state)
+                                    ->color(fn (string $state): string => self::statusColor($state)),
+                                TextEntry::make('kind')->label('Customer type')
+                                    ->state(fn (User $record): string => $record->companies->isNotEmpty() ? 'Trade account member' : self::customerKind($record)),
+                            ]),
+
+                        Section::make('Activity')
+                            ->schema([
+                                TextEntry::make('email_verified_at')->label('Email confirmed')->dateTime()->placeholder('Not confirmed'),
+                                TextEntry::make('last_login_at')->label('Last sign-in')->dateTime()->placeholder('Never'),
+                                TextEntry::make('created_at')->label('Account created')->dateTime(),
+                            ]),
+                    ]),
+            ]);
     }
 
     public static function table(Table $table): Table
     {
-        return $table->columns([
-            TextColumn::make('first_name')->label('First name')->searchable()->sortable(),
-            TextColumn::make('last_name')->label('Last name')->searchable()->sortable(),
-            TextColumn::make('email')->searchable()->sortable(),
-            TextColumn::make('account')->label('Companies')->badge()
-                ->state(fn (User $record): array => $record->companies->pluck('name')->all() ?: [self::customerKind($record)])
-                ->color(fn (string $state, User $record): string => $record->companies->isNotEmpty() ? 'primary' : ($state === self::PENDING_APPLICANT ? 'warning' : 'gray')),
-            TextColumn::make('status')->badge(),
-        ])->actions([ViewAction::make()])->defaultSort('created_at', 'desc');
+        return $table
+            ->columns([
+                TextColumn::make('name')->label('Name')
+                    ->state(fn (User $record): string => trim("{$record->first_name} {$record->last_name}"))
+                    ->weight('medium')
+                    ->searchable(['first_name', 'last_name'])
+                    ->sortable(['last_name', 'first_name']),
+                TextColumn::make('email')->searchable()->sortable()->copyable(),
+                TextColumn::make('account')->label('Companies')->badge()
+                    ->state(fn (User $record): array => $record->companies->pluck('name')->all() ?: [self::customerKind($record)])
+                    ->color(fn (string $state, User $record): string => $record->companies->isNotEmpty() ? 'primary' : ($state === self::PENDING_APPLICANT ? 'warning' : 'gray')),
+                TextColumn::make('status')->badge()
+                    ->formatStateUsing(fn (string $state): string => self::STATUSES[$state] ?? $state)
+                    ->color(fn (string $state): string => self::statusColor($state)),
+                TextColumn::make('last_login_at')->label('Last sign-in')->since()->placeholder('Never')->sortable()->toggleable(),
+                TextColumn::make('created_at')->label('Joined')->date('j M Y')->sortable()->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->actions([ViewAction::make()->iconButton()->tooltip('View')])
+            ->striped()
+            ->defaultSort('created_at', 'desc')
+            ->emptyStateIcon('heroicon-o-user-group')
+            ->emptyStateHeading('No customer users')
+            ->emptyStateDescription('People who register on the storefront or join a trade account appear here.');
+    }
+
+    /** users.status */
+    public const STATUSES = [
+        'active' => 'Active',
+        'pending' => 'Pending',
+        'suspended' => 'Suspended',
+        'closed' => 'Closed',
+    ];
+
+    public static function statusColor(string $status): string
+    {
+        return match ($status) {
+            'active' => 'success',
+            'pending' => 'warning',
+            'suspended' => 'danger',
+            default => 'gray',
+        };
     }
 
     public const PENDING_APPLICANT = 'Trade applicant — pending';

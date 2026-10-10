@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\AuditLogResource\Pages;
 use App\Filament\Support\AuditSubjectLabel;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\AuditLog;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
@@ -21,9 +22,9 @@ use Illuminate\Support\Carbon;
 
 class AuditLogResource extends Resource
 {
-    protected static ?string $model = AuditLog::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-shield-check';
+    protected static ?string $model = AuditLog::class;
 
     protected static ?string $navigationGroup = 'Settings';
 

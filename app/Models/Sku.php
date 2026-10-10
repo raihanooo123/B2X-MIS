@@ -31,6 +31,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int|null $shelf_life_days
  * @property int|null $min_remaining_shelf_life_days
  * @property string $allocation_strategy
+ * @property string $base_unit
+ * @property bool $is_refundable
  */
 class Sku extends Model
 {

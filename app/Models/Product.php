@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 /**
  * Doc 02 §5.4 — products. `skus` is the only stockable, priceable,
@@ -18,6 +19,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * references `products.id` directly.
  *
  * @property string $name
+ * @property int|null $brand_id
+ * @property int $primary_category_id
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Product extends Model
 {

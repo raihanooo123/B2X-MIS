@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * 05.13 §12 — enrolling in, and managing, 2FA. Mandatory for staff
@@ -85,7 +86,7 @@ class TwoFactorSetupController extends Controller
         return redirect()->route('two-factor.setup');
     }
 
-    public function complete(Request $request): RedirectResponse
+    public function complete(Request $request): SymfonyResponse
     {
         $request->validate(['saved' => ['accepted']], ['saved.accepted' => 'Confirm you have saved your recovery codes.']);
 

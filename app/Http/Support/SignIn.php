@@ -12,10 +12,12 @@ use App\Domain\Identity\Totp;
 use App\Domain\Notifications\Notices\TwoFactorChanged;
 use App\Domain\Notifications\Notifications;
 use App\Models\User;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * The sign-in sequence, 05.13 §6.1, shared by every way in: the sign-in
@@ -159,13 +161,18 @@ final class SignIn
 
     /**
      * Where a newly signed-in user goes (05.13 §6.1 steps 8–10): staff
-     * without 2FA to enrolment (§12.1), a multi-company user to the
-     * company choice (§6.3), everyone else back where they were heading.
+     * without 2FA to enrolment (§12.1), staff with it to the panel, a
+     * multi-company user to the company choice (§6.3), everyone else back
+     * where they were heading.
      */
-    public function redirectAfter(Request $request, User $user): RedirectResponse
+    public function redirectAfter(Request $request, User $user): Response
     {
         if (! $user->two_factor_enabled && $user->isStaff()) {
             return redirect()->route('two-factor.setup');
+        }
+
+        if ($user->isStaff()) {
+            return $this->toPanel($request);
         }
 
         if (! $request->session()->has('url.intended') && CompanyUserDirectory::pending($user) !== []) {
@@ -178,11 +185,26 @@ final class SignIn
 
         // 05.13 §6.1 step 10: a trade user's tool is the order pad; a public
         // customer or applicant shops the storefront.
-        return redirect()->intended(route(match (true) {
-            $user->isStaff() => 'filament.admin.pages.dashboard',
-            CompanyMemberships::ids($user) !== [] => 'order-pad',
-            default => 'home',
-        }));
+        return redirect()->intended(route(CompanyMemberships::ids($user) !== [] ? 'order-pad' : 'home'));
+    }
+
+    /**
+     * Staff land in the panel (05.13 §5): the /admin page they were sent
+     * away from, else the dashboard. Any other intended URL is a storefront
+     * page left over from browsing before signing in, and is dropped. The
+     * panel is Filament, not an Inertia page, so an Inertia sign-in form
+     * must do a full page visit to it rather than follow a redirect.
+     */
+    private function toPanel(Request $request): Response
+    {
+        $panel = route('filament.admin.pages.dashboard');
+        $intended = $request->session()->pull('url.intended');
+
+        $target = is_string($intended) && ($intended === $panel || Str::startsWith($intended, rtrim($panel, '/').'/'))
+            ? $intended
+            : $panel;
+
+        return Inertia::location($target);
     }
 
     /**

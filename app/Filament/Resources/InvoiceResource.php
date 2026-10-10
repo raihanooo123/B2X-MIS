@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Domain\Billing\Documents\InvoiceDocumentBuilder;
 use App\Filament\Resources\InvoiceResource\Pages;
 use App\Filament\Support\MoneyFormatter;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Invoice;
 use App\Models\OrderLine;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -30,11 +31,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class InvoiceResource extends Resource
 {
+    use SentenceCaseLabels;
+
     protected static ?string $model = Invoice::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
-
     protected static ?string $navigationGroup = 'Accounts';
+
+    protected static ?int $navigationSort = 10;
 
     protected static ?string $recordTitleAttribute = 'invoice_number';
 

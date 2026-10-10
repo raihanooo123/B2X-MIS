@@ -19,10 +19,11 @@ class ViewPurchaseOrder extends ViewRecord
         return [
             EditAction::make()->visible(fn (): bool => $this->purchaseOrder()->status === 'draft'),
             Action::make('confirm')
-                ->label('Confirm supplier accepted')
+                ->label('Supplier confirmed')
+                ->icon('heroicon-m-check')
                 ->color('success')
                 ->requiresConfirmation()
-                ->modalDescription('The supplier has accepted this order outside B2X. Confirmation makes its quantities incoming and enables Goods in.')
+                ->modalDescription('Do this once the supplier has accepted the order. Its quantities then count as on order, and it can be received at Goods in.')
                 ->visible(fn (): bool => Gate::allows('confirm', $this->purchaseOrder()))
                 ->action(function (): void {
                     $order = $this->purchaseOrder();
@@ -31,10 +32,11 @@ class ViewPurchaseOrder extends ViewRecord
                     $this->redirect(PurchaseOrderResource::getUrl('view', ['record' => $order]));
                 }),
             Action::make('cancel')
-                ->label('Cancel PO')
+                ->label('Cancel order')
+                ->icon('heroicon-m-x-mark')
                 ->color('danger')
                 ->requiresConfirmation()
-                ->modalDescription('Close any open Goods-in receipt first. Cancellation removes outstanding incoming quantity; received stock is not reversed.')
+                ->modalDescription('Close any open Goods in receipt first. Anything still to arrive stops counting as on order. Stock already received stays in stock.')
                 ->visible(fn (): bool => Gate::allows('cancel', $this->purchaseOrder()))
                 ->action(function (): void {
                     $order = $this->purchaseOrder();

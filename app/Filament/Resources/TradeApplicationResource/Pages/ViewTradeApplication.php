@@ -38,12 +38,14 @@ class ViewTradeApplication extends ViewRecord
         return [
             Action::make('startReview')
                 ->label('Start review')
+                ->icon('heroicon-m-play')
                 ->requiresConfirmation()
                 ->modalDescription('You become the reviewer. The applicant still sees "Under review".')
                 ->visible(fn (): bool => Gate::allows('startReview', $this->application()))
                 ->action(fn () => $this->review('Review started', fn (ApplicationReviewService $service, User $actor) => $service->startReview($this->application(), $actor))),
             Action::make('approve')
                 ->label('Approve')
+                ->icon('heroicon-m-check')
                 ->color('success')
                 ->visible(fn (): bool => Gate::allows('approve', $this->application()))
                 ->modalDescription('Creates the trade account, makes the applicant its owner, copies the trading address and emails the account code and terms.')
@@ -56,7 +58,7 @@ class ViewTradeApplication extends ViewRecord
                     TextInput::make('credit_limit')->label('Credit limit (£)')->required()->default('0')
                         ->regex('/^\d{1,9}(\.\d{1,2})?$/')
                         ->helperText('Pounds and pence, for example 2500 or 2500.00. Leave at 0 for no credit.'),
-                    Placeholder::make('verification')->label('Verification (02 §25.9)')
+                    Placeholder::make('verification')->label('Verification')
                         ->content(fn (): HtmlString => $this->verificationSummary()),
                     Checkbox::make('acknowledge_warnings')->label('I have reviewed the verification warnings')
                         ->visible(fn (): bool => $this->assessment()->warnings !== [])
@@ -65,12 +67,16 @@ class ViewTradeApplication extends ViewRecord
                 ->action(fn (array $data) => $this->approve($data)),
             Action::make('rerunChecks')
                 ->label('Re-run checks')
+                ->icon('heroicon-m-arrow-path')
+                ->color('gray')
                 ->requiresConfirmation()
                 ->modalDescription('Checks the VAT number and Companies House number again, in the background. Each result is recorded with your name.')
                 ->visible(fn (): bool => Gate::allows('rerunChecks', $this->application()))
                 ->action(fn () => $this->review('Checks queued — refresh in a moment to see the results', fn (ApplicationReviewService $service, User $actor) => $service->requestChecks($this->application(), $actor))),
             Action::make('requestInfo')
                 ->label('Request information')
+                ->icon('heroicon-m-chat-bubble-left-ellipsis')
+                ->color('gray')
                 ->visible(fn (): bool => Gate::allows('requestInfo', $this->application()))
                 ->form([
                     Textarea::make('info_request')->label('What do you need?')->required()->maxLength(2000)
@@ -79,12 +85,14 @@ class ViewTradeApplication extends ViewRecord
                 ->action(fn (array $data) => $this->review('Information requested', fn (ApplicationReviewService $service, User $actor) => $service->requestInfo($this->application(), $actor, self::text($data, 'info_request')))),
             Action::make('resumeReview')
                 ->label('Resume review')
+                ->icon('heroicon-m-play')
                 ->requiresConfirmation()
                 ->modalDescription('Use this once the information you asked for has arrived.')
                 ->visible(fn (): bool => Gate::allows('resumeReview', $this->application()))
                 ->action(fn () => $this->review('Review resumed', fn (ApplicationReviewService $service, User $actor) => $service->resumeReview($this->application(), $actor))),
             Action::make('reject')
                 ->label('Reject')
+                ->icon('heroicon-m-x-mark')
                 ->color('danger')
                 ->visible(fn (): bool => Gate::allows('reject', $this->application()))
                 ->modalDescription('The applicant keeps their login and can buy at standard prices. They are emailed your message, or a neutral decline if you leave it empty.')

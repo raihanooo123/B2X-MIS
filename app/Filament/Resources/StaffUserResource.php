@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\StaffUserResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Role;
 use App\Models\User;
 use Filament\Forms\Components\Select;
@@ -19,9 +20,9 @@ use Illuminate\Database\Eloquent\Builder;
 
 class StaffUserResource extends Resource
 {
-    protected static ?string $model = User::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-users';
+    protected static ?string $model = User::class;
 
     protected static ?string $navigationGroup = 'Settings';
 

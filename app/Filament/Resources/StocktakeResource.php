@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Domain\Warehouse\StocktakeReason;
 use App\Filament\Resources\StocktakeResource\Pages;
+use App\Filament\Support\SentenceCaseLabels;
 use App\Models\Stocktake;
 use App\Models\StocktakeLine;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -28,9 +29,9 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class StocktakeResource extends Resource
 {
-    protected static ?string $model = Stocktake::class;
+    use SentenceCaseLabels;
 
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
+    protected static ?string $model = Stocktake::class;
 
     protected static ?string $navigationGroup = 'Warehouse';
 

@@ -20,6 +20,7 @@ class ViewCustomerUser extends ViewRecord
         return [
             Action::make('suspend')
                 ->label('Suspend')
+                ->icon('heroicon-m-no-symbol')
                 ->color('danger')
                 ->requiresConfirmation()
                 ->modalDescription('Sign-in is blocked and every open session ends at once. Their companies, roles and credit are unchanged. The last active owner of an approved or suspended company cannot be suspended.')
@@ -27,6 +28,7 @@ class ViewCustomerUser extends ViewRecord
                 ->action(fn () => $this->changeStatus('suspend')),
             Action::make('reinstate')
                 ->label('Reinstate')
+                ->icon('heroicon-m-arrow-uturn-left')
                 ->requiresConfirmation()
                 ->visible(fn (): bool => Gate::allows('reinstateCustomer', $this->customer()))
                 ->action(fn () => $this->changeStatus('reinstate')),
